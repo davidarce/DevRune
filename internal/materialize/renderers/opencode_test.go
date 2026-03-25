@@ -860,3 +860,177 @@ func mapKeys(m map[string]interface{}) []string {
 	}
 	return keys
 }
+
+// ---------------------------------------------------------------------------
+// transformMCPForOpenCode (tested via RenderMCPs)
+// ---------------------------------------------------------------------------
+
+// newOpenCodeRendererForMCPTest builds a minimal OpenCodeRenderer for MCP rendering tests.
+func newOpenCodeRendererForMCPTest(workspaceRoot string) *renderers.OpenCodeRenderer {
+	def := model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   workspaceRoot,
+		SkillDir:    "skills",
+		CatalogFile: "AGENTS.md",
+		MCP: &model.MCPConfig{
+			FilePath:    "opencode.json",
+			RootKey:     "mcp",
+			EnvKey:      "environment",
+			EnvVarStyle: "{env:VAR}",
+		},
+	}
+	return renderers.NewOpenCodeRenderer(def)
+}
+
+// renderMCPsFromYAML is a helper that writes mcpYAML to a temp file, calls RenderMCPs,
+// and returns the parsed mcp section of the resulting opencode.json.
+func renderMCPsFromYAML(t *testing.T, workspaceRoot, mcpName, mcpYAML string) map[string]interface{} {
+	t.Helper()
+	cacheDir := t.TempDir()
+	mcpFile := filepath.Join(cacheDir, mcpName+".yaml")
+	if err := os.WriteFile(mcpFile, []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+
+	cache := &fakeCacheStore{dirs: map[string]string{"hash1": cacheDir}}
+	mcps := []model.LockedMCP{{Name: mcpName, Hash: "hash1", Dir: mcpName}}
+
+	r := newOpenCodeRendererForMCPTest(workspaceRoot)
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workspaceRoot, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
+	}
+	mcpSection, _ := parsed["mcp"].(map[string]interface{})
+	return mcpSection
+}
+
+// TestOpenCodeRenderer_RenderMCPs_LocalServer verifies that a catalog MCP with
+// command+args is transformed to OpenCode "local" type with a merged command array.
+func TestOpenCodeRenderer_RenderMCPs_LocalServer(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	mcpSection := renderMCPsFromYAML(t, workspaceRoot, "atlassian", `name: atlassian
+command: npx
+args:
+  - "-y"
+  - "mcp-remote"
+  - "https://mcp.atlassian.com/v1/sse"
+`)
+
+	entry, ok := mcpSection["atlassian"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("atlassian entry missing or not a map; mcp section: %v", mcpSection)
+	}
+
+	// Must have type "local".
+	if got := entry["type"]; got != "local" {
+		t.Errorf("atlassian type = %q, want %q", got, "local")
+	}
+
+	// command must be a []interface{} (merged array).
+	cmdArr, ok := entry["command"].([]interface{})
+	if !ok {
+		t.Fatalf("atlassian command should be an array, got %T: %v", entry["command"], entry["command"])
+	}
+	want := []interface{}{"npx", "-y", "mcp-remote", "https://mcp.atlassian.com/v1/sse"}
+	if len(cmdArr) != len(want) {
+		t.Errorf("atlassian command = %v, want %v", cmdArr, want)
+	} else {
+		for i, v := range want {
+			if cmdArr[i] != v {
+				t.Errorf("atlassian command[%d] = %q, want %q", i, cmdArr[i], v)
+			}
+		}
+	}
+
+	// "args" key must not exist — it was merged into command.
+	if _, hasArgs := entry["args"]; hasArgs {
+		t.Errorf("atlassian entry should not have 'args' key after transformation")
+	}
+}
+
+// TestOpenCodeRenderer_RenderMCPs_RemoteServer verifies that a catalog MCP with
+// type:"http" is transformed to type:"remote" for OpenCode.
+func TestOpenCodeRenderer_RenderMCPs_RemoteServer(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	mcpSection := renderMCPsFromYAML(t, workspaceRoot, "context7", `name: context7
+type: http
+url: https://mcp.context7.com/mcp
+headers:
+  CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
+`)
+
+	entry, ok := mcpSection["context7"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("context7 entry missing or not a map; mcp section: %v", mcpSection)
+	}
+
+	// type "http" must be converted to "remote".
+	if got := entry["type"]; got != "remote" {
+		t.Errorf("context7 type = %q, want %q", got, "remote")
+	}
+
+	// url must be preserved.
+	if got := entry["url"]; got != "https://mcp.context7.com/mcp" {
+		t.Errorf("context7 url = %q, want %q", got, "https://mcp.context7.com/mcp")
+	}
+
+	// Must not have command or args.
+	if _, ok := entry["command"]; ok {
+		t.Errorf("context7 entry should not have 'command' key")
+	}
+}
+
+// TestOpenCodeRenderer_RenderMCPs_LocalServerWithEnv verifies that a local MCP with
+// env vars gets command array transformation AND env key/format transformation.
+func TestOpenCodeRenderer_RenderMCPs_LocalServerWithEnv(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	mcpSection := renderMCPsFromYAML(t, workspaceRoot, "exa", `name: exa
+command: npx
+args:
+  - "-y"
+  - "exa-mcp-server"
+env:
+  EXA_API_KEY: "${EXA_API_KEY}"
+`)
+
+	entry, ok := mcpSection["exa"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("exa entry missing or not a map; mcp section: %v", mcpSection)
+	}
+
+	// type must be "local".
+	if got := entry["type"]; got != "local" {
+		t.Errorf("exa type = %q, want %q", got, "local")
+	}
+
+	// command must be merged array.
+	cmdArr, ok := entry["command"].([]interface{})
+	if !ok {
+		t.Fatalf("exa command should be an array, got %T: %v", entry["command"], entry["command"])
+	}
+	if len(cmdArr) < 2 || cmdArr[0] != "npx" {
+		t.Errorf("exa command[0] = %v, want npx", cmdArr[0])
+	}
+
+	// env key must be "environment" and value must use OpenCode placeholder format.
+	envMap, ok := entry["environment"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("exa entry should have 'environment' key; keys: %v", mapKeys(entry))
+	}
+	if got := envMap["EXA_API_KEY"]; got != "{env:EXA_API_KEY}" {
+		t.Errorf("EXA_API_KEY = %q, want %q", got, "{env:EXA_API_KEY}")
+	}
+	// Must not have "env" key.
+	if _, ok := entry["env"]; ok {
+		t.Errorf("exa entry should not have 'env' key after transformation")
+	}
+}

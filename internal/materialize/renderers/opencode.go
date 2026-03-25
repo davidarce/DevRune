@@ -219,8 +219,10 @@ func (r *OpenCodeRenderer) RenderMCPs(mcps []model.LockedMCP, cacheStore matypes
 	r.normalizedMCPs = normalized
 
 	for _, mcp := range normalized {
-		// Write only the sanitized runtime config with env key and placeholder style applied.
-		mcpSection[mcp.Name] = applyMCPEnvTransform(mcp.ServerConfig, mcpConfig)
+		// Transform the canonical MCP config to OpenCode native format, then apply
+		// env key and placeholder style.
+		transformed := transformMCPForOpenCode(mcp.ServerConfig)
+		mcpSection[mcp.Name] = applyMCPEnvTransform(transformed, mcpConfig)
 	}
 	existing[mcpConfig.RootKey] = mcpSection
 
@@ -552,4 +554,45 @@ func (r *OpenCodeRenderer) RenderSettings(workspaceRoot string, skills []model.C
 // via applyMCPEnvTransform, so post-write normalization is no longer needed.
 func (r *OpenCodeRenderer) Finalize(workspaceRoot string) error {
 	return nil
+}
+
+// transformMCPForOpenCode converts a canonical MCP server config (Claude/catalog format)
+// into the OpenCode-native format required by opencode.json.
+//
+// Transformations applied:
+//  1. command+args (string+array) → type:"local", command:[cmd, ...args] merged array
+//  2. type:"http" → type:"remote"
+//
+// All other fields (url, headers, environment, env) are passed through unchanged.
+// applyMCPEnvTransform handles env key renaming and placeholder style separately.
+func transformMCPForOpenCode(src map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+
+	// Transform type:"http" → type:"remote".
+	if t, ok := out["type"].(string); ok && t == "http" {
+		out["type"] = "remote"
+	}
+
+	// Transform command+args → type:"local", command:[cmd, ...args].
+	// Canonical format: command is a string, args is []interface{}.
+	// OpenCode format:  type is "local", command is []interface{} (merged).
+	if cmdStr, ok := out["command"].(string); ok {
+		// Build the merged command array: [command, ...args].
+		merged := []interface{}{cmdStr}
+		if args, ok := out["args"].([]interface{}); ok {
+			merged = append(merged, args...)
+		}
+		out["command"] = merged
+		delete(out, "args")
+
+		// Set type to "local" only if not already set.
+		if _, hasType := out["type"]; !hasType {
+			out["type"] = "local"
+		}
+	}
+
+	return out
 }
