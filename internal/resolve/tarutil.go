@@ -16,7 +16,7 @@ func extractFilesFromTar(data []byte) (map[string][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open gzip: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	files := make(map[string][]byte)
@@ -30,7 +30,7 @@ func extractFilesFromTar(data []byte) (map[string][]byte, error) {
 			return nil, fmt.Errorf("read tar entry: %w", err)
 		}
 
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 

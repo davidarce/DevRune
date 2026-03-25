@@ -79,7 +79,7 @@ func (f *GitLabFetcher) Fetch(ctx context.Context, ref model.SourceRef) ([]byte,
 	if err != nil {
 		return nil, fmt.Errorf("gitlab fetcher: fetch %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("gitlab fetcher: %s/%s@%s: server returned %d", ref.Owner, ref.Repo, gitRef, resp.StatusCode)

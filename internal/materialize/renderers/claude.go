@@ -203,7 +203,7 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 		sb.WriteString("| Skill | Invocation | Use When |\n")
 		sb.WriteString("|-------|------------|----------|\n")
 		for _, s := range skills {
-			sb.WriteString(fmt.Sprintf("| `%s` | `/%s` | %s |\n", s.Name, s.Name, s.Description))
+			_, _ = fmt.Fprintf(&sb, "| `%s` | `/%s` | %s |\n", s.Name, s.Name, s.Description)
 		}
 		sb.WriteString("\n")
 	}
@@ -219,7 +219,7 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 		sb.WriteString("| Scenario | Resolution |\n")
 		sb.WriteString("|----------|------------|\n")
 		for _, dr := range allDecisionRules {
-			sb.WriteString(fmt.Sprintf("| %s | %s |\n", dr.Scenario, dr.Resolution))
+			_, _ = fmt.Fprintf(&sb, "| %s | %s |\n", dr.Scenario, dr.Resolution)
 		}
 		sb.WriteString("\n")
 	}
@@ -232,7 +232,7 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 	if len(allInvocationControls) > 0 {
 		sb.WriteString("## Invocation Controls\n\n")
 		for _, ic := range allInvocationControls {
-			sb.WriteString(fmt.Sprintf("- %s - %s\n", ic.Skills, ic.Description))
+			_, _ = fmt.Fprintf(&sb, "- %s - %s\n", ic.Skills, ic.Description)
 		}
 		sb.WriteString("\n")
 	}

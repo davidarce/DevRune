@@ -139,7 +139,7 @@ func extractForTest(t *testing.T, data []byte, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("open gzip: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	for {

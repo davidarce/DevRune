@@ -63,7 +63,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	}
 
 	if verbose {
-		fmt.Fprintf(cmd.OutOrStdout(), "Loaded manifest: %s\n", manifestPath)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Loaded manifest: %s\n", manifestPath)
 	}
 
 	return RunInstall(ctx, wd, lockPath, manifest, verbose, cmd.OutOrStdout())

@@ -152,10 +152,10 @@ Body.
 `
 	srcDir := t.TempDir()
 	skillFile := filepath.Join(srcDir, "SKILL.md")
-	os.WriteFile(skillFile, []byte(input), 0o644)
+	_ = os.WriteFile(skillFile, []byte(input), 0o644)
 
 	destDir := t.TempDir()
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
@@ -171,7 +171,7 @@ func TestClaudeRenderer_RenderSkill_DirectoryInput(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeAgentDef())
 
 	srcDir := t.TempDir()
-	os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte("---\nname: dir-skill\ndescription: From dir\n---\nBody.\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte("---\nname: dir-skill\ndescription: From dir\n---\nBody.\n"), 0o644)
 
 	destDir := t.TempDir()
 	if err := r.RenderSkill(srcDir, destDir); err != nil {
@@ -189,7 +189,7 @@ func TestClaudeRenderer_RenderSkill_FileInput(t *testing.T) {
 
 	srcDir := t.TempDir()
 	skillFile := filepath.Join(srcDir, "SKILL.md")
-	os.WriteFile(skillFile, []byte("---\nname: file-skill\ndescription: From file\n---\nBody.\n"), 0o644)
+	_ = os.WriteFile(skillFile, []byte("---\nname: file-skill\ndescription: From file\n---\nBody.\n"), 0o644)
 
 	destDir := t.TempDir()
 	if err := r.RenderSkill(skillFile, destDir); err != nil {

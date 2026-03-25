@@ -161,7 +161,7 @@ func TestCopilotRenderer_ColonToHyphenInName(t *testing.T) {
 	input := "---\nname: git:commit\ndescription: Test\n---\nBody.\n"
 	srcDir := writeSkillFile(t, input)
 
-	r.RenderSkill(srcDir, "")
+	_ = r.RenderSkill(srcDir, "")
 
 	// File should be git-commit.agent.md.
 	outputPath := filepath.Join(tmp, ".github", "agents", "git-commit.agent.md")
@@ -198,7 +198,7 @@ allowed-tools:
 Body.
 `
 	srcDir := writeSkillFile(t, input)
-	r.RenderSkill(srcDir, "")
+	_ = r.RenderSkill(srcDir, "")
 
 	data, _ := os.ReadFile(filepath.Join(tmp, ".github", "agents", "tool-test.agent.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
@@ -301,7 +301,7 @@ Body.
 	data, _ := os.ReadFile(filepath.Join(tmp, ".github", "agents", "dedup-test.agent.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
-	toolsVal, _ := fm["tools"]
+	toolsVal := fm["tools"]
 	toolsList, _ := toolsVal.([]interface{})
 
 	count := 0

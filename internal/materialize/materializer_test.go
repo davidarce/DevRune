@@ -122,7 +122,7 @@ func (r *stubRenderer) RenderSkill(canonicalPath, destDir string) error {
 		return r.skillErr
 	}
 	// Create the SKILL.md to simulate a real render.
-	os.MkdirAll(destDir, 0o755)
+	_ = os.MkdirAll(destDir, 0o755)
 	return os.WriteFile(filepath.Join(destDir, "SKILL.md"), []byte("# stub"), 0o644)
 }
 
@@ -142,7 +142,7 @@ func (r *stubRenderer) RenderCatalog(skills []model.ContentItem, rules []model.C
 	if r.catalogErr != nil {
 		return r.catalogErr
 	}
-	os.MkdirAll(filepath.Dir(destPath), 0o755)
+	_ = os.MkdirAll(filepath.Dir(destPath), 0o755)
 	return os.WriteFile(destPath, []byte("# catalog\n"), 0o644)
 }
 
@@ -237,7 +237,7 @@ func TestMaterializer_Install_CreatesWorkspaceDirs(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:xxx"}
-	m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
 
 	// skills dir should exist.
 	skillsDir := filepath.Join(workspace, "skills")
@@ -265,7 +265,7 @@ func TestMaterializer_Install_RendersSkills(t *testing.T) {
 	// Create a fake package in the cache.
 	pkgDir := t.TempDir()
 	skillDir := filepath.Join(pkgDir, "skills", "git-commit")
-	os.MkdirAll(skillDir, 0o755)
+	_ = os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: git:commit\ndescription: D\n---\nB.\n"), 0o644)
 
 	cache := newStubCache()
@@ -347,7 +347,7 @@ func TestMaterializer_Install_LockAcquired(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:x"}
-	m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
 
 	if !stateMgr.lockAcquired {
 		t.Error("AcquireLock should have been called")
@@ -363,7 +363,7 @@ func TestMaterializer_Install_CleansPreviousManagedPaths(t *testing.T) {
 
 	// Create a "stale" file that was previously managed.
 	staleFile := filepath.Join(tmpDir, "old-skill.md")
-	os.WriteFile(staleFile, []byte("stale"), 0o644)
+	_ = os.WriteFile(staleFile, []byte("stale"), 0o644)
 
 	agentDef := model.AgentDefinition{
 		Name:        "claude",
@@ -384,7 +384,7 @@ func TestMaterializer_Install_CleansPreviousManagedPaths(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:x"}
-	m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
 
 	// The stale file should be removed.
 	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {

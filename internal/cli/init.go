@@ -87,7 +87,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			if !overwrite {
-				fmt.Fprintln(out, "Aborted.")
+				_, _ = fmt.Fprintln(out, "Aborted.")
 				return nil
 			}
 		}
@@ -101,7 +101,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		manifest, tuiErr = tui.Run()
 		if tuiErr != nil {
 			if errors.Is(tuiErr, huh.ErrUserAborted) {
-				fmt.Fprintln(out, "Aborted.")
+				_, _ = fmt.Fprintln(out, "Aborted.")
 				return nil
 			}
 			return fmt.Errorf("tui wizard: %w", tuiErr)
@@ -150,7 +150,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// --- Styled installation output ---
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 	fmt.Fprintln(out, tuistyles.StyleSubtitle.Render("  Installing..."))
 	fmt.Fprintln(out)
 

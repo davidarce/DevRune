@@ -9,9 +9,6 @@ import (
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
-// categoryNames defines the display order of categories.
-var categoryNames = [4]string{"Skills", "Rules", "MCPs", "Workflows"}
-
 // ScannedRepoInput is the input data for the selection step.
 type ScannedRepoInput struct {
 	Source    string
@@ -80,7 +77,7 @@ type ExpandedView struct {
 // SelectModel is the Bubbletea model for the category selection step.
 type SelectModel struct {
 	repos    []RepoSelection
-	cursor   int         // flat index: repoIdx*4 + catIdx
+	cursor   int // flat index: repoIdx*4 + catIdx
 	expanded *ExpandedView
 	done     bool
 	aborted  bool

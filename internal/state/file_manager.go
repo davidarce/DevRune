@@ -110,7 +110,7 @@ func (m *FileStateManager) AcquireLock() error {
 		return fmt.Errorf("state: acquire lock: %w", err)
 	}
 	// Write the PID so it can be inspected if needed.
-	fmt.Fprintf(f, "pid=%d\n", os.Getpid())
+	_, _ = fmt.Fprintf(f, "pid=%d\n", os.Getpid())
 	m.lockFile = f
 	return nil
 }
@@ -118,7 +118,7 @@ func (m *FileStateManager) AcquireLock() error {
 // ReleaseLock removes the advisory lock file.
 func (m *FileStateManager) ReleaseLock() error {
 	if m.lockFile != nil {
-		m.lockFile.Close()
+		_ = m.lockFile.Close()
 		m.lockFile = nil
 	}
 	if err := os.Remove(m.lockPath()); err != nil && !os.IsNotExist(err) {

@@ -47,7 +47,7 @@ func extractArchiveFiles(t *testing.T, data []byte) map[string]string {
 		if err != nil {
 			t.Fatalf("tar.Next: %v", err)
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		content, err := io.ReadAll(tr)

@@ -117,7 +117,7 @@ func extractTarGz(data []byte, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("open gzip: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 
@@ -150,7 +150,7 @@ func extractTarGz(data []byte, destDir string) error {
 				return fmt.Errorf("mkdir %q: %w", target, err)
 			}
 
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("mkdir parent of %q: %w", target, err)
 			}
@@ -159,10 +159,10 @@ func extractTarGz(data []byte, destDir string) error {
 				return fmt.Errorf("create %q: %w", target, err)
 			}
 			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+				_ = f.Close()
 				return fmt.Errorf("write %q: %w", target, err)
 			}
-			f.Close()
+			_ = f.Close()
 
 		default:
 			// Skip symlinks, hardlinks, devices etc. in MVP.
@@ -186,4 +186,3 @@ func stripFirstComponent(name string) string {
 	}
 	return name[idx+1:]
 }
-

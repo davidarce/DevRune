@@ -339,7 +339,7 @@ func appendRuleToConcat(srcPath, combinedPath, ruleName string) error {
 	if err != nil {
 		return fmt.Errorf("open combined file %q: %w", combinedPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = f.WriteString(sb.String())
 	return err
@@ -380,7 +380,7 @@ func addGitignoreEntry(workflowName string) error {
 	if err != nil {
 		return fmt.Errorf("open .gitignore: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = fmt.Fprintf(f, "%s\n", entry)
 	return err
 }

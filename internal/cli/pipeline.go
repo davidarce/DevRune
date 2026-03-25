@@ -27,7 +27,7 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 	}
 
 	if verbose {
-		fmt.Fprintf(out, "Reading manifest: %s\n", manifestPath)
+		_, _ = fmt.Fprintf(out, "Reading manifest: %s\n", manifestPath)
 	}
 
 	manifestData, err := os.ReadFile(manifestPath)

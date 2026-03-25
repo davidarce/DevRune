@@ -311,7 +311,7 @@ func TestFactoryRenderer_Finalize_KeepsUnresolvedPlaceholders(t *testing.T) {
 	os.WriteFile(filepath.Join(workspaceRoot, "mcp.json"), []byte(mcpContent), 0o644)
 
 	// Ensure the var is unset.
-	os.Unsetenv("UNSET_VAR_12345")
+	_ = os.Unsetenv("UNSET_VAR_12345")
 
 	if err := r.Finalize(workspaceRoot); err != nil {
 		t.Fatalf("Finalize: %v", err)

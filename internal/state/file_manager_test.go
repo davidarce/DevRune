@@ -124,7 +124,7 @@ func TestFileStateManager_ManagedPaths(t *testing.T) {
 		LockHash:     "sha256:x",
 		ManagedPaths: []string{"/a", "/b", "/c"},
 	}
-	mgr.Write(s)
+	_ = mgr.Write(s)
 
 	paths, err := mgr.ManagedPaths()
 	if err != nil {
@@ -162,7 +162,7 @@ func TestFileStateManager_LockLifecycle(t *testing.T) {
 	mgr2 := state.NewFileStateManager(baseDir)
 	if err := mgr2.AcquireLock(); err == nil {
 		t.Error("double AcquireLock should fail but succeeded")
-		mgr2.ReleaseLock()
+		_ = mgr2.ReleaseLock()
 	}
 
 	// Release and re-acquire should succeed.
@@ -174,7 +174,7 @@ func TestFileStateManager_LockLifecycle(t *testing.T) {
 	if err := mgr3.AcquireLock(); err != nil {
 		t.Fatalf("re-AcquireLock after release: %v", err)
 	}
-	mgr3.ReleaseLock()
+	_ = mgr3.ReleaseLock()
 }
 
 // TestFileStateManager_ReleaseLock_Idempotent verifies that releasing a non-held lock
@@ -196,10 +196,10 @@ func TestFileStateManager_Write_OverwritesPreviousState(t *testing.T) {
 	mgr := state.NewFileStateManager(baseDir)
 
 	// Write first state.
-	mgr.Write(state.State{LockHash: "sha256:first", ManagedPaths: []string{"/old"}})
+	_ = mgr.Write(state.State{LockHash: "sha256:first", ManagedPaths: []string{"/old"}})
 
 	// Overwrite with second state.
-	mgr.Write(state.State{LockHash: "sha256:second", ManagedPaths: []string{"/new1", "/new2"}})
+	_ = mgr.Write(state.State{LockHash: "sha256:second", ManagedPaths: []string{"/new1", "/new2"}})
 
 	got, _ := mgr.Read()
 	if got.LockHash != "sha256:second" {
