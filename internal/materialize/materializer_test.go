@@ -201,7 +201,7 @@ func TestMaterializer_Install_EmptyLockfile(t *testing.T) {
 	agents := []model.AgentRef{{Name: "claude"}}
 	cfg := model.InstallConfig{}
 
-	if err := m.Install(context.Background(), lock, agents, cfg); err != nil {
+	if err := m.Install(context.Background(), lock, agents, cfg, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestMaterializer_Install_CreatesWorkspaceDirs(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:xxx"}
-	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir)
 
 	// skills dir should exist.
 	skillsDir := filepath.Join(workspace, "skills")
@@ -298,7 +298,7 @@ func TestMaterializer_Install_RendersSkills(t *testing.T) {
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -322,7 +322,7 @@ func TestMaterializer_Install_UnknownAgent(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:x"}
-	err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "unknown-agent"}}, model.InstallConfig{})
+	err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "unknown-agent"}}, model.InstallConfig{}, t.TempDir())
 
 	if err == nil {
 		t.Fatal("expected error for unknown agent but got none")
@@ -347,7 +347,7 @@ func TestMaterializer_Install_LockAcquired(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:x"}
-	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir)
 
 	if !stateMgr.lockAcquired {
 		t.Error("AcquireLock should have been called")
@@ -384,7 +384,7 @@ func TestMaterializer_Install_CleansPreviousManagedPaths(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:x"}
-	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir)
 
 	// The stale file should be removed.
 	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
@@ -419,7 +419,7 @@ func TestMaterializer_Install_PackageNotInCache(t *testing.T) {
 		},
 	}
 
-	err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, t.TempDir())
 	if err == nil {
 		t.Fatal("expected error when package not in cache")
 	}
@@ -443,7 +443,7 @@ func TestMaterializer_Install_WritesSchemaVersion(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:abc"}
-	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir)
 
 	if stateMgr.written.SchemaVersion != "devrune/state/v1" {
 		t.Errorf("state.SchemaVersion = %q, want %q", stateMgr.written.SchemaVersion, "devrune/state/v1")
@@ -471,7 +471,7 @@ func TestMaterializer_Install_CallsRenderSettings(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:settings"}
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -522,7 +522,7 @@ func TestMaterializer_Install_PassesRulesToRenderCatalog(t *testing.T) {
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -596,7 +596,7 @@ components:
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -660,7 +660,7 @@ components:
 		Workflows:     []model.LockedWorkflow{{Name: "sdd", Hash: wfHash}},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -717,7 +717,7 @@ func TestMaterializer_Install_StaleWorkflowPathsRemovedOnReinstall(t *testing.T)
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"opencode": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:reinstall"}
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -792,7 +792,7 @@ func TestMaterializer_ManagedConfigPaths_FactoryAlignedWithRenderMCPs(t *testing
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -860,7 +860,7 @@ func TestMaterializer_ManagedConfigPaths_OpenCodeAlignedWithRenderMCPs(t *testin
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -929,7 +929,7 @@ func TestMaterializer_ManagedConfigPaths_CopilotAlignedWithRenderMCPs(t *testing
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "copilot"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "copilot"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -959,17 +959,7 @@ func TestMaterializer_ManagedConfigPaths_CopilotAlignedWithRenderMCPs(t *testing
 // still creates a project-root .mcp.json using Claude format (mcpServers key).
 // This proves ensureRootMCPJSON() is agent-agnostic and always emits Claude format.
 func TestMaterializer_EnsureRootMCPJSON_AlwaysClaudeFormat(t *testing.T) {
-	// Run inside a temp dir so the materializer's relative "." path lands there.
 	tmpDir := t.TempDir()
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	defer os.Chdir(origDir) //nolint:errcheck
-
 	workspace := filepath.Join(tmpDir, ".factory")
 
 	mcpDef := &model.MCPConfig{
@@ -1009,7 +999,7 @@ func TestMaterializer_EnsureRootMCPJSON_AlwaysClaudeFormat(t *testing.T) {
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -1041,17 +1031,7 @@ func TestMaterializer_EnsureRootMCPJSON_AlwaysClaudeFormat(t *testing.T) {
 // when MCPs are rendered for OpenCode (which uses "mcp" rootKey), the project-root
 // .mcp.json still uses "mcpServers" key (Claude format), not OpenCode format.
 func TestMaterializer_EnsureRootMCPJSON_OpenCodeAgentStillClaudeFormat(t *testing.T) {
-	// Run inside a temp dir so the materializer's relative "." path lands there.
 	tmpDir := t.TempDir()
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	defer os.Chdir(origDir) //nolint:errcheck
-
 	workspace := filepath.Join(tmpDir, ".opencode")
 
 	mcpDef := &model.MCPConfig{
@@ -1091,7 +1071,7 @@ func TestMaterializer_EnsureRootMCPJSON_OpenCodeAgentStillClaudeFormat(t *testin
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -1154,7 +1134,7 @@ func TestMaterializer_Install_RenderSettingsReceivesSkillsAndWorkflows(t *testin
 		},
 	}
 
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}); err != nil {
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

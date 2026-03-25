@@ -293,7 +293,7 @@ Create a detailed implementation plan.
 	agents := []model.AgentRef{{Name: "claude"}}
 	installCfg := model.InstallConfig{}
 
-	if err := mat.Install(context.Background(), lockfile, agents, installCfg); err != nil {
+	if err := mat.Install(context.Background(), lockfile, agents, installCfg, projectRoot); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -378,7 +378,7 @@ Create a detailed implementation plan.
 	// -----------------------------------------------------------------------
 	// Step 9: Idempotency — reinstall should succeed with same result.
 	// -----------------------------------------------------------------------
-	if err := mat.Install(context.Background(), lockfile, agents, installCfg); err != nil {
+	if err := mat.Install(context.Background(), lockfile, agents, installCfg, projectRoot); err != nil {
 		t.Fatalf("reinstall: %v", err)
 	}
 
@@ -463,7 +463,7 @@ func TestE2E_PackageOnly(t *testing.T) {
 	stateMgr := state.NewFileStateManager(projectRoot)
 	mat := materialize.NewMaterializer(cacheStore, linker, stateMgr, renderers)
 
-	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}); err != nil {
+	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, projectRoot); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -589,7 +589,7 @@ func TestE2E_FactoryParityLayout(t *testing.T) {
 	stateMgr := state.NewFileStateManager(projectRoot)
 	mat := materialize.NewMaterializer(cacheStore, linker, stateMgr, renderers)
 
-	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}); err != nil {
+	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "factory"}}, model.InstallConfig{}, projectRoot); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -666,7 +666,7 @@ func TestE2E_OpenCodeParityLayout(t *testing.T) {
 	stateMgr := state.NewFileStateManager(projectRoot)
 	mat := materialize.NewMaterializer(cacheStore, linker, stateMgr, renderers)
 
-	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}); err != nil {
+	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "opencode"}}, model.InstallConfig{}, projectRoot); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -761,7 +761,7 @@ func runMCPE2E(t *testing.T, projectRoot, cacheDir string, agentDef model.AgentD
 	stateMgr := state.NewFileStateManager(projectRoot)
 	mat := materialize.NewMaterializer(cacheStore, linker, stateMgr, renderers)
 
-	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: agentDef.Name}}, model.InstallConfig{}); err != nil {
+	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: agentDef.Name}}, model.InstallConfig{}, projectRoot); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -1101,7 +1101,7 @@ func TestE2E_CopilotParityLayout(t *testing.T) {
 	stateMgr := state.NewFileStateManager(projectRoot)
 	mat := materialize.NewMaterializer(cacheStore, linker, stateMgr, renderers)
 
-	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "copilot"}}, model.InstallConfig{}); err != nil {
+	if err := mat.Install(context.Background(), lockfile, []model.AgentRef{{Name: "copilot"}}, model.InstallConfig{}, projectRoot); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 

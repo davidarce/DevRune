@@ -64,12 +64,15 @@ func NewMaterializer(
 }
 
 // Install applies a lockfile to the workspace for all requested agents.
-// workspaceRoot is the absolute path to the project root (where devrune.yaml lives).
+// projectRoot is the absolute path to the project root (where devrune.yaml lives).
+// It must be provided so that .gitignore and .mcp.json are written to the correct
+// directory regardless of the process working directory.
 func (m *Materializer) Install(
 	ctx context.Context,
 	lock model.Lockfile,
 	agents []model.AgentRef,
 	installCfg model.InstallConfig,
+	projectRoot string,
 ) error {
 	// Step 1: Acquire advisory lock.
 	if err := m.stateMgr.AcquireLock(); err != nil {
@@ -226,7 +229,7 @@ func (m *Materializer) Install(
 			installedWorkflows = append(installedWorkflows, wfManifest)
 
 			// Step 9: Update .gitignore for this workflow.
-			if err := addGitignoreEntry(wfManifest.Metadata.Name); err != nil {
+			if err := addGitignoreEntry(wfManifest.Metadata.Name, projectRoot); err != nil {
 				// Non-fatal: gitignore update failure should not block installation.
 				_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: gitignore update for %q: %v\n",
 					wfManifest.Metadata.Name, err)
@@ -258,7 +261,7 @@ func (m *Materializer) Install(
 	// non-Claude agents the materializer owns the shared project-root file.
 	// We run this once after all per-agent RenderMCPs calls complete.
 	if len(lock.MCPs) > 0 {
-		if err := m.ensureRootMCPJSON(lock.MCPs, "."); err != nil {
+		if err := m.ensureRootMCPJSON(lock.MCPs, projectRoot); err != nil {
 			return fmt.Errorf("materializer: ensure root .mcp.json: %w", err)
 		}
 	}
@@ -282,7 +285,7 @@ func (m *Materializer) Install(
 	// Step 12.5: Ensure .gitignore protects generated workspace directories and
 	// MCP config files (which may contain resolved secrets for Factory).
 	hasMCPs := len(lock.MCPs) > 0
-	if err := ensureGitignore(agents, m.renderers, hasMCPs); err != nil {
+	if err := ensureGitignore(agents, m.renderers, hasMCPs, projectRoot); err != nil {
 		// Non-fatal: warn but don't fail the install.
 		_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: update .gitignore: %v\n", err)
 	}
@@ -360,9 +363,9 @@ func loadWorkflowManifest(wfDir string) (model.WorkflowManifest, error) {
 }
 
 // addGitignoreEntry appends ".{workflowName}/" to the project's .gitignore if not already present.
-func addGitignoreEntry(workflowName string) error {
+func addGitignoreEntry(workflowName, projectRoot string) error {
 	entry := fmt.Sprintf(".%s/", workflowName)
-	gitignorePath := ".gitignore"
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 
 	// Check if already present.
 	data, err := os.ReadFile(gitignorePath)
@@ -486,7 +489,7 @@ const (
 // generated workspace directories and MCP config files from being committed.
 // The block is delimited by markers so it can be idempotently replaced on
 // subsequent installs without touching user-authored entries.
-func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer, hasMCPs bool) error {
+func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer, hasMCPs bool, projectRoot string) error {
 	// Collect entries that must be ignored.
 	entries := []string{".devrune/"}
 	for _, a := range agents {
@@ -495,7 +498,15 @@ func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer
 			continue
 		}
 		def := r.Definition()
-		ws := def.Workspace // e.g. ".claude", ".factory"
+		ws := def.Workspace // may be absolute (tests) or relative (production)
+		// Compute path relative to projectRoot so the gitignore entry is always
+		// a short workspace-relative pattern (e.g. ".claude/", ".github/").
+		if filepath.IsAbs(ws) {
+			rel, err := filepath.Rel(projectRoot, ws)
+			if err == nil && !strings.HasPrefix(rel, "..") {
+				ws = rel
+			}
+		}
 		entries = append(entries, ws+"/")
 	}
 	if hasMCPs {
@@ -510,7 +521,7 @@ func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer
 	}
 	block.WriteString(gitignoreEndMarker + "\n")
 
-	gitignorePath := ".gitignore"
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 
 	// Read existing content (may not exist yet — that's fine).
 	existing, _ := os.ReadFile(gitignorePath)
