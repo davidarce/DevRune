@@ -384,12 +384,11 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 
 	// T021: Load registry content if declared in the workflow manifest.
 	if wf.Components.Registry != "" {
-		registryPath := filepath.Join(cachePath, wf.Components.Registry)
-		data, readErr := os.ReadFile(registryPath)
-		if readErr == nil {
-			// Replace {SKILLS_PATH} with the workspace-relative skills path.
-			skillsPath := r.def.Workspace + "/" + r.def.SkillDir + "/" + wf.Metadata.Name + "/"
-			content := strings.ReplaceAll(string(data), "{SKILLS_PATH}", skillsPath)
+		// Use buildWorkflowPlaceholderReplacements to avoid double-slash bugs
+		// (e.g. {SKILLS_PATH}/sdd-orchestrator → .claude/skills/sdd//sdd-orchestrator).
+		replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir+"/"+wf.Metadata.Name)
+		content, readErr := captureRegistryContent(cachePath, wf.Components.Registry, replacements)
+		if readErr == nil && content != "" {
 			r.registryContents[wf.Metadata.Name] = content
 		}
 	}
@@ -432,7 +431,7 @@ func (r *ClaudeRenderer) postProcessWorkflow(wf model.WorkflowManifest, destBase
 
 		// Replace {SKILLS_PATH} in all .md files.
 		if strings.Contains(content, "{SKILLS_PATH}") {
-			skillsPath := destBase + "/"
+			skillsPath := destBase
 			content = strings.ReplaceAll(content, "{SKILLS_PATH}", skillsPath)
 			modified = true
 		}

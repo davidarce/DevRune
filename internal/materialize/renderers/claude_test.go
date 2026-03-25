@@ -721,6 +721,51 @@ components:
 	}
 }
 
+// TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash verifies that {SKILLS_PATH}
+// in REGISTRY.md is resolved without double slashes (e.g. ".claude/skills/sdd/sdd-orchestrator"
+// not ".claude/skills/sdd//sdd-orchestrator").
+func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
+	r := renderers.NewClaudeRenderer(claudeAgentDef())
+
+	wfCacheDir := t.TempDir()
+
+	// REGISTRY.md uses {SKILLS_PATH}/sdd-orchestrator pattern (same as real catalog).
+	registryContent := "Full orchestrator instructions: {SKILLS_PATH}/sdd-orchestrator/ORCHESTRATOR.md\n"
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "REGISTRY.md"), []byte(registryContent), 0o644); err != nil {
+		t.Fatalf("write REGISTRY.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "workflow.yaml"), []byte("apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\n"), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{Registry: "REGISTRY.md"},
+	}
+
+	workspaceDir := t.TempDir()
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Render catalog so registry content is flushed.
+	catalogPath := filepath.Join(workspaceDir, "CLAUDE.md")
+	if err := r.RenderCatalog(nil, nil, []model.WorkflowManifest{wf}, catalogPath); err != nil {
+		t.Fatalf("RenderCatalog: %v", err)
+	}
+
+	data := mustReadFile(t, catalogPath)
+	content := string(data)
+
+	if strings.Contains(content, "//") {
+		t.Errorf("double slash found in CLAUDE.md; got:\n%s", content)
+	}
+	if strings.Contains(content, "{SKILLS_PATH}") {
+		t.Errorf("{SKILLS_PATH} was not resolved; got:\n%s", content)
+	}
+}
+
 // TestClaudeRenderer_InstallWorkflow_NoAdviserSkills verifies that when no adviser
 // skills are installed, the placeholder is removed (replaced with empty string).
 func TestClaudeRenderer_InstallWorkflow_NoAdviserSkills(t *testing.T) {
