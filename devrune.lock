@@ -1,0 +1,211 @@
+schemaVersion: devrune/lock/v1
+manifestHash: sha256:6703aa8736fbfb4cf96823b79e2ab1267eee6111ec1811428d28afd843ad1f24
+packages:
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog
+        host: ""
+      hash: sha256:bce5dfab0ace53b6c47ef88b36757c9bf971caf7428daa5e2b7596642b9cc62b
+      contents:
+        - kind: rule
+          name: api/api-standards-rules
+          path: rules/api/api-standards-rules.md
+          description: REST API naming, validation, error models, versioning
+          ruleMeta:
+            scope: api
+            technology: ""
+            applies_to: api-first-adviser
+            description: REST API naming, validation, error models, versioning
+            display_name: api-standards
+        - kind: rule
+          name: architecture/4-rules-of-simple-design-rules
+          path: rules/architecture/4-rules-of-simple-design-rules.md
+          description: 'Kent Beck''s 4 Rules of Simple Design: test-first, clarity, DRY, minimality'
+          ruleMeta:
+            scope: architecture
+            technology: ""
+            applies_to: architect-adviser
+            description: 'Kent Beck''s 4 Rules of Simple Design: test-first, clarity, DRY, minimality'
+            display_name: 4-rules-of-simple-design
+        - kind: rule
+          name: architecture/clean-architecture-rules
+          path: rules/architecture/clean-architecture-rules.md
+          description: Hexagonal architecture, DDD patterns, ports and adapters
+          ruleMeta:
+            scope: architecture
+            technology: ""
+            applies_to: architect-adviser
+            description: Hexagonal architecture, DDD patterns, ports and adapters
+            display_name: clean-architecture
+        - kind: rule
+          name: tech/accessibility-standards-rules
+          path: rules/tech/accessibility-standards-rules.md
+          description: 'Web accessibility standards: WCAG 2.2 AA, ARIA patterns, keyboard navigation, semantic HTML.'
+          ruleMeta:
+            scope: tech
+            technology: ""
+            applies_to: a11y-adviser, component-adviser, frontend-test-adviser
+            description: 'Web accessibility standards: WCAG 2.2 AA, ARIA patterns, keyboard navigation, semantic HTML.'
+            display_name: a11y
+        - kind: rule
+          name: tech/frontend-testing-rules
+          path: rules/tech/frontend-testing-rules.md
+          description: 'Frontend testing standards: React Testing Library, Vitest/Jest, Cypress/Playwright e2e, test structure, mocking, coverage.'
+          ruleMeta:
+            scope: tech
+            technology: ""
+            applies_to: frontend-test-adviser, component-adviser
+            description: 'Frontend testing standards: React Testing Library, Vitest/Jest, Cypress/Playwright e2e, test structure, mocking, coverage.'
+            display_name: frontend-testing
+        - kind: rule
+          name: tech/java-spring-rules
+          path: rules/tech/java-spring-rules.md
+          description: 'Java Spring Boot conventions: module structure, DI, testing, API patterns'
+          ruleMeta:
+            scope: tech
+            technology: java
+            applies_to: architect-adviser, unit-test-adviser, integration-test-adviser, api-first-adviser
+            description: 'Java Spring Boot conventions: module structure, DI, testing, API patterns'
+            display_name: java-spring
+        - kind: rule
+          name: tech/microfrontends-rules
+          path: rules/tech/microfrontends-rules.md
+          description: 'Microfrontend architecture: host/shell mediator pattern, EventBus communication, no MFE versioning, zero breaking changes.'
+          ruleMeta:
+            scope: tech
+            technology: ""
+            applies_to: microfrontend-adviser, component-adviser
+            description: 'Microfrontend architecture: host/shell mediator pattern, EventBus communication, no MFE versioning, zero breaking changes.'
+            display_name: microfrontends
+        - kind: rule
+          name: tech/react-rules
+          path: rules/tech/react-rules.md
+          description: 'React and TypeScript coding standards: component patterns, hooks, props, naming, file structure.'
+          ruleMeta:
+            scope: tech
+            technology: ""
+            applies_to: component-adviser, frontend-test-adviser
+            description: 'React and TypeScript coding standards: component patterns, hooks, props, naming, file structure.'
+            display_name: react
+        - kind: rule
+          name: testing/adapter-it-patterns-rules
+          path: rules/testing/adapter-it-patterns-rules.md
+          description: Adapter integration test patterns with WireMock for HTTP service simulation
+          ruleMeta:
+            scope: testing
+            technology: ""
+            applies_to: integration-test-adviser
+            description: Adapter integration test patterns with WireMock for HTTP service simulation
+            display_name: adapter-it-patterns
+        - kind: rule
+          name: testing/java-unit-tests-rules
+          path: rules/testing/java-unit-tests-rules.md
+          description: Java Unit Test Standards
+          ruleMeta:
+            scope: testing
+            technology: ""
+            applies_to: unit-test-adviser
+            description: Java Unit Test Standards
+            display_name: java-unit-tests
+        - kind: rule
+          name: testing/mother-pattern-rules
+          path: rules/testing/mother-pattern-rules.md
+          description: Mother builder pattern, test data construction, BDDMockito
+          ruleMeta:
+            scope: testing
+            technology: ""
+            applies_to: unit-test-adviser
+            description: Mother builder pattern, test data construction, BDDMockito
+            display_name: mother-pattern
+        - kind: skill
+          name: architect-adviser
+          path: skills/architect-adviser/
+          description: 'Clean architecture patterns: hexagonal, DDD, ports and adapters, layered design.'
+        - kind: skill
+          name: git-commit
+          path: skills/git-commit/
+          description: Automate git commits following Conventional Commits with JIRA ticket integration.
+        - kind: skill
+          name: git-pull-request
+          path: skills/git-pull-request/
+          description: Create pull requests with template selection and platform auto-detection (GitHub/GitLab).
+        - kind: skill
+          name: unit-test-adviser
+          path: skills/unit-test-adviser/
+          description: 'Domain unit test patterns: test structure, mocking strategies, test data builders, Given-When-Then.'
+mcps:
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/mcps/atlassian.yaml
+        host: ""
+      hash: sha256:bda910df7f5c09043e35002f1e3e35c63b9fe370ce6ae5d17361a0b72a7a541b
+      name: atlassian
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/mcps/context7.yaml
+        host: ""
+      hash: sha256:07aa3643ada8aadba1d7ee043e28a0c5c841592d43f144cebebf4c613f340f3b
+      name: context7
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/mcps/engram.yaml
+        host: ""
+      hash: sha256:a90a2d749554d1ba5399487771e14ad267f872355e63c5ccb375b5fdca13fefa
+      name: engram
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/mcps/exa.yaml
+        host: ""
+      hash: sha256:cb9ca54607b4e52781ed01b6b0900b8d69b6815bbdb47e18fed17af220a63776
+      name: exa
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/mcps/playwright.yaml
+        host: ""
+      hash: sha256:473914bff85152fc6c4e136f1b891c78e6b95b37b188c9dc053681d02afeba6c
+      name: playwright
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/mcps/ref.yaml
+        host: ""
+      hash: sha256:0d96a3572ceebfdfb9dd899d41d2b02ad06ccb5c755a65e16389b86fe967199c
+      name: ref
+workflows:
+    - source:
+        scheme: local
+        owner: ""
+        repo: ""
+        ref: ""
+        subpath: ""
+        path: ./devrune-starter-catalog/workflows/sdd
+        host: ""
+      hash: sha256:719ef61fbd15ac7c9004410c92f5c98b2bf1c56ff830435d9612eaa930e639aa
+      name: sdd

@@ -1,0 +1,25 @@
+schemaVersion: devrune/v1
+
+packages:
+  - source: github:davidarce/devrune-starter@v0.1.0//packages/shared
+    select:
+      skills: [git-commit, git-pull-request]
+      rules: [architecture/clean-architecture]
+  - source: github:davidarce/devrune-starter@v0.1.0//packages/java
+
+mcps:
+  - source: github:davidarce/devrune-starter@v0.1.0//mcps/github.yaml
+  - source: github:davidarce/devrune-starter@v0.1.0//mcps/gitlab.yaml
+
+agents:
+  - name: claude
+  - name: opencode
+
+workflows:
+  - github:davidarce/devrune-starter@v0.1.0//workflows/sdd
+
+install:
+  linkMode: copy
+  rulesMode:
+    claude: concat
+    opencode: individual

@@ -1,0 +1,176 @@
+package steps
+
+import (
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
+
+	"github.com/davidarce/devrune/internal/model"
+)
+
+// ConfirmSummary displays a summary of all selections and asks the user to confirm.
+// Returns the populated UserManifest on confirmation, or ErrUserAborted (from huh)
+// if the user declines.
+func ConfirmSummary(agents []string, selection SelectionResult) (model.UserManifest, error) {
+	description := buildSelectionSummary(agents, selection)
+
+	confirmed := true
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			stepHeader(4, 4, "Confirm"),
+			huh.NewNote().
+				Title("Summary").
+				Description(description),
+			huh.NewConfirm().
+				Title("Create devrune.yaml with these settings?").
+				Affirmative("Yes, create it").
+				Negative("Cancel").
+				Value(&confirmed),
+		),
+	).WithProgramOptions(tea.WithAltScreen())
+
+	if err := form.Run(); err != nil {
+		return model.UserManifest{}, err
+	}
+
+	if !confirmed {
+		return model.UserManifest{}, huh.ErrUserAborted
+	}
+
+	return buildManifestFromSelection(agents, selection), nil
+}
+
+// buildSelectionSummary produces a human-readable description of the selections.
+func buildSelectionSummary(agents []string, selection SelectionResult) string {
+	var b strings.Builder
+
+	b.WriteString(fmt.Sprintf("Agents: %s\n\n", formatList(agents, "(none)")))
+
+	for _, repo := range selection.Repos {
+		b.WriteString(fmt.Sprintf("%s:\n", repo.Source))
+
+		if len(repo.SelectedSkills) > 0 || len(repo.SelectedRules) > 0 ||
+			len(repo.SelectedMCPs) > 0 || len(repo.SelectedWorkflows) > 0 {
+
+			writeCountLine(&b, "  Skills", repo.SelectedSkills)
+			writeCountLine(&b, "  Rules", repo.SelectedRules)
+			writeCountLine(&b, "  MCPs", repo.SelectedMCPs)
+
+			if len(repo.SelectedWorkflows) > 0 {
+				b.WriteString(fmt.Sprintf("  Workflows: %s\n", strings.Join(repo.SelectedWorkflows, ", ")))
+			}
+		} else {
+			b.WriteString("  (nothing selected)\n")
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// writeCountLine writes a "  Label: N" line if items is non-empty.
+func writeCountLine(b *strings.Builder, label string, items []string) {
+	if len(items) > 0 {
+		b.WriteString(fmt.Sprintf("%s: %d\n", label, len(items)))
+	}
+}
+
+// formatList formats a string slice for display; returns fallback when empty.
+func formatList(items []string, fallback string) string {
+	if len(items) == 0 {
+		return fallback
+	}
+	return strings.Join(items, ", ")
+}
+
+// buildManifestFromSelection constructs a UserManifest from the wizard selections.
+func buildManifestFromSelection(agents []string, selection SelectionResult) model.UserManifest {
+	agentRefs := make([]model.AgentRef, 0, len(agents))
+	for _, a := range agents {
+		agentRefs = append(agentRefs, model.AgentRef{Name: a})
+	}
+
+	var pkgRefs []model.PackageRef
+	var mcpRefs []model.MCPRef
+	var workflowSources []string
+
+	for _, repo := range selection.Repos {
+		if len(repo.SelectedSkills) == 0 && len(repo.SelectedRules) == 0 &&
+			len(repo.SelectedMCPs) == 0 && len(repo.SelectedWorkflows) == 0 {
+			continue
+		}
+
+		// Build SelectFilter only if not all items are selected.
+		// For simplicity in MVP, always include a SelectFilter with chosen items.
+		// A nil filter means "all items"; explicit lists mean "only these".
+		var sel *model.SelectFilter
+		if len(repo.SelectedSkills) > 0 || len(repo.SelectedRules) > 0 {
+			sel = &model.SelectFilter{
+				Skills: repo.SelectedSkills,
+				Rules:  repo.SelectedRules,
+			}
+		}
+
+		pkgRefs = append(pkgRefs, model.PackageRef{
+			Source: repo.Source,
+			Select: sel,
+		})
+
+		// MCPs from this repo become separate MCPRef entries.
+		for _, mcp := range repo.SelectedMCPs {
+			mcpSrc := buildMCPSourceRef(repo.Source, mcp, repo.MCPFiles)
+			mcpRefs = append(mcpRefs, model.MCPRef{Source: mcpSrc})
+		}
+
+		// Workflows from this repo become workflow source refs.
+		for _, wf := range repo.SelectedWorkflows {
+			wfSrc := appendSubpath(repo.Source, "workflows/"+wf)
+			workflowSources = append(workflowSources, wfSrc)
+		}
+	}
+
+	return model.UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        agentRefs,
+		Packages:      pkgRefs,
+		MCPs:          mcpRefs,
+		Workflows:     workflowSources,
+	}
+}
+
+// appendSubpath appends a subpath to a source ref string.
+// For remote sources (github/gitlab), it uses the "//" separator convention.
+// For local sources, it appends as a filesystem path.
+func appendSubpath(source, subpath string) string {
+	if strings.HasPrefix(source, "local:") {
+		// For local sources, join as a filesystem path.
+		path := strings.TrimPrefix(source, "local:")
+		return "local:" + path + "/" + subpath
+	}
+	if idx := strings.Index(source, "//"); idx >= 0 {
+		// Replace existing subpath.
+		return source[:idx+2] + subpath
+	}
+	return source + "//" + subpath
+}
+
+// buildMCPSourceRef constructs the source ref for an individual MCP.
+// For local sources, uses the full path including file extension.
+// For remote sources, uses the // subpath convention with the short name.
+func buildMCPSourceRef(repoSource, mcpName string, mcpFiles map[string]string) string {
+	if strings.HasPrefix(repoSource, "local:") {
+		// Use the full filename if known (e.g. "engram.yaml").
+		filename := mcpName + ".yaml" // fallback
+		if mcpFiles != nil {
+			if f, ok := mcpFiles[mcpName]; ok {
+				filename = f
+			}
+		}
+		path := strings.TrimPrefix(repoSource, "local:")
+		return "local:" + path + "/mcps/" + filename
+	}
+	return appendSubpath(repoSource, "mcps/"+mcpName)
+}

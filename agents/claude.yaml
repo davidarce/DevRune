@@ -1,0 +1,13 @@
+name: claude
+type: claude
+workspace: ".claude"
+skillDir: "skills"
+commandDir: "commands"
+rulesDir: "rules"
+catalogFile: "CLAUDE.md"
+defaultRulesMode: "both"
+mcp:
+  filePath: "../.mcp.json"
+  rootKey: "mcpServers"
+  envKey: "env"
+  envVarStyle: "${VAR}"

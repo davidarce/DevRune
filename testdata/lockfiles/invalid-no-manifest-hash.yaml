@@ -1,0 +1,9 @@
+schemaVersion: devrune/lock/v1
+packages:
+  - source:
+      scheme: github
+      owner: davidarce
+      repo: devrune-starter
+      ref: v0.1.0
+    hash: sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    contents: []

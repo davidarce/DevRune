@@ -1,0 +1,50 @@
+schemaVersion: devrune/lock/v1
+manifestHash: sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1
+packages:
+  - source:
+      scheme: github
+      owner: davidarce
+      repo: devrune-starter
+      ref: v0.1.0
+      subpath: packages/shared
+    hash: sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    contents:
+      - kind: rule
+        name: architecture/clean-architecture
+        path: rules/architecture/clean-architecture/
+      - kind: skill
+        name: git-commit
+        path: skills/git-commit/
+      - kind: skill
+        name: git-pull-request
+        path: skills/git-pull-request/
+  - source:
+      scheme: gitlab
+      owner: myorg
+      repo: my-catalog
+      ref: main
+      subpath: packages/frontend
+      host: gitlab.example.com
+    hash: sha256:cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe
+    contents:
+      - kind: skill
+        name: react-component
+        path: skills/react-component/
+mcps:
+  - source:
+      scheme: github
+      owner: davidarce
+      repo: devrune-starter
+      ref: v0.1.0
+      subpath: mcps/github.yaml
+    hash: sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+    name: github-mcp
+workflows:
+  - source:
+      scheme: github
+      owner: davidarce
+      repo: devrune-starter
+      ref: v0.1.0
+      subpath: workflows/sdd
+    hash: sha256:fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321
+    name: sdd

@@ -1,0 +1,5 @@
+packages:
+  - source: github:davidarce/devrune-starter@v0.1.0//packages/shared
+
+agents:
+  - name: claude

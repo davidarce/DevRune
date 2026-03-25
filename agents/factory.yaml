@@ -1,0 +1,12 @@
+name: factory
+type: factory
+workspace: ".factory"
+skillDir: "skills"
+rulesDir: "rules"
+catalogFile: "AGENTS.md"
+defaultRulesMode: "individual"
+mcp:
+  filePath: "mcp.json"
+  rootKey: "mcpServers"
+  envKey: "env"
+  envVarStyle: "${VAR}"

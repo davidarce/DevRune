@@ -1,0 +1,7 @@
+apiVersion: devrune/workflow/v99
+metadata:
+  name: bad-schema
+  version: "1.0.0"
+components:
+  skills:
+    - some-skill

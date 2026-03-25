@@ -1,0 +1,14 @@
+apiVersion: devrune/workflow/v1
+metadata:
+  name: simple-tools
+  description: "Simple tooling workflow without entrypoint"
+  version: "0.2.0"
+components:
+  skills:
+    - format
+    - lint
+  commands:
+    - name: format
+      action: "Format code"
+    - name: lint
+      action: "Lint code"

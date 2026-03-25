@@ -1,0 +1,50 @@
+version: '3'
+
+vars:
+  BINARY: devrune
+  CMD: ./cmd/devrune
+  VERSION:
+    sh: git describe --tags --always 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  LDFLAGS: '-ldflags "-X main.version={{.VERSION}} -X main.commit={{.COMMIT}}"'
+
+tasks:
+  build:
+    desc: Build the binary for the current platform
+    cmds:
+      - go build {{.LDFLAGS}} -o {{.BINARY}} {{.CMD}}
+
+  build-all:
+    desc: Cross-compile for darwin-arm64, darwin-amd64, linux-amd64
+    cmds:
+      - GOOS=darwin  GOARCH=arm64 go build {{.LDFLAGS}} -o {{.BINARY}}-darwin-arm64  {{.CMD}}
+      - GOOS=darwin  GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BINARY}}-darwin-amd64  {{.CMD}}
+      - GOOS=linux   GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BINARY}}-linux-amd64   {{.CMD}}
+
+  test:
+    desc: Run all tests with race detector and coverage
+    cmds:
+      - go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Format source code
+    cmds:
+      - gofmt -w .
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f {{.BINARY}} {{.BINARY}}-darwin-arm64 {{.BINARY}}-darwin-amd64 {{.BINARY}}-linux-amd64
+      - rm -f coverage.txt coverage.html
+      - rm -rf dist/
+
+  run:
+    desc: Run directly via go run
+    cmds:
+      - go run {{.LDFLAGS}} {{.CMD}}

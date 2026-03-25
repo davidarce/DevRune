@@ -1,0 +1,14 @@
+schemaVersion: devrune/lock/v1
+manifestHash: sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1
+packages:
+  - source:
+      scheme: github
+      owner: davidarce
+      repo: devrune-starter
+      ref: v0.1.0
+      subpath: packages/shared
+    hash: sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    contents:
+      - kind: skill
+        name: git-commit
+        path: skills/git-commit/

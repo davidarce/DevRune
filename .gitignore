@@ -1,0 +1,37 @@
+# Binaries
+devrune
+devrune-darwin-arm64
+devrune-darwin-amd64
+devrune-linux-amd64
+dist/
+
+# Go build artifacts
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Go module cache (in development)
+vendor/
+
+# DevRune workspace state
+.devrune/
+
+# Cache directories
+~/.cache/devrune/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# GoReleaser
+dist/
+.sdd/
+
+# >>> devrune managed — do not edit
+.devrune/
+/var/folders/ls/3b9hb42d6gg88dlks_lnb4900000gp/T/TestE2E_CopilotParityLayout1864037118/001/.github/
+# <<< devrune managed

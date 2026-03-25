@@ -1,0 +1,13 @@
+name: copilot
+type: copilot
+workspace: ".github"
+skillDir: "skills"
+agentDir: "agents"
+rulesDir: "rules"
+catalogFile: "copilot-instructions.md"
+defaultRulesMode: "individual"
+mcp:
+  filePath: "../.vscode/mcp.json"
+  rootKey: "servers"
+  envKey: "env"
+  envVarStyle: "${env:VAR}"

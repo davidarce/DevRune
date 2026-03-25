@@ -1,0 +1,12 @@
+name: opencode
+type: opencode
+workspace: ".opencode"
+skillDir: "skills"
+rulesDir: "rules"
+catalogFile: "AGENTS.md"
+defaultRulesMode: "individual"
+mcp:
+  filePath: "opencode.json"
+  rootKey: "mcp"
+  envKey: "environment"
+  envVarStyle: "{env:VAR}"

@@ -1,0 +1,8 @@
+schemaVersion: devrune/v1
+
+packages:
+  - source: gitlab:myorg/my-catalog@main//packages/shared
+  - source: gitlab:myorg/my-catalog@main//packages/frontend?host=gitlab.example.com
+
+agents:
+  - name: opencode

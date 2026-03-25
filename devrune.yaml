@@ -1,0 +1,35 @@
+schemaVersion: devrune/v1
+packages:
+    - source: local:./devrune-starter-catalog
+      select:
+        skills:
+            - architect-adviser
+            - git-commit
+            - git-pull-request
+            - unit-test-adviser
+        rules:
+            - api/api-standards-rules
+            - architecture/4-rules-of-simple-design-rules
+            - architecture/clean-architecture-rules
+            - tech/accessibility-standards-rules
+            - tech/frontend-testing-rules
+            - tech/java-spring-rules
+            - tech/microfrontends-rules
+            - tech/react-rules
+            - testing/adapter-it-patterns-rules
+            - testing/java-unit-tests-rules
+            - testing/mother-pattern-rules
+mcps:
+    - source: local:./devrune-starter-catalog/mcps/engram.yaml
+    - source: local:./devrune-starter-catalog/mcps/exa.yaml
+    - source: local:./devrune-starter-catalog/mcps/ref.yaml
+    - source: local:./devrune-starter-catalog/mcps/atlassian.yaml
+    - source: local:./devrune-starter-catalog/mcps/context7.yaml
+    - source: local:./devrune-starter-catalog/mcps/playwright.yaml
+agents:
+    - name: claude
+    - name: opencode
+    - name: copilot
+    - name: factory
+workflows:
+    - local:./devrune-starter-catalog/workflows/sdd

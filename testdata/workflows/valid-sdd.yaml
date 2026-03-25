@@ -1,0 +1,25 @@
+apiVersion: devrune/workflow/v1
+metadata:
+  name: sdd
+  description: "Spec-Driven Development workflow"
+  version: "1.0.0"
+components:
+  skills:
+    - sdd-explore
+    - sdd-plan
+    - sdd-implement
+    - sdd-review
+  entrypoint: ORCHESTRATOR.md
+  commands:
+    - name: sdd-explore
+      action: "Explore and investigate"
+      argument: "<topic>"
+    - name: sdd-plan
+      action: "Create implementation plan"
+      argument: "<change>"
+    - name: sdd-implement
+      action: "Execute from plan"
+      argument: "<change>"
+    - name: sdd-review
+      action: "Review implementation"
+      argument: "<change>"

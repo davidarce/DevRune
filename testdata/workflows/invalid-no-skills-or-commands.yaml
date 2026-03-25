@@ -1,0 +1,6 @@
+apiVersion: devrune/workflow/v1
+metadata:
+  name: empty-workflow
+  version: "1.0.0"
+components:
+  entrypoint: ORCHESTRATOR.md

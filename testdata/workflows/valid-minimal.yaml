@@ -1,0 +1,11 @@
+apiVersion: devrune/workflow/v1
+metadata:
+  name: code-review
+  version: "0.1.0"
+components:
+  skills:
+    - review-scan
+  commands:
+    - name: review-scan
+      action: "Quick scan for issues"
+      argument: "<scope>"
