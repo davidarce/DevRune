@@ -37,7 +37,6 @@ archives:
     format: tar.gz
     files:
       - LICENSE
-      - README.md
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
@@ -46,7 +45,7 @@ checksum:
 release:
   github:
     owner: davidarce
-    name: devrune
+    name: DevRune
   name_template: "v{{ .Version }}"
   draft: false
   prerelease: auto
