@@ -37,6 +37,7 @@ archives:
     format: tar.gz
     files:
       - LICENSE
+      - README.md
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
