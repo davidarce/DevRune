@@ -1003,8 +1003,8 @@ func TestMaterializer_EnsureRootMCPJSON_AlwaysClaudeFormat(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// The materializer must have created .mcp.json at project root (current dir).
-	rootMCPPath := ".mcp.json"
+	// The materializer must have created .mcp.json at project root (tmpDir).
+	rootMCPPath := filepath.Join(tmpDir, ".mcp.json")
 	data, err := os.ReadFile(rootMCPPath)
 	if err != nil {
 		t.Fatalf("ensureRootMCPJSON should create %q: %v", rootMCPPath, err)
@@ -1076,7 +1076,7 @@ func TestMaterializer_EnsureRootMCPJSON_OpenCodeAgentStillClaudeFormat(t *testin
 	}
 
 	// Root .mcp.json must use Claude format regardless of OpenCode's "mcp" root key.
-	rootMCPPath := ".mcp.json"
+	rootMCPPath := filepath.Join(tmpDir, ".mcp.json")
 	data, err := os.ReadFile(rootMCPPath)
 	if err != nil {
 		t.Fatalf("ensureRootMCPJSON should create %q even for OpenCode agent: %v", rootMCPPath, err)
