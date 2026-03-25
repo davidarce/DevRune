@@ -204,9 +204,17 @@ func (m *Materializer) Install(
 			if !m.cache.Has(wf.Hash) {
 				return fmt.Errorf("materializer: workflow %q not in cache (run 'devrune resolve')", wf.Name)
 			}
-			wfDir, ok := m.cache.Get(wf.Hash)
+			cacheDir, ok := m.cache.Get(wf.Hash)
 			if !ok {
 				return fmt.Errorf("materializer: get cached workflow %q: not found", wf.Name)
+			}
+
+			// wf.Dir is the relative path within the cached archive where workflow.yaml
+			// lives (e.g. "workflows/sdd" for a catalog archive, "" for a standalone
+			// workflow archive). Join to get the actual workflow root directory.
+			wfDir := cacheDir
+			if wf.Dir != "" {
+				wfDir = filepath.Join(cacheDir, wf.Dir)
 			}
 
 			// Parse the workflow manifest from the cached directory.

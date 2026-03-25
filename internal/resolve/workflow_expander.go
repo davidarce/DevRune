@@ -36,10 +36,13 @@ func ExpandWorkflows(_ context.Context, manifest model.UserManifest, _ Fetcher, 
 
 // extractAndParseWorkflow reads workflow.yaml from the gzip-compressed tar archive.
 // wfSource is used only in error messages.
-func extractAndParseWorkflow(data []byte, wfSource string) (model.WorkflowManifest, error) {
+// Returns the parsed WorkflowManifest and the relative directory path (within the
+// extracted archive) where workflow.yaml was found (e.g. "workflows/sdd" for a
+// catalog archive, or "" for a standalone workflow archive).
+func extractAndParseWorkflow(data []byte, wfSource string) (model.WorkflowManifest, string, error) {
 	files, err := extractFilesFromTar(data)
 	if err != nil {
-		return model.WorkflowManifest{}, fmt.Errorf("extract archive: %w", err)
+		return model.WorkflowManifest{}, "", fmt.Errorf("extract archive: %w", err)
 	}
 
 	// Look for workflow.yaml at any depth (strip first component like file_store).
@@ -51,13 +54,19 @@ func extractAndParseWorkflow(data []byte, wfSource string) (model.WorkflowManife
 		if filepath.Base(filepath.FromSlash(base)) == workflowYAML {
 			wf, err := parse.ParseWorkflow(content)
 			if err != nil {
-				return model.WorkflowManifest{}, fmt.Errorf("workflow %q: %w", wfSource, err)
+				return model.WorkflowManifest{}, "", fmt.Errorf("workflow %q: %w", wfSource, err)
 			}
-			return wf, nil
+			// Compute the directory containing workflow.yaml (relative to archive root).
+			// filepath.Dir("workflow.yaml") == "." → normalise to "".
+			dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(base)))
+			if dir == "." {
+				dir = ""
+			}
+			return wf, dir, nil
 		}
 	}
 
-	return model.WorkflowManifest{}, fmt.Errorf("workflow %q: no workflow.yaml found in archive", wfSource)
+	return model.WorkflowManifest{}, "", fmt.Errorf("workflow %q: no workflow.yaml found in archive", wfSource)
 }
 
 // stripFirstPathComponent removes the first "/" separated component from path.

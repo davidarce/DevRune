@@ -214,7 +214,7 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 	}
 
 	// Parse workflow.yaml to extract the workflow name.
-	wfManifest, err := extractAndParseWorkflow(data, wfSource)
+	wfManifest, wfDir, err := extractAndParseWorkflow(data, wfSource)
 	if err != nil {
 		return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: %w", wfSource, err)
 	}
@@ -223,6 +223,7 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 		Source: sourceRef,
 		Hash:   hash,
 		Name:   wfManifest.Metadata.Name,
+		Dir:    wfDir,
 	}, nil
 }
 

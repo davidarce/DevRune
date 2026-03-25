@@ -9,10 +9,10 @@ import (
 // It is the single source of truth for deterministic installs.
 // All install operations must read from the lockfile, never from the manifest directly.
 type Lockfile struct {
-	SchemaVersion string          `yaml:"schemaVersion"`
-	ManifestHash  string          `yaml:"manifestHash"` // SHA256 of devrune.yaml
-	Packages      []LockedPackage `yaml:"packages"`
-	MCPs          []LockedMCP     `yaml:"mcps,omitempty"`
+	SchemaVersion string           `yaml:"schemaVersion"`
+	ManifestHash  string           `yaml:"manifestHash"` // SHA256 of devrune.yaml
+	Packages      []LockedPackage  `yaml:"packages"`
+	MCPs          []LockedMCP      `yaml:"mcps,omitempty"`
 	Workflows     []LockedWorkflow `yaml:"workflows,omitempty"`
 }
 
@@ -34,7 +34,8 @@ type LockedMCP struct {
 type LockedWorkflow struct {
 	Source SourceRef `yaml:"source"`
 	Hash   string    `yaml:"hash"`
-	Name   string    `yaml:"name"` // workflow name from workflow.yaml metadata.name
+	Name   string    `yaml:"name"`          // workflow name from workflow.yaml metadata.name
+	Dir    string    `yaml:"dir,omitempty"` // relative path to workflow root within the cached archive dir (empty = root)
 }
 
 // Validate checks that the Lockfile has all required fields and is consistent.
