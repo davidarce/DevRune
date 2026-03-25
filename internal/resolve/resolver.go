@@ -169,13 +169,15 @@ func (r *Resolver) resolveMCP(ctx context.Context, mcp model.MCPRef) (model.Lock
 
 	hash := HashBytes(data)
 
-	// Derive an MCP name from the source ref (owner/repo or local path basename).
+	// Derive an MCP name and subdir from the source ref.
 	name := mcpName(sourceRef)
+	dir := mcpDir(sourceRef)
 
 	return model.LockedMCP{
 		Source: sourceRef,
 		Hash:   hash,
 		Name:   name,
+		Dir:    dir,
 	}, nil
 }
 
@@ -238,9 +240,15 @@ func computeManifestHash(manifest model.UserManifest) (string, error) {
 }
 
 // mcpName derives a human-readable name for an MCP from its SourceRef.
+// When a Subpath is present (e.g. "mcps/atlassian"), the basename is used ("atlassian").
+// This ensures catalog-hosted MCPs get their individual name, not the repo name.
 func mcpName(ref model.SourceRef) string {
 	switch ref.Scheme {
 	case model.SchemeGitHub, model.SchemeGitLab:
+		// Prefer subpath basename when available (e.g. "mcps/atlassian" → "atlassian").
+		if ref.Subpath != "" {
+			return pathBasename(ref.Subpath)
+		}
 		if ref.Repo != "" {
 			return ref.Repo
 		}
@@ -267,4 +275,28 @@ func mcpName(ref model.SourceRef) string {
 		}
 	}
 	return string(ref.Scheme)
+}
+
+// mcpDir returns the relative directory path within the cached archive where the
+// MCP definition file lives. For catalog-hosted MCPs this equals the Subpath
+// (e.g. "mcps/atlassian"). For standalone MCP sources with no subpath, it is "".
+func mcpDir(ref model.SourceRef) string {
+	switch ref.Scheme {
+	case model.SchemeGitHub, model.SchemeGitLab:
+		return ref.Subpath // may be "" for standalone MCP repos
+	case model.SchemeLocal:
+		return "" // local MCPs point directly at the definition file/dir
+	}
+	return ""
+}
+
+// pathBasename returns the last slash-separated component of p.
+// Trailing slashes are stripped before extracting the component.
+func pathBasename(p string) string {
+	p = strings.TrimRight(p, "/")
+	idx := strings.LastIndex(p, "/")
+	if idx < 0 {
+		return p
+	}
+	return p[idx+1:]
 }

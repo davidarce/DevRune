@@ -146,13 +146,18 @@ func (r *ClaudeRenderer) RenderMCPs(mcps []model.LockedMCP, cacheStore matypes.C
 		if !cacheStore.Has(mcp.Hash) {
 			return fmt.Errorf("claude: MCP %q not in cache", mcp.Name)
 		}
-		mcpDir, ok := cacheStore.Get(mcp.Hash)
+		cacheDir, ok := cacheStore.Get(mcp.Hash)
 		if !ok {
 			return fmt.Errorf("claude: get MCP %q: not in cache", mcp.Name)
 		}
 
+		// Resolve the effective path for the MCP definition.
+		// mcp.Dir holds the Subpath from the source ref (e.g. "mcps/atlassian").
+		// resolveMCPDefDir handles both single-file catalog MCPs and standalone repos.
+		mcpDefDir := resolveMCPDefDir(cacheDir, mcp.Dir)
+
 		// The MCP definition is a YAML file; read and parse it.
-		mcpData, err := readMCPDefinition(mcpDir)
+		mcpData, err := readMCPDefinition(mcpDefDir)
 		if err != nil {
 			return fmt.Errorf("claude: read MCP definition %q: %w", mcp.Name, err)
 		}
@@ -542,6 +547,23 @@ func resolveSkillFile(path string) (string, error) {
 // readMCPDefinition reads the MCP server definition from a cached directory.
 // The definition YAML file may be named mcp.yaml or have the MCP name.
 func readMCPDefinition(mcpDir string) (map[string]interface{}, error) {
+	// If mcpDir is not an existing directory, treat it as a path stem and probe
+	// <mcpDir>.yaml and <mcpDir>.yml directly (catalog-hosted single-file MCPs).
+	if info, err := os.Stat(mcpDir); err != nil || !info.IsDir() {
+		for _, ext := range []string{".yaml", ".yml"} {
+			candidate := mcpDir + ext
+			if data, err := os.ReadFile(candidate); err == nil {
+				var def map[string]interface{}
+				if parseErr := parseYAML(data, &def); parseErr != nil {
+					return nil, parseErr
+				}
+				return def, nil
+			}
+		}
+		return map[string]interface{}{}, nil
+	}
+
+	// mcpDir is a real directory — scan for a YAML definition file.
 	// Try common names.
 	candidates := []string{"mcp.yaml", "definition.yaml"}
 	entries, err := os.ReadDir(mcpDir)

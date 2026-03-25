@@ -28,6 +28,7 @@ type LockedMCP struct {
 	Source SourceRef `yaml:"source"`
 	Hash   string    `yaml:"hash"`
 	Name   string    `yaml:"name"`
+	Dir    string    `yaml:"dir,omitempty"` // relative path to MCP definition file or directory within cached archive (empty = root)
 }
 
 // LockedWorkflow is a fully resolved workflow entry in the lockfile.

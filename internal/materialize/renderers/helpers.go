@@ -295,12 +295,19 @@ func normalizeMCPDefinitions(mcps []model.LockedMCP, cacheStore matypes.CacheSto
 		if !cacheStore.Has(mcp.Hash) {
 			return nil, fmt.Errorf("normalizeMCPDefinitions: MCP %q not in cache", mcp.Name)
 		}
-		mcpDir, ok := cacheStore.Get(mcp.Hash)
+		cacheDir, ok := cacheStore.Get(mcp.Hash)
 		if !ok {
 			return nil, fmt.Errorf("normalizeMCPDefinitions: get MCP %q: not in cache", mcp.Name)
 		}
 
-		rawDef, err := readMCPDefinition(mcpDir)
+		// Resolve the effective directory containing the MCP definition file.
+		// mcp.Dir holds the Subpath from the source ref (e.g. "mcps/atlassian").
+		// The definition may live as a YAML file alongside the subpath basename
+		// (e.g. cacheDir/mcps/atlassian.yaml) or inside a subdirectory
+		// (e.g. cacheDir/mcps/atlassian/mcp.yaml).
+		mcpDefDir := resolveMCPDefDir(cacheDir, mcp.Dir)
+
+		rawDef, err := readMCPDefinition(mcpDefDir)
 		if err != nil {
 			return nil, fmt.Errorf("normalizeMCPDefinitions: read MCP definition %q: %w", mcp.Name, err)
 		}
@@ -313,6 +320,36 @@ func normalizeMCPDefinitions(mcps []model.LockedMCP, cacheStore matypes.CacheSto
 		})
 	}
 	return result, nil
+}
+
+// ResolveMCPDefDir returns the directory path to use when reading an MCP definition
+// from a cached archive. dir is the Subpath from the LockedMCP (e.g. "mcps/atlassian").
+//
+//   - If dir is empty, cacheRoot is returned as-is (standalone MCP repo).
+//   - If cacheRoot/dir is an existing directory, it is returned directly.
+//   - Otherwise, cacheRoot/dir is returned as a path stem: readMCPDefinition will
+//     probe <stem>.yaml and <stem>.yml for single-file catalog MCPs.
+//
+// This is the exported equivalent of resolveMCPDefDir. External callers (e.g.
+// materializer.ensureRootMCPJSON) should use this function.
+func ResolveMCPDefDir(cacheRoot, dir string) string {
+	return resolveMCPDefDir(cacheRoot, dir)
+}
+
+// resolveMCPDefDir is the internal implementation of ResolveMCPDefDir.
+func resolveMCPDefDir(cacheRoot, dir string) string {
+	if dir == "" {
+		return cacheRoot
+	}
+	candidate := filepath.Join(cacheRoot, dir)
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		// dir is a real subdirectory — use it directly.
+		return candidate
+	}
+	// dir is not a directory — the definition is a single YAML file.
+	// Return the path stem (without extension); readMCPDefinition will probe
+	// <stem>.yaml and <stem>.yml before falling back to a directory scan.
+	return candidate
 }
 
 // buildWorkflowPlaceholderReplacements constructs the shared placeholder replacement

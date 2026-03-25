@@ -429,12 +429,15 @@ func (m *Materializer) ensureRootMCPJSON(mcps []model.LockedMCP, projectRoot str
 		if !m.cache.Has(mcp.Hash) {
 			return fmt.Errorf("ensureRootMCPJSON: MCP %q not in cache", mcp.Name)
 		}
-		mcpDir, ok := m.cache.Get(mcp.Hash)
+		cacheDir, ok := m.cache.Get(mcp.Hash)
 		if !ok {
 			return fmt.Errorf("ensureRootMCPJSON: get MCP %q: not in cache", mcp.Name)
 		}
 
-		rawDef, err := renderers.ReadMCPDefinitionFromDir(mcpDir)
+		// Resolve the effective path for the MCP definition (same logic as normalizeMCPDefinitions).
+		mcpDefDir := renderers.ResolveMCPDefDir(cacheDir, mcp.Dir)
+
+		rawDef, err := renderers.ReadMCPDefinitionFromDir(mcpDefDir)
 		if err != nil {
 			return fmt.Errorf("ensureRootMCPJSON: read MCP definition %q: %w", mcp.Name, err)
 		}
@@ -464,13 +467,20 @@ func (m *Materializer) ensureRootMCPJSON(mcps []model.LockedMCP, projectRoot str
 		}
 	}
 
-	// Merge: existing entries win; new entries are added.
+	// Merge: new entries win over empty existing entries (e.g. {} placeholders);
+	// non-empty existing entries are preserved so unrelated user config is never clobbered.
 	merged := make(map[string]interface{})
 	for k, v := range existingServers {
 		merged[k] = v
 	}
 	for k, v := range newServers {
-		if _, exists := merged[k]; !exists {
+		existing, exists := merged[k]
+		if !exists {
+			merged[k] = v
+			continue
+		}
+		// Overwrite only if the existing entry is an empty map (i.e. a stale {} placeholder).
+		if em, ok := existing.(map[string]interface{}); ok && len(em) == 0 {
 			merged[k] = v
 		}
 	}
