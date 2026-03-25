@@ -722,15 +722,16 @@ components:
 }
 
 // TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash verifies that {SKILLS_PATH}
-// in REGISTRY.md is resolved without double slashes (e.g. ".claude/skills/sdd/sdd-orchestrator"
-// not ".claude/skills/sdd//sdd-orchestrator").
+// in REGISTRY.md is resolved without double slashes and without spurious subdirectories.
+// The real catalog uses {SKILLS_PATH}/ORCHESTRATOR.md (ORCHESTRATOR.md sits directly
+// under the workflow dir, not under sdd-orchestrator/).
 func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeAgentDef())
 
 	wfCacheDir := t.TempDir()
 
-	// REGISTRY.md uses {SKILLS_PATH}/sdd-orchestrator pattern (same as real catalog).
-	registryContent := "Full orchestrator instructions: {SKILLS_PATH}/sdd-orchestrator/ORCHESTRATOR.md\n"
+	// REGISTRY.md uses {SKILLS_PATH}/ORCHESTRATOR.md — matching the real catalog template.
+	registryContent := "Full orchestrator instructions: {SKILLS_PATH}/ORCHESTRATOR.md\n"
 	if err := os.WriteFile(filepath.Join(wfCacheDir, "REGISTRY.md"), []byte(registryContent), 0o644); err != nil {
 		t.Fatalf("write REGISTRY.md: %v", err)
 	}
@@ -763,6 +764,11 @@ func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
 	}
 	if strings.Contains(content, "{SKILLS_PATH}") {
 		t.Errorf("{SKILLS_PATH} was not resolved; got:\n%s", content)
+	}
+	// Path must resolve to skills/sdd/ORCHESTRATOR.md — no spurious sdd-orchestrator/ subdir.
+	wantSuffix := "skills/sdd/ORCHESTRATOR.md"
+	if !strings.Contains(content, wantSuffix) {
+		t.Errorf("expected path containing %q; got:\n%s", wantSuffix, content)
 	}
 }
 
