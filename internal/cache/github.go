@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 
 	"github.com/davidarce/devrune/internal/model"
 )
@@ -18,15 +17,13 @@ type GitHubFetcher struct {
 	token  string // optional, from GITHUB_TOKEN env var
 }
 
-// NewGitHubFetcher creates a GitHubFetcher. If token is empty the GITHUB_TOKEN
-// environment variable is read. Pass an explicit empty string to disable auth.
+// NewGitHubFetcher creates a GitHubFetcher. Token resolution follows a three-tier
+// strategy: explicit token → GITHUB_TOKEN env var → gh auth token CLI fallback.
+// This allows seamless use with private repos when the gh CLI is authenticated.
 func NewGitHubFetcher(token string) *GitHubFetcher {
-	if token == "" {
-		token = os.Getenv("GITHUB_TOKEN")
-	}
 	return &GitHubFetcher{
 		client: &http.Client{},
-		token:  token,
+		token:  resolveToken(token, "GITHUB_TOKEN"),
 	}
 }
 

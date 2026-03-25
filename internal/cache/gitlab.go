@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/davidarce/devrune/internal/model"
 )
@@ -23,15 +22,13 @@ type GitLabFetcher struct {
 	token  string // optional, from GITLAB_TOKEN env var
 }
 
-// NewGitLabFetcher creates a GitLabFetcher. If token is empty the GITLAB_TOKEN
-// environment variable is read. Pass an explicit empty string to disable auth.
+// NewGitLabFetcher creates a GitLabFetcher. Token resolution follows a three-tier
+// strategy: explicit token → GITLAB_TOKEN env var → gh auth token CLI fallback.
+// This allows seamless use with private repos when the gh CLI is authenticated.
 func NewGitLabFetcher(token string) *GitLabFetcher {
-	if token == "" {
-		token = os.Getenv("GITLAB_TOKEN")
-	}
 	return &GitLabFetcher{
 		client: &http.Client{},
-		token:  token,
+		token:  resolveToken(token, "GITLAB_TOKEN"),
 	}
 }
 
