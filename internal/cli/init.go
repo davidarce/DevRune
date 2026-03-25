@@ -151,8 +151,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// --- Styled installation output ---
 	_, _ = fmt.Fprintln(out)
-	fmt.Fprintln(out, tuistyles.StyleSubtitle.Render("  Installing..."))
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, tuistyles.StyleSubtitle.Render("  Installing..."))
+	_, _ = fmt.Fprintln(out)
 
 	// Write manifest.
 	if err := os.WriteFile(destPath, data, 0o644); err != nil {
@@ -190,7 +190,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 		_ = lockfile
 	} else {
-		fmt.Fprintln(out, tuistyles.StyleInfo.Render("  No packages to resolve."))
+		_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  No packages to resolve."))
 	}
 
 	// --- Interactive completion screen ---
@@ -207,9 +207,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Non-interactive: plain text summary.
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  Installation complete!"))
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  Installation complete!"))
+	_, _ = fmt.Fprintln(out)
 	printSummaryLine(out, "Agents", strings.Join(agentSummary, ", "))
 	if len(manifest.Packages) > 0 {
 		printSummaryLine(out, "Repos", fmt.Sprintf("%d", len(manifest.Packages)))
@@ -222,30 +222,30 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	printSummaryLine(out, "Manifest", destPath)
 	printSummaryLine(out, "Lockfile", filepath.Join(wd, "devrune.lock"))
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 
 	return nil
 }
 
 // printProgress writes a styled "in progress" step line.
 func printProgress(out io.Writer, msg string) {
-	fmt.Fprintln(out, tuistyles.StyleInfo.Render("  ⧗ "+msg))
+	_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  ⧗ "+msg))
 }
 
 // printDone writes a styled "completed" step line with a green checkmark.
 func printDone(out io.Writer, msg string) {
-	fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  ✓ ")+tuistyles.StyleSummaryValue.Render(msg))
+	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  ✓ ")+tuistyles.StyleSummaryValue.Render(msg))
 }
 
 // printError writes a styled error line with a red cross.
 func printError(out io.Writer, msg string) {
-	fmt.Fprintln(out, tuistyles.StyleError.Render("  ✗ "+msg))
+	_, _ = fmt.Fprintln(out, tuistyles.StyleError.Render("  ✗ "+msg))
 }
 
 // printSummaryLine writes a styled key-value summary line.
 func printSummaryLine(out io.Writer, key, value string) {
 	padded := fmt.Sprintf("%-12s", key+":")
-	fmt.Fprintln(out, "  "+tuistyles.StyleSummaryKey.Render(padded)+tuistyles.StyleSummaryValue.Render(value))
+	_, _ = fmt.Fprintln(out, "  "+tuistyles.StyleSummaryKey.Render(padded)+tuistyles.StyleSummaryValue.Render(value))
 }
 
 // nopWriter discards all writes. Used to suppress pipeline output when the

@@ -56,7 +56,7 @@ func Run() (model.UserManifest, error) {
 		// Report any scan errors but continue with successful repos.
 		for _, r := range scanned {
 			if r.Error != nil {
-				fmt.Fprintf(os.Stderr, "  Warning: %s — %v\n", r.Source, r.Error)
+				_, _ = fmt.Fprintf(os.Stderr, "  Warning: %s — %v\n", r.Source, r.Error)
 			}
 		}
 

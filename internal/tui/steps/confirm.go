@@ -47,10 +47,10 @@ func ConfirmSummary(agents []string, selection SelectionResult) (model.UserManif
 func buildSelectionSummary(agents []string, selection SelectionResult) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("Agents: %s\n\n", formatList(agents, "(none)")))
+	_, _ = fmt.Fprintf(&b, "Agents: %s\n\n", formatList(agents, "(none)"))
 
 	for _, repo := range selection.Repos {
-		b.WriteString(fmt.Sprintf("%s:\n", repo.Source))
+		_, _ = fmt.Fprintf(&b, "%s:\n", repo.Source)
 
 		if len(repo.SelectedSkills) > 0 || len(repo.SelectedRules) > 0 ||
 			len(repo.SelectedMCPs) > 0 || len(repo.SelectedWorkflows) > 0 {
@@ -60,7 +60,7 @@ func buildSelectionSummary(agents []string, selection SelectionResult) string {
 			writeCountLine(&b, "  MCPs", repo.SelectedMCPs)
 
 			if len(repo.SelectedWorkflows) > 0 {
-				b.WriteString(fmt.Sprintf("  Workflows: %s\n", strings.Join(repo.SelectedWorkflows, ", ")))
+				_, _ = fmt.Fprintf(&b, "  Workflows: %s\n", strings.Join(repo.SelectedWorkflows, ", "))
 			}
 		} else {
 			b.WriteString("  (nothing selected)\n")
@@ -74,7 +74,7 @@ func buildSelectionSummary(agents []string, selection SelectionResult) string {
 // writeCountLine writes a "  Label: N" line if items is non-empty.
 func writeCountLine(b *strings.Builder, label string, items []string) {
 	if len(items) > 0 {
-		b.WriteString(fmt.Sprintf("%s: %d\n", label, len(items)))
+		_, _ = fmt.Fprintf(b, "%s: %d\n", label, len(items))
 	}
 }
 

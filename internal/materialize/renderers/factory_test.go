@@ -101,7 +101,7 @@ func TestFactoryRenderer_ModelResolution(t *testing.T) {
 			srcDir := writeSkillFile(t, input)
 			destDir := t.TempDir()
 
-			r.RenderSkill(srcDir, destDir)
+			_ = r.RenderSkill(srcDir, destDir)
 			data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 			fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -120,7 +120,7 @@ func TestFactoryRenderer_ReasoningEffortCamelCase(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -144,7 +144,7 @@ func TestFactoryRenderer_UserInvocableNotInjectedForRegularSkills(t *testing.T) 
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -169,7 +169,7 @@ Body.
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -281,7 +281,7 @@ func TestFactoryRenderer_Finalize_ResolvesEnvPlaceholders(t *testing.T) {
 
 	// Write mcp.json at the workspace root (the correct .factory/mcp.json location).
 	mcpContent := `{"mcpServers":{"test":{"command":"${TEST_CMD_VAR}"}}}`
-	os.WriteFile(filepath.Join(workspaceRoot, "mcp.json"), []byte(mcpContent), 0o644)
+	_ = os.WriteFile(filepath.Join(workspaceRoot, "mcp.json"), []byte(mcpContent), 0o644)
 
 	// Set the env var.
 	t.Setenv("TEST_CMD_VAR", "npx-resolved")
@@ -308,7 +308,7 @@ func TestFactoryRenderer_Finalize_KeepsUnresolvedPlaceholders(t *testing.T) {
 	workspaceRoot := t.TempDir()
 
 	mcpContent := `{"mcpServers":{"test":{"command":"${UNSET_VAR_12345}"}}}`
-	os.WriteFile(filepath.Join(workspaceRoot, "mcp.json"), []byte(mcpContent), 0o644)
+	_ = os.WriteFile(filepath.Join(workspaceRoot, "mcp.json"), []byte(mcpContent), 0o644)
 
 	// Ensure the var is unset.
 	_ = os.Unsetenv("UNSET_VAR_12345")

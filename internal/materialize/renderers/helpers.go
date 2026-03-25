@@ -488,7 +488,7 @@ func generateMCPCatalogSections(mcps []normalizedMCP) string {
 		if mcp.AgentInstructions == "" {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("## %s\n\n", capitalizeFirst(mcp.Name)))
+		_, _ = fmt.Fprintf(&sb, "## %s\n\n", capitalizeFirst(mcp.Name))
 		sb.WriteString(mcp.AgentInstructions)
 		if !strings.HasSuffix(mcp.AgentInstructions, "\n") {
 			sb.WriteString("\n")

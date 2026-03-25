@@ -45,7 +45,7 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 
 	cacheDir := cachePath()
 	if verbose {
-		fmt.Fprintf(out, "Cache directory: %s\n", cacheDir)
+		_, _ = fmt.Fprintf(out, "Cache directory: %s\n", cacheDir)
 	}
 	cacheStore := cache.NewFileCacheStore(cacheDir)
 
@@ -56,7 +56,7 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 
 	resolver := resolve.NewResolver(multiFetcher, cacheStore, workDir)
 
-	fmt.Fprintf(out, "Resolving packages...")
+	_, _ = fmt.Fprintf(out, "Resolving packages...")
 
 	lockfile, err := resolver.Resolve(ctx, manifest)
 	if err != nil {
@@ -73,14 +73,14 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 		return model.Lockfile{}, fmt.Errorf("write lockfile %s: %w", lockPath, err)
 	}
 
-	fmt.Fprintf(out, " done\n")
+	_, _ = fmt.Fprintf(out, " done\n")
 
 	// Print summary.
 	skillCount, ruleCount := countContents(lockfile)
-	fmt.Fprintf(out, "  packages: %d, MCPs: %d, workflows: %d\n",
+	_, _ = fmt.Fprintf(out, "  packages: %d, MCPs: %d, workflows: %d\n",
 		len(lockfile.Packages), len(lockfile.MCPs), len(lockfile.Workflows))
-	fmt.Fprintf(out, "  skills: %d, rules: %d\n", skillCount, ruleCount)
-	fmt.Fprintf(out, "  lockfile: %s\n", lockPath)
+	_, _ = fmt.Fprintf(out, "  skills: %d, rules: %d\n", skillCount, ruleCount)
+	_, _ = fmt.Fprintf(out, "  lockfile: %s\n", lockPath)
 
 	return lockfile, nil
 }
@@ -106,7 +106,7 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 	}
 
 	if verbose {
-		fmt.Fprintf(out, "Loaded lockfile: %s\n", lockfilePath)
+		_, _ = fmt.Fprintf(out, "Loaded lockfile: %s\n", lockfilePath)
 	}
 
 	cacheDir := cachePath()
@@ -120,7 +120,7 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 	}
 
 	if verbose {
-		fmt.Fprintf(out, "Link mode: %s\n", linker.Mode())
+		_, _ = fmt.Fprintf(out, "Link mode: %s\n", linker.Mode())
 	}
 
 	renderers, err := materialize.LoadDefaultRegistry()
@@ -130,13 +130,13 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 
 	materializer := materialize.NewMaterializer(cacheStore, linker, stateMgr, renderers)
 
-	fmt.Fprintf(out, "Installing workspace...")
+	_, _ = fmt.Fprintf(out, "Installing workspace...")
 
 	if err := materializer.Install(ctx, lockfile, manifest.Agents, manifest.Install); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
-	fmt.Fprintf(out, " done\n")
+	_, _ = fmt.Fprintf(out, " done\n")
 
 	agentNames := make([]string, 0, len(manifest.Agents))
 	for _, a := range manifest.Agents {
@@ -144,9 +144,9 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 	}
 
 	skillCount, _ := countContents(lockfile)
-	fmt.Fprintf(out, "  agents: %v\n", agentNames)
-	fmt.Fprintf(out, "  skills: %d, workflows: %d\n", skillCount, len(lockfile.Workflows))
-	fmt.Fprintf(out, "\nReady! Your AI agent workspace is configured.\n")
+	_, _ = fmt.Fprintf(out, "  agents: %v\n", agentNames)
+	_, _ = fmt.Fprintf(out, "  skills: %d, workflows: %d\n", skillCount, len(lockfile.Workflows))
+	_, _ = fmt.Fprintf(out, "\nReady! Your AI agent workspace is configured.\n")
 
 	return nil
 }

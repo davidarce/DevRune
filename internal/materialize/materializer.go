@@ -87,7 +87,7 @@ func (m *Materializer) Install(
 	for _, p := range prevState.ManagedPaths {
 		if removeErr := os.RemoveAll(p); removeErr != nil {
 			// Non-fatal: log and continue.
-			fmt.Fprintf(os.Stderr, "materializer: warning: remove %q: %v\n", p, removeErr)
+			_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: remove %q: %v\n", p, removeErr)
 		}
 	}
 
@@ -228,7 +228,7 @@ func (m *Materializer) Install(
 			// Step 9: Update .gitignore for this workflow.
 			if err := addGitignoreEntry(wfManifest.Metadata.Name); err != nil {
 				// Non-fatal: gitignore update failure should not block installation.
-				fmt.Fprintf(os.Stderr, "materializer: warning: gitignore update for %q: %v\n",
+				_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: gitignore update for %q: %v\n",
 					wfManifest.Metadata.Name, err)
 			}
 		}
@@ -284,7 +284,7 @@ func (m *Materializer) Install(
 	hasMCPs := len(lock.MCPs) > 0
 	if err := ensureGitignore(agents, m.renderers, hasMCPs); err != nil {
 		// Non-fatal: warn but don't fail the install.
-		fmt.Fprintf(os.Stderr, "materializer: warning: update .gitignore: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: update .gitignore: %v\n", err)
 	}
 
 	// Step 13: Release lock (handled by defer).
@@ -331,7 +331,7 @@ func appendRuleToConcat(srcPath, combinedPath, ruleName string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("\n\n<!-- rule: %s -->\n", ruleName))
+	_, _ = fmt.Fprintf(&sb, "\n\n<!-- rule: %s -->\n", ruleName)
 	sb.Write(data)
 	sb.WriteString("\n")
 

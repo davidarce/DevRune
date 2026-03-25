@@ -108,7 +108,7 @@ func readFrontmatterDesc(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	inFrontmatter := false
@@ -139,7 +139,7 @@ func readWorkflowDesc(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	inMetadata := false

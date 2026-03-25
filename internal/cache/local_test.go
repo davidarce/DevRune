@@ -34,7 +34,7 @@ func extractArchiveFiles(t *testing.T, data []byte) map[string]string {
 	if err != nil {
 		t.Fatalf("gzip.NewReader: %v", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	files := make(map[string]string)
@@ -107,7 +107,7 @@ func TestLocalFetcher_FetchDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("result is not a valid gzip stream: %v", err)
 	}
-	gr.Close()
+	_ = gr.Close()
 }
 
 // TestLocalFetcher_FetchedArchiveContainsExpectedFiles verifies that the
@@ -265,7 +265,7 @@ func TestLocalFetcher_EmptyDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("result is not valid gzip: %v", err)
 	}
-	gr.Close()
+	_ = gr.Close()
 
 	// No regular files.
 	files := extractArchiveFiles(t, data)

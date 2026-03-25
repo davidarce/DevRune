@@ -208,7 +208,7 @@ func (r *FactoryRenderer) RenderCatalog(skills []model.ContentItem, rules []mode
 	if len(skills) > 0 {
 		sb.WriteString("## Skills\n\n")
 		for _, s := range skills {
-			sb.WriteString(fmt.Sprintf("- `%s`\n", s.Name))
+			_, _ = fmt.Fprintf(&sb, "- `%s`\n", s.Name)
 		}
 		sb.WriteString("\n")
 	}
@@ -216,7 +216,7 @@ func (r *FactoryRenderer) RenderCatalog(skills []model.ContentItem, rules []mode
 	if len(workflows) > 0 {
 		sb.WriteString("## Workflows\n\n")
 		for _, wf := range workflows {
-			sb.WriteString(fmt.Sprintf("### %s\n\n", wf.Metadata.Name))
+			_, _ = fmt.Fprintf(&sb, "### %s\n\n", wf.Metadata.Name)
 			if wf.Metadata.Description != "" {
 				sb.WriteString(wf.Metadata.Description + "\n\n")
 			}
@@ -224,7 +224,7 @@ func (r *FactoryRenderer) RenderCatalog(skills []model.ContentItem, rules []mode
 				sb.WriteString("| Command | Action |\n")
 				sb.WriteString("|---------|--------|\n")
 				for _, cmd := range wf.Components.Commands {
-					sb.WriteString(fmt.Sprintf("| `%s` | %s |\n", cmd.Name, cmd.Action))
+					_, _ = fmt.Fprintf(&sb, "| `%s` | %s |\n", cmd.Name, cmd.Action)
 				}
 				sb.WriteString("\n")
 			}

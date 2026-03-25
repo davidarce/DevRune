@@ -80,7 +80,7 @@ func tarGzFile(path string, info os.FileInfo) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("local fetcher: open %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := io.Copy(tw, f); err != nil {
 		return nil, fmt.Errorf("local fetcher: copy %q: %w", path, err)
@@ -155,7 +155,7 @@ func tarGzDir(srcDir string) ([]byte, error) {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			if _, err := io.Copy(tw, f); err != nil {
 				return err
 			}

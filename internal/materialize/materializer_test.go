@@ -266,7 +266,7 @@ func TestMaterializer_Install_RendersSkills(t *testing.T) {
 	pkgDir := t.TempDir()
 	skillDir := filepath.Join(pkgDir, "skills", "git-commit")
 	_ = os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: git:commit\ndescription: D\n---\nB.\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: git:commit\ndescription: D\n---\nB.\n"), 0o644)
 
 	cache := newStubCache()
 	pkgHash := "sha256:pkghash"
@@ -443,7 +443,7 @@ func TestMaterializer_Install_WritesSchemaVersion(t *testing.T) {
 	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
 
 	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:abc"}
-	m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
+	_ = m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{})
 
 	if stateMgr.written.SchemaVersion != "devrune/state/v1" {
 		t.Errorf("state.SchemaVersion = %q, want %q", stateMgr.written.SchemaVersion, "devrune/state/v1")
@@ -488,8 +488,8 @@ func TestMaterializer_Install_PassesRulesToRenderCatalog(t *testing.T) {
 	// Create a fake package with a rule file in the cache.
 	pkgDir := t.TempDir()
 	ruleDir := filepath.Join(pkgDir, "rules", "architecture")
-	os.MkdirAll(ruleDir, 0o755)
-	os.WriteFile(filepath.Join(ruleDir, "clean-architecture-rules.md"), []byte("# Clean Architecture\n"), 0o644)
+	_ = os.MkdirAll(ruleDir, 0o755)
+	_ = os.WriteFile(filepath.Join(ruleDir, "clean-architecture-rules.md"), []byte("# Clean Architecture\n"), 0o644)
 
 	cache := newStubCache()
 	pkgHash := "sha256:rulepkg"
@@ -546,13 +546,13 @@ func TestMaterializer_Install_SetsInstalledSkillsBeforeWorkflow(t *testing.T) {
 	// Create a fake skill package in the cache.
 	skillPkgDir := t.TempDir()
 	skillDir := filepath.Join(skillPkgDir, "skills", "architect-adviser")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+	_ = os.MkdirAll(skillDir, 0o755)
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: architect-adviser\ndescription: Architecture advice\n---\nBody.\n"), 0o644)
 
 	// Create a fake workflow in the cache.
 	wfDir := t.TempDir()
-	os.WriteFile(filepath.Join(wfDir, "workflow.yaml"), []byte(`
+	_ = os.WriteFile(filepath.Join(wfDir, "workflow.yaml"), []byte(`
 schema_version: devrune/workflow/v1
 metadata:
   name: sdd
@@ -1120,8 +1120,8 @@ func TestMaterializer_Install_RenderSettingsReceivesSkillsAndWorkflows(t *testin
 	// Skill package in cache.
 	skillPkgDir := t.TempDir()
 	skillDir := filepath.Join(skillPkgDir, "skills", "git-commit")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+	_ = os.MkdirAll(skillDir, 0o755)
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: git:commit\ndescription: Commit helper\n---\nBody.\n"), 0o644)
 
 	cache := newStubCache()

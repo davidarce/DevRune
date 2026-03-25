@@ -89,7 +89,7 @@ Body.
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
@@ -106,7 +106,7 @@ func TestOpenCodeRenderer_ModelResolution_Opus(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -122,7 +122,7 @@ func TestOpenCodeRenderer_ModelResolution_UnknownPassthrough(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -148,7 +148,7 @@ Body.
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -179,7 +179,7 @@ func TestOpenCodeRenderer_ModeInjection(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -197,7 +197,7 @@ func TestOpenCodeRenderer_ModeOverwrite(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -214,7 +214,7 @@ func TestOpenCodeRenderer_ColonToHyphenInName(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 
 	// Output file should be SKILL.md inside destDir (OpenCode uses SKILL.md backing tree).
 	skillPath := filepath.Join(destDir, "SKILL.md")
@@ -245,7 +245,7 @@ Body.
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
@@ -262,7 +262,7 @@ func TestOpenCodeRenderer_DropsArgumentHint(t *testing.T) {
 	srcDir := writeSkillFile(t, input)
 	destDir := t.TempDir()
 
-	r.RenderSkill(srcDir, destDir)
+	_ = r.RenderSkill(srcDir, destDir)
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 

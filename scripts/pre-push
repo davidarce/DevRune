@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Pre-push hook: runs linting before allowing push.
+# To skip (emergency): git push --no-verify
+
+set -euo pipefail
+
+echo "🔍 Running golangci-lint before push..."
+make lint
+
+echo "✅ Lint passed — pushing."

@@ -261,7 +261,7 @@ tools-mode: auto
 Body.
 `
 	srcDir := writeSkillFile(t, input)
-	r.RenderSkill(srcDir, "")
+	_ = r.RenderSkill(srcDir, "")
 
 	data, _ := os.ReadFile(filepath.Join(tmp, ".github", "agents", "drop-test.agent.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
@@ -296,7 +296,7 @@ allowed-tools:
 Body.
 `
 	srcDir := writeSkillFile(t, input)
-	r.RenderSkill(srcDir, "")
+	_ = r.RenderSkill(srcDir, "")
 
 	data, _ := os.ReadFile(filepath.Join(tmp, ".github", "agents", "dedup-test.agent.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)

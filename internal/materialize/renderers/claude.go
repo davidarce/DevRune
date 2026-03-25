@@ -260,8 +260,8 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 			if rule.RuleMeta != nil && rule.RuleMeta.DisplayName != "" {
 				displayName = rule.RuleMeta.DisplayName
 			}
-			sb.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s | %s |\n",
-				displayName, scope, technology, appliesTo, description))
+			_, _ = fmt.Fprintf(&sb, "| `%s` | %s | %s | %s | %s |\n",
+				displayName, scope, technology, appliesTo, description)
 		}
 		sb.WriteString("\n")
 	}
@@ -270,7 +270,7 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 	if len(workflows) > 0 {
 		sb.WriteString("## Workflows\n\n")
 		for _, wf := range workflows {
-			sb.WriteString(fmt.Sprintf("### %s\n\n", wf.Metadata.Name))
+			_, _ = fmt.Fprintf(&sb, "### %s\n\n", wf.Metadata.Name)
 			if wf.Metadata.Description != "" {
 				sb.WriteString(wf.Metadata.Description + "\n\n")
 			}
@@ -282,7 +282,7 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 					if cmd.Argument != "" {
 						cmdStr += " " + cmd.Argument
 					}
-					sb.WriteString(fmt.Sprintf("| `%s` | %s |\n", cmdStr, cmd.Action))
+					_, _ = fmt.Fprintf(&sb, "| `%s` | %s |\n", cmdStr, cmd.Action)
 				}
 				sb.WriteString("\n")
 			}
@@ -300,7 +300,7 @@ func (r *ClaudeRenderer) RenderCatalog(skills []model.ContentItem, rules []model
 
 	// Append MCP agent instructions (e.g. Engram memory protocol).
 	for name, instructions := range r.mcpAgentInstructions {
-		sb.WriteString(fmt.Sprintf("## %s\n\n", capitalizeFirst(name)))
+		_, _ = fmt.Fprintf(&sb, "## %s\n\n", capitalizeFirst(name))
 		sb.WriteString(instructions)
 		if !strings.HasSuffix(instructions, "\n") {
 			sb.WriteString("\n")
@@ -469,7 +469,7 @@ func (r *ClaudeRenderer) buildAdviserTable() string {
 	sb.WriteString("| Skill | Invocation | Use When |\n")
 	sb.WriteString("|-------|------------|----------|\n")
 	for _, a := range advisers {
-		sb.WriteString(fmt.Sprintf("| `%s` | `/%s` | %s |\n", a.Name, a.Name, a.Description))
+		_, _ = fmt.Fprintf(&sb, "| `%s` | `/%s` | %s |\n", a.Name, a.Name, a.Description)
 	}
 	return sb.String()
 }

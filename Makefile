@@ -6,7 +6,7 @@ GOFLAGS     ?= -trimpath
 LDFLAGS     ?= -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 INSTALL_DIR ?= $(HOME)/.local/bin
 
-.PHONY: build build-debug build-all install uninstall test vet fmt clean run help
+.PHONY: build build-debug build-all install uninstall test vet fmt lint check setup clean run help
 
 ## build: Build optimized binary for the current platform
 build:
@@ -45,6 +45,19 @@ vet:
 ## fmt: Format source code
 fmt:
 	gofmt -w .
+
+## lint: Run golangci-lint (same linters as CI)
+lint:
+	go tool -modfile=golangci-lint.mod golangci-lint run ./...
+
+## check: Run fmt + vet + lint + tests (full pre-push validation)
+check: fmt vet lint test
+
+## setup: Install git hooks for local development
+setup:
+	@cp scripts/pre-push .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "Git hooks installed."
 
 ## clean: Remove build artifacts
 clean:

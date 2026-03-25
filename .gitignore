@@ -47,4 +47,5 @@ internal/materialize/.mcp.json
 
 # >>> devrune managed — do not edit
 .devrune/
+/var/folders/ls/3b9hb42d6gg88dlks_lnb4900000gp/T/TestE2E_CopilotParityLayout2333694524/001/.github/
 # <<< devrune managed
