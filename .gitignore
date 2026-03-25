@@ -1,8 +1,8 @@
-# Binaries
-devrune
-devrune-darwin-arm64
-devrune-darwin-amd64
-devrune-linux-amd64
+# Binaries (root-only — leading / prevents matching cmd/devrune/)
+/devrune
+/devrune-darwin-arm64
+/devrune-darwin-amd64
+/devrune-linux-amd64
 dist/
 
 # Go build artifacts
@@ -47,5 +47,4 @@ internal/materialize/.mcp.json
 
 # >>> devrune managed — do not edit
 .devrune/
-/var/folders/ls/3b9hb42d6gg88dlks_lnb4900000gp/T/TestE2E_CopilotParityLayout2333694524/001/.github/
 # <<< devrune managed
