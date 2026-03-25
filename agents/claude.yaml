@@ -5,7 +5,7 @@ skillDir: "skills"
 commandDir: "commands"
 rulesDir: "rules"
 catalogFile: "CLAUDE.md"
-defaultRulesMode: "both"
+defaultRulesMode: "individual"
 mcp:
   filePath: "../.mcp.json"
   rootKey: "mcpServers"
