@@ -358,14 +358,19 @@ func resolveMCPDefDir(cacheRoot, dir string) string {
 //
 // Produced replacements:
 //   - {SKILLS_PATH} → "<workspaceDir>/<skillDir>" (no trailing slash)
-//   - {SDD_MODEL_EXPLORE}    → resolved full model ID for the "sdd-explorer" role
-//   - {SDD_MODEL_PLAN}       → resolved full model ID for the "sdd-planner" role
-//   - {SDD_MODEL_IMPLEMENT}  → resolved full model ID for the "sdd-implementer" role
-//   - {SDD_MODEL_REVIEW}     → resolved full model ID for the "sdd-reviewer" role
+//   - {SDD_MODEL_EXPLORE}    → model value for the "sdd-explorer" role
+//   - {SDD_MODEL_PLAN}       → model value for the "sdd-planner" role
+//   - {SDD_MODEL_IMPLEMENT}  → model value for the "sdd-implementer" role
+//   - {SDD_MODEL_REVIEW}     → model value for the "sdd-reviewer" role
+//
+// When resolveModels is true, short model names (e.g. "sonnet") are resolved to
+// fully qualified IDs (e.g. "anthropic/claude-sonnet-4-20250514"). When false,
+// the raw role.Model value is used as-is — needed for platforms like Claude Code
+// where the Agent tool expects short names ("sonnet", "opus", "haiku").
 //
 // Model placeholders are only added when the corresponding role has a non-empty Model field.
 // workspaceDir and skillDir must not have trailing slashes; the helper joins them cleanly.
-func buildWorkflowPlaceholderReplacements(wf model.WorkflowManifest, workspaceDir string, skillDir string) map[string]string {
+func buildWorkflowPlaceholderReplacements(wf model.WorkflowManifest, workspaceDir string, skillDir string, resolveModels bool) map[string]string {
 	// Normalise: strip trailing slashes so joins are always clean.
 	workspaceDir = strings.TrimRight(workspaceDir, "/")
 	skillDir = strings.TrimRight(skillDir, "/")
@@ -393,7 +398,11 @@ func buildWorkflowPlaceholderReplacements(wf model.WorkflowManifest, workspaceDi
 	for _, mp := range modelPlaceholders {
 		role := findWorkflowRole(wf.Components.Roles, mp.roleName)
 		if role != nil && role.Model != "" {
-			replacements[mp.placeholder] = resolveModel(role.Model)
+			if resolveModels {
+				replacements[mp.placeholder] = resolveModel(role.Model)
+			} else {
+				replacements[mp.placeholder] = role.Model
+			}
 		}
 	}
 

@@ -330,7 +330,7 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
 	// Uses buildWorkflowPlaceholderReplacements to avoid double-slash bugs and
 	// to ensure {SDD_MODEL_*} markers are resolved from workflow role metadata.
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir)
+	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, true)
 
 	// Capture registry content for catalog injection; apply shared replacements.
 	if wf.Components.Registry != "" {

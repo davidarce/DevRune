@@ -378,9 +378,9 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	}
 
 	// Build shared placeholder replacements for this workflow.
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.AgentDir)
+	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.AgentDir, true)
 	if r.def.AgentDir == "" {
-		replacements = buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir)
+		replacements = buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, true)
 	}
 
 	var managedPaths []string

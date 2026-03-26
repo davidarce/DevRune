@@ -721,6 +721,74 @@ components:
 	}
 }
 
+// TestClaudeRenderer_InstallWorkflow_ResolvesSddModelPlaceholders verifies that
+// {SDD_MODEL_EXPLORE}, {SDD_MODEL_PLAN}, {SDD_MODEL_IMPLEMENT}, and {SDD_MODEL_REVIEW}
+// placeholders in workflow .md files are replaced with the resolved model IDs from
+// workflow role metadata.
+func TestClaudeRenderer_InstallWorkflow_ResolvesSddModelPlaceholders(t *testing.T) {
+	r := renderers.NewClaudeRenderer(claudeAgentDef())
+
+	wfCacheDir := t.TempDir()
+
+	// ORCHESTRATOR.md contains all four {SDD_MODEL_*} placeholders.
+	orchestratorContent := `# Orchestrator
+
+Explore model: {SDD_MODEL_EXPLORE}
+Plan model: {SDD_MODEL_PLAN}
+Implement model: {SDD_MODEL_IMPLEMENT}
+Review model: {SDD_MODEL_REVIEW}
+`
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "ORCHESTRATOR.md"), []byte(orchestratorContent), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "workflow.yaml"), []byte("apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\n"), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-explorer", Kind: "subagent", Model: "sonnet"},
+				{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
+				{Name: "sdd-implementer", Kind: "subagent", Model: "sonnet"},
+				{Name: "sdd-reviewer", Kind: "subagent", Model: "haiku"},
+			},
+		},
+	}
+
+	workspaceDir := t.TempDir()
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	destOrchestrator := filepath.Join(workspaceDir, "skills", "sdd", "ORCHESTRATOR.md")
+	data := mustReadFile(t, destOrchestrator)
+	content := string(data)
+
+	// No unresolved placeholders should remain.
+	for _, placeholder := range []string{"{SDD_MODEL_EXPLORE}", "{SDD_MODEL_PLAN}", "{SDD_MODEL_IMPLEMENT}", "{SDD_MODEL_REVIEW}"} {
+		if strings.Contains(content, placeholder) {
+			t.Errorf("%s was not replaced; ORCHESTRATOR.md content:\n%s", placeholder, content)
+		}
+	}
+
+	// Claude uses short model names (the Agent tool understands "sonnet", "opus", "haiku").
+	expectations := map[string]string{
+		"Explore model":   "sonnet",
+		"Plan model":      "opus",
+		"Implement model": "sonnet",
+		"Review model":    "haiku",
+	}
+	for label, wantModel := range expectations {
+		if !strings.Contains(content, wantModel) {
+			t.Errorf("%s: expected resolved model %q in content:\n%s", label, wantModel, content)
+		}
+	}
+}
+
 // TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash verifies that {SKILLS_PATH}
 // in REGISTRY.md is resolved without double slashes and without spurious subdirectories.
 // The real catalog uses {SKILLS_PATH}/ORCHESTRATOR.md (ORCHESTRATOR.md sits directly

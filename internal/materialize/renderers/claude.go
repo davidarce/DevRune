@@ -382,11 +382,12 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		}
 	}
 
+	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
+	// Hoisted outside the registry block so postProcessWorkflow can use it too.
+	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir+"/"+wf.Metadata.Name, false)
+
 	// T021: Load registry content if declared in the workflow manifest.
 	if wf.Components.Registry != "" {
-		// Use buildWorkflowPlaceholderReplacements to avoid double-slash bugs
-		// (e.g. {SKILLS_PATH}/sdd-orchestrator → .claude/skills/sdd//sdd-orchestrator).
-		replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir+"/"+wf.Metadata.Name)
 		content, readErr := captureRegistryContent(cachePath, wf.Components.Registry, replacements)
 		if readErr == nil && content != "" {
 			r.registryContents[wf.Metadata.Name] = content
@@ -394,7 +395,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	}
 
 	// T018: Run post-processing after all entries are installed.
-	if err := r.postProcessWorkflow(wf, destBase); err != nil {
+	if err := r.postProcessWorkflow(wf, destBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow post-process %q: %w", wf.Metadata.Name, err)
 	}
 
@@ -404,8 +405,8 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 // postProcessWorkflow runs post-installation processing on a workflow's rendered files.
 // T017: For SKILL.md files containing <!-- ADVISER_TABLE_PLACEHOLDER -->, replaces it
 // with a markdown table of installed adviser skills. For ALL .md files (including
-// ORCHESTRATOR.md), replaces {SKILLS_PATH} with the actual destBase path.
-func (r *ClaudeRenderer) postProcessWorkflow(wf model.WorkflowManifest, destBase string) error {
+// ORCHESTRATOR.md), resolves shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
+func (r *ClaudeRenderer) postProcessWorkflow(wf model.WorkflowManifest, destBase string, replacements map[string]string) error {
 	// Build the adviser table from installed skills whose names contain "adviser".
 	adviserTable := r.buildAdviserTable()
 
@@ -429,11 +430,12 @@ func (r *ClaudeRenderer) postProcessWorkflow(wf model.WorkflowManifest, destBase
 		content := string(data)
 		modified := false
 
-		// Replace {SKILLS_PATH} in all .md files.
-		if strings.Contains(content, "{SKILLS_PATH}") {
-			skillsPath := destBase
-			content = strings.ReplaceAll(content, "{SKILLS_PATH}", skillsPath)
-			modified = true
+		// Resolve all shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
+		for placeholder, value := range replacements {
+			if strings.Contains(content, placeholder) {
+				content = strings.ReplaceAll(content, placeholder, value)
+				modified = true
+			}
 		}
 
 		// Replace <!-- ADVISER_TABLE_PLACEHOLDER --> only in SKILL.md files.
