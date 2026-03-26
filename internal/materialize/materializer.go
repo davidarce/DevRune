@@ -149,6 +149,12 @@ func (m *Materializer) Install(
 					return fmt.Errorf("materializer: render skill %q for agent %q: %w",
 						item.Name, agentRef.Name, err)
 				}
+				// Copy extra files and subdirectories (gotchas.md, references/, etc.)
+				// that live alongside SKILL.md. RenderSkill only handles SKILL.md itself.
+				if err := renderers.CopySkillExtras(srcPath, destDir); err != nil {
+					return fmt.Errorf("materializer: copy skill extras %q for agent %q: %w",
+						item.Name, agentRef.Name, err)
+				}
 				managedPaths = append(managedPaths, destDir)
 				installedSkills = append(installedSkills, item)
 			}

@@ -441,6 +441,50 @@ func copySkillSubdirs(srcDir, dstDir string) error {
 	return nil
 }
 
+// CopySkillExtras copies all extra files and subdirectories from a skill source
+// directory to the destination. SKILL.md is skipped (already handled by RenderSkill).
+//
+// Unlike copySkillSubdirs (which only copies subdirectories), this function also
+// copies extra files at the root level (e.g. gotchas.md, references/, templates/).
+//
+// This is exported for use by the materializer during Step 4 skill installation,
+// ensuring that catalog-installed skills get all their assets — not just SKILL.md.
+//
+// If srcDir is not a directory (e.g. the caller passed a SKILL.md file path), the
+// function returns nil without error — callers do not need to special-case this.
+func CopySkillExtras(srcDir, dstDir string) error {
+	info, err := os.Stat(srcDir)
+	if err != nil || !info.IsDir() {
+		return nil // source is a file, not a directory — nothing to copy
+	}
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.EqualFold(name, "SKILL.md") {
+			continue // already handled by RenderSkill
+		}
+		srcPath := filepath.Join(srcDir, name)
+		dstPath := filepath.Join(dstDir, name)
+		if entry.IsDir() {
+			if err := copyDirRecursive(srcPath, dstPath); err != nil {
+				return fmt.Errorf("copy skill extra dir %s: %w", name, err)
+			}
+		} else {
+			entryInfo, err := entry.Info()
+			if err != nil {
+				return fmt.Errorf("copy skill extra file %s: %w", name, err)
+			}
+			if err := copySingleFile(srcPath, dstPath, entryInfo.Mode()); err != nil {
+				return fmt.Errorf("copy skill extra file %s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
 // ReadMCPDefinitionFromDir reads an MCP server definition map from a cached directory.
 // It is the exported equivalent of the package-private readMCPDefinition used by Claude
 // and normalizeMCPDefinitions. Callers outside this package (e.g. materializer) should
