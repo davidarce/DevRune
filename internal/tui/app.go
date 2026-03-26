@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/charmbracelet/huh"
 
@@ -42,22 +41,39 @@ func Run() (model.UserManifest, error) {
 	var selection steps.SelectionResult
 
 	if len(sources) > 0 {
-		fmt.Print(StyleInfo.Render("  Scanning repositories..."))
-
 		cp := cachePath()
-		scanned, err := ScanRepositories(context.Background(), sources, cp)
+
+		// Wrap ScanRepositories so the steps package can call it without
+		// importing the tui package (avoids import cycle).
+		scanFn := func(ctx context.Context, srcs []string, cachePath string) ([]steps.ScanResult, error) {
+			scanned, err := ScanRepositories(ctx, srcs, cachePath)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]steps.ScanResult, len(scanned))
+			for i, r := range scanned {
+				out[i] = steps.ScanResult{
+					Source:    r.Source,
+					Skills:    r.Skills,
+					Rules:     r.Rules,
+					MCPs:      r.MCPs,
+					Workflows: r.Workflows,
+					Descs:     r.Descs,
+					MCPFiles:  r.MCPFiles,
+					Error:     r.Error,
+				}
+			}
+			return out, nil
+		}
+
+		scanned, warnings, err := steps.RunScanModel(sources, scanFn, cp)
 		if err != nil {
-			fmt.Println()
 			return model.UserManifest{}, fmt.Errorf("scan repositories: %w", err)
 		}
 
-		fmt.Print("\r" + strings.Repeat(" ", 40) + "\r") // clear the scanning line
-
-		// Report any scan errors but continue with successful repos.
-		for _, r := range scanned {
-			if r.Error != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "  Warning: %s — %v\n", r.Source, r.Error)
-			}
+		// Report any per-repo scan warnings.
+		for _, w := range warnings {
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", w)
 		}
 
 		// Convert to ScannedRepoInput for the select model.
