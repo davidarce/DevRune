@@ -37,7 +37,7 @@ Think of it as **npm for AI agent instructions** — you declare what you need, 
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `.claude/` | Skills as markdown, `CLAUDE.md` catalog, `settings.json`, `.mcp.json` |
 | [OpenCode](https://opencode.ai) | `.opencode/` | Skills with YAML frontmatter, `AGENTS.md` catalog, `config.toml` MCP |
 | [GitHub Copilot](https://github.com/features/copilot) | `.github/` | Skills + native agents (`.agent.md`), `copilot-instructions.md`, `.mcp.json` |
-| [Windsurf (Factory)](https://windsurf.com) | `.factory/` | Skills with camelCase frontmatter, `AGENTS.md` catalog, `mcp.json` |
+| [Factory Droid](https://docs.factory.ai) | `.factory/` | Skills with camelCase frontmatter, `AGENTS.md` catalog, `mcp.json` |
 
 Each renderer transforms the canonical format (Claude-style markdown with YAML frontmatter) into the agent's native format — handling model name mapping, tool aliases, frontmatter conversion, and MCP config generation automatically.
 
