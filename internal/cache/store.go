@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package cache provides content-addressed package storage and fetcher
 // implementations for the GitHub, GitLab, and local filesystem schemes.
 package cache

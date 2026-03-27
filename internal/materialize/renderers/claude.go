@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package renderers provides built-in AgentRenderer implementations for each
 // supported agent type: Claude, OpenCode, Copilot, and Factory.
 // All agent-specific frontmatter conversion, model name mapping, tools format

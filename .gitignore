@@ -49,7 +49,10 @@ internal/materialize/.mcp.json
 .devrune/
 .claude/
 .opencode/
-.github/
+.github/agents/
+.github/copilot-instructions.md
+.github/rules/
+.github/skills/
 .factory/
 .mcp.json
 # <<< devrune managed

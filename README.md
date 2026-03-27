@@ -5,10 +5,21 @@
   <img src="https://img.shields.io/github/license/davidarce/DevRune?style=flat&color=gray" alt="License">
 </p>
 
-<h1 align="center">DevRune</h1>
+<p align="center">
+
+```
+██████╗ ███████╗██╗   ██╗██████╗ ██╗   ██╗███╗   ██╗███████╗
+██╔══██╗██╔════╝██║   ██║██╔══██╗██║   ██║████╗  ██║██╔════╝
+██║  ██║█████╗  ██║   ██║██████╔╝██║   ██║██╔██╗ ██║█████╗
+██║  ██║██╔══╝  ╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║██╔══╝
+██████╔╝███████╗ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║███████╗
+╚═════╝ ╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
+```
+
+</p>
 
 <p align="center">
-  <strong>AI agent configuration manager for developer workspaces</strong>
+  <strong>AI Agent Configuration Toolkit</strong>
   <br>
   <em>One manifest, every agent. Skills, rules, MCPs, and workflows — resolved, locked, installed.</em>
 </p>
@@ -244,7 +255,7 @@ install:
 | Scheme | Format | Example |
 |--------|--------|---------|
 | GitHub | `github:owner/repo@ref[//subpath]` | `github:davidarce/devrune-starter-catalog@main` |
-| GitLab | `gitlab:owner/repo@ref[//subpath][?host=...]` | `gitlab:team/catalog@v2?host=gitlab.corp.com` |
+| GitLab | `gitlab:owner/repo@ref[//subpath][?host=...]` | `gitlab:team/catalog@v2?host=gitlab.example.com` |
 | Local | `local:./relative/path` | `local:./my-catalog` |
 
 The `@ref` is a git tag, branch, or SHA. The `//subpath` narrows to a subdirectory within the repo.

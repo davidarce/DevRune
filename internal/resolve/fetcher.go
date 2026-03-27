@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package resolve implements Stage 2 of the DevRune pipeline: converting a
 // UserManifest into a Lockfile by fetching, hashing, and enumerating packages.
 // All network and filesystem I/O is injected via the Fetcher interface.

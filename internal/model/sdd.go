@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package model
 
 // SDDPhaseRoleNames is the ordered list of SDD phase role names used in workflow.yaml.

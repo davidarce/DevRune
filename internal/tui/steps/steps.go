@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package steps contains the individual wizard step models for the DevRune TUI.
 // Each step is a Bubbletea model responsible for one screen of the wizard:
 // agent selection, package input, workflow selection, MCP input, and confirmation.

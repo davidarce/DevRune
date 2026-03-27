@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package renderers
 
 import "github.com/davidarce/devrune/internal/model"

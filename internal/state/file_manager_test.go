@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package state_test
 
 import (

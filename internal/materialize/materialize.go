@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package materialize implements Stage 3 of the DevRune pipeline: converting a
 // Lockfile into workspace mutations. AgentRenderer implementations handle all
 // agent-specific frontmatter conversion, MCP config generation, and catalog

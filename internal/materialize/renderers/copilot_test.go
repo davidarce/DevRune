@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package renderers_test
 
 import (

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package matypes defines shared interface types for the materialize layer.
 // It exists as a separate package to break the import cycle between
 // internal/materialize and internal/materialize/renderers.

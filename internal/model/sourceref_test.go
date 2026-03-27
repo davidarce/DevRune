@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package model
 
 import (
@@ -166,13 +168,13 @@ func TestParseSourceRef_GitLab(t *testing.T) {
 		},
 		{
 			name: "ref with custom host, no subpath",
-			raw:  "gitlab:myorg/myrepo@main?host=internal.gitlab.corp",
+			raw:  "gitlab:myorg/myrepo@main?host=gitlab.example.com",
 			want: SourceRef{
 				Scheme: SchemeGitLab,
 				Owner:  "myorg",
 				Repo:   "myrepo",
 				Ref:    "main",
-				Host:   "internal.gitlab.corp",
+				Host:   "gitlab.example.com",
 			},
 		},
 		{
@@ -357,7 +359,7 @@ func TestSourceRef_Roundtrip(t *testing.T) {
 				Owner:  "myorg",
 				Repo:   "myrepo",
 				Ref:    "main",
-				Host:   "internal.gitlab.corp",
+				Host:   "gitlab.example.com",
 			},
 		},
 		{
@@ -467,9 +469,9 @@ func TestSourceRef_CacheKey(t *testing.T) {
 				Repo:    "myrepo",
 				Ref:     "main",
 				Subpath: "workflows/sdd",
-				Host:    "internal.gitlab.corp",
+				Host:    "gitlab.example.com",
 			},
-			wantKey: "gitlab:myorg/myrepo@main?host=internal.gitlab.corp//workflows/sdd",
+			wantKey: "gitlab:myorg/myrepo@main?host=gitlab.example.com//workflows/sdd",
 		},
 		{
 			name: "local path",

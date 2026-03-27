@@ -37,6 +37,7 @@ archives:
     format: tar.gz
     files:
       - LICENSE
+      - NOTICE
       - README.md
 
 checksum:

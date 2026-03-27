@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Package tuistyles provides shared lipgloss styles for the DevRune TUI.
 // It is a leaf package (no imports from other internal packages) so that both
 // the tui package and the tui/steps package can import it without cycles.
