@@ -65,7 +65,7 @@ func renderFullBanner() string {
 	}
 
 	// Subtitle: plain dim text — no colored blocks.
-	subtitleText := "AI Agent Configuration Toolkit"
+	subtitleText := "Package manager for AI agent instructions"
 	b.WriteString("  ")
 	b.WriteString(ansiStyle("8", false).Render(subtitleText))
 	b.WriteString("\n")
@@ -82,7 +82,7 @@ func renderFullBanner() string {
 // Uses ANSI bright green (10) to match the full banner style.
 // Left-aligned with a 2-space indent.
 func renderCompactBanner() string {
-	text := "◆ DevRune — AI Agent Configuration Toolkit"
+	text := "◆ DevRune — Package manager for AI agent instructions"
 	return "\n" + "  " + ansiStyle("10", true).Render(text)
 }
 

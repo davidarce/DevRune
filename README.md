@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <strong>AI Agent Configuration Toolkit</strong>
+  <strong>Package manager for AI agent instructions</strong>
   <br>
   <em>One manifest, every agent. Skills, rules, MCPs, and workflows — resolved, locked, installed.</em>
 </p>

@@ -46,7 +46,7 @@ func Banner() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(dimStyle.Render("  AI Agent Configuration Toolkit"))
+	b.WriteString(dimStyle.Render("  Package manager for AI agent instructions"))
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render("  ─────────────────────────────────────────────────────────────────"))
 
