@@ -91,6 +91,28 @@ func resolveModel(model string) string {
 	return model
 }
 
+// modelShortToOpenCode maps short model names to their OpenCode model IDs.
+// OpenCode expects the format: github-copilot/{bareModelID}.
+var modelShortToOpenCode = map[string]string{
+	"sonnet": "github-copilot/claude-sonnet-4.6",
+	"opus":   "github-copilot/claude-opus-4.6",
+	"haiku":  "github-copilot/claude-haiku-4.5",
+}
+
+// resolveOpenCodeModel maps a short model name to its OpenCode model ID.
+// If the name is in the lookup table, the github-copilot/{bareModelID} form is returned.
+// If the name already contains a provider prefix ("/"), it is returned unchanged.
+// Otherwise, the github-copilot/ prefix is prepended.
+func resolveOpenCodeModel(m string) string {
+	if full, ok := modelShortToOpenCode[m]; ok {
+		return full
+	}
+	if strings.Contains(m, "/") {
+		return m
+	}
+	return "github-copilot/" + m
+}
+
 // colonToHyphen replaces all colons in a name with hyphens.
 // Example: "git:commit" → "git-commit"
 func colonToHyphen(name string) string {
@@ -363,14 +385,28 @@ func resolveMCPDefDir(cacheRoot, dir string) string {
 //   - {SDD_MODEL_IMPLEMENT}  → model value for the "sdd-implementer" role
 //   - {SDD_MODEL_REVIEW}     → model value for the "sdd-reviewer" role
 //
-// When resolveModels is true, short model names (e.g. "sonnet") are resolved to
-// fully qualified IDs (e.g. "anthropic/claude-sonnet-4-20250514"). When false,
-// the raw role.Model value is used as-is — needed for platforms like Claude Code
-// where the Agent tool expects short names ("sonnet", "opus", "haiku").
+// modelResolver is an optional function that maps a raw model value to the
+// fully qualified ID expected by the target platform. When nil, the raw
+// role.Model value is used as-is — needed for Claude Code where the Agent
+// tool expects short names ("sonnet", "opus", "haiku"). Typical values:
+//   - nil              → raw short names (Claude Code)
+//   - resolveModel     → anthropic/... format (Factory, Copilot)
+//   - resolveOpenCodeModel → github-copilot/... format (OpenCode)
+//
+// modelOverrides is an optional map of role-name → model-value. When non-nil,
+// an override for a role takes precedence over the role's own Model field from
+// workflow.yaml. The SDDModelInheritOption sentinel is treated as "no override"
+// (falls back to role.Model). Passing nil is fully backward-compatible.
 //
 // Model placeholders are only added when the corresponding role has a non-empty Model field.
 // workspaceDir and skillDir must not have trailing slashes; the helper joins them cleanly.
-func buildWorkflowPlaceholderReplacements(wf model.WorkflowManifest, workspaceDir string, skillDir string, resolveModels bool) map[string]string {
+func buildWorkflowPlaceholderReplacements(
+	wf model.WorkflowManifest,
+	workspaceDir string,
+	skillDir string,
+	modelResolver func(string) string,
+	modelOverrides map[string]string,
+) map[string]string {
 	// Normalise: strip trailing slashes so joins are always clean.
 	workspaceDir = strings.TrimRight(workspaceDir, "/")
 	skillDir = strings.TrimRight(skillDir, "/")
@@ -396,17 +432,97 @@ func buildWorkflowPlaceholderReplacements(wf model.WorkflowManifest, workspaceDi
 	}
 
 	for _, mp := range modelPlaceholders {
-		role := findWorkflowRole(wf.Components.Roles, mp.roleName)
-		if role != nil && role.Model != "" {
-			if resolveModels {
-				replacements[mp.placeholder] = resolveModel(role.Model)
+		// Check TUI-selected override first, then fall back to role.Model from workflow.yaml.
+		modelValue := ""
+		if modelOverrides != nil {
+			if v, ok := modelOverrides[mp.roleName]; ok && v != "" && v != model.SDDModelInheritOption {
+				modelValue = v
+			}
+		}
+		if modelValue == "" {
+			role := findWorkflowRole(wf.Components.Roles, mp.roleName)
+			if role != nil && role.Model != "" {
+				modelValue = role.Model
+			}
+		}
+		if modelValue != "" {
+			if modelResolver != nil {
+				replacements[mp.placeholder] = modelResolver(modelValue)
 			} else {
-				replacements[mp.placeholder] = role.Model
+				replacements[mp.placeholder] = modelValue
 			}
 		}
 	}
 
 	return replacements
+}
+
+// buildWorkflowPathReplacements constructs a minimal replacement map containing
+// only the {SKILLS_PATH} placeholder. It is used by renderers that do not support
+// model routing (Factory, Copilot) so that {SDD_MODEL_*} placeholders are never
+// resolved from workflow role metadata. The caller is responsible for removing
+// the unresolved {SDD_MODEL_*} lines from installed files via
+// removeModelPlaceholderLines after calling resolvePlaceholders.
+//
+// workspaceDir and skillDir must not have trailing slashes.
+func buildWorkflowPathReplacements(workspaceDir, skillDir string) map[string]string {
+	workspaceDir = strings.TrimRight(workspaceDir, "/")
+	skillDir = strings.TrimRight(skillDir, "/")
+	skillsPath := workspaceDir + "/" + skillDir
+	if skillDir == "" {
+		skillsPath = workspaceDir
+	}
+	return map[string]string{
+		"{SKILLS_PATH}": skillsPath,
+	}
+}
+
+// removeModelPlaceholderLines walks all .md files under rootDir and removes any
+// line that contains an unresolved {SDD_MODEL_*} placeholder. This is used by
+// renderers that do not support model routing (Factory, Copilot): their
+// ORCHESTRATOR.md templates contain model: '{SDD_MODEL_*}' lines that must be
+// stripped entirely so sub-agents inherit the session's active model instead of
+// receiving an invalid model value.
+//
+// A line is removed if it contains the literal substring "{SDD_MODEL_". The
+// removal is line-granular — the surrounding content is left intact.
+// Only files that contain at least one such line are rewritten.
+func removeModelPlaceholderLines(rootDir string) error {
+	return filepath.WalkDir(rootDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("removeModelPlaceholderLines: read %q: %w", path, err)
+		}
+
+		content := string(data)
+		if !strings.Contains(content, "{SDD_MODEL_") {
+			return nil // nothing to remove
+		}
+
+		lines := strings.Split(content, "\n")
+		filtered := lines[:0]
+		for _, line := range lines {
+			if !strings.Contains(line, "{SDD_MODEL_") {
+				filtered = append(filtered, line)
+			}
+		}
+		result := strings.Join(filtered, "\n")
+
+		if err := os.WriteFile(path, []byte(result), 0o644); err != nil {
+			return fmt.Errorf("removeModelPlaceholderLines: write %q: %w", path, err)
+		}
+		return nil
+	})
 }
 
 // copySkillSubdirs copies all subdirectories within a skill source directory
@@ -646,6 +762,10 @@ func ApplyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.M
 // into the configured mcpConfig.EnvKey in the output map. Placeholder values in the
 // form ${VAR_NAME} are rewritten by replacing the VAR token in mcpConfig.EnvVarStyle
 // with the actual variable name.
+//
+// Additionally, the "headers" key (used by HTTP-type MCPs such as ref and context7)
+// is transformed in-place: ${VAR_NAME} placeholder values are rewritten using the
+// same envVarStyle as env/environment entries.
 func applyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.MCPConfig) map[string]interface{} {
 	out := make(map[string]interface{}, len(serverConfig))
 	for k, v := range serverConfig {
@@ -669,25 +789,40 @@ func applyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.M
 		sourceKey = k
 	}
 
-	if envMap == nil {
-		return out
+	if envMap != nil {
+		// Build transformed env map.
+		transformed := make(map[string]interface{}, len(envMap))
+		for varName, varVal := range envMap {
+			if s, ok := varVal.(string); ok {
+				transformed[varName] = applyEnvVarStyleTransform(s, mcpConfig.EnvVarStyle)
+			} else {
+				transformed[varName] = varVal
+			}
+		}
+
+		// Remove the source key if it differs from the target key.
+		if sourceKey != "" && sourceKey != mcpConfig.EnvKey {
+			delete(out, sourceKey)
+		}
+		out[mcpConfig.EnvKey] = transformed
 	}
 
-	// Build transformed env map.
-	transformed := make(map[string]interface{}, len(envMap))
-	for varName, varVal := range envMap {
-		if s, ok := varVal.(string); ok {
-			transformed[varName] = applyEnvVarStyleTransform(s, mcpConfig.EnvVarStyle)
-		} else {
-			transformed[varName] = varVal
+	// Transform "headers" values in-place using the same envVarStyle.
+	// HTTP-type MCPs (e.g. ref, context7) pass API keys via headers rather than
+	// env/environment, so they must receive the same placeholder transformation.
+	if raw, ok := out["headers"]; ok {
+		if headersMap, ok := raw.(map[string]interface{}); ok {
+			transformedHeaders := make(map[string]interface{}, len(headersMap))
+			for headerName, headerVal := range headersMap {
+				if s, ok := headerVal.(string); ok {
+					transformedHeaders[headerName] = applyEnvVarStyleTransform(s, mcpConfig.EnvVarStyle)
+				} else {
+					transformedHeaders[headerName] = headerVal
+				}
+			}
+			out["headers"] = transformedHeaders
 		}
 	}
-
-	// Remove the source key if it differs from the target key.
-	if sourceKey != "" && sourceKey != mcpConfig.EnvKey {
-		delete(out, sourceKey)
-	}
-	out[mcpConfig.EnvKey] = transformed
 
 	return out
 }

@@ -44,6 +44,7 @@ type OpenCodeRenderer struct {
 	agentDef         model.AgentDefinition
 	registryContents map[string]string // keyed by workflow name
 	normalizedMCPs   []normalizedMCP   // MCP entries with agentInstructions for catalog injection
+	modelOverrides   map[string]string // role-name → model-value from TUI SDD model selection
 }
 
 // NewOpenCodeRenderer constructs an OpenCodeRenderer from the given agent definition.
@@ -67,6 +68,13 @@ func (r *OpenCodeRenderer) Name() string { return r.agentDef.Name }
 
 // AgentType returns "opencode".
 func (r *OpenCodeRenderer) AgentType() string { return "opencode" }
+
+// SetModelOverrides stores per-role model overrides selected in the TUI SDD model
+// selection step. When set, these override the role.Model values from workflow.yaml
+// when building {SDD_MODEL_*} placeholder replacements.
+func (r *OpenCodeRenderer) SetModelOverrides(overrides map[string]string) {
+	r.modelOverrides = overrides
+}
 
 // Definition returns the agent definition.
 func (r *OpenCodeRenderer) Definition() model.AgentDefinition { return r.agentDef }
@@ -124,10 +132,10 @@ func (r *OpenCodeRenderer) transformFrontmatter(fm map[string]interface{}) map[s
 		delete(out, field)
 	}
 
-	// Resolve model short name.
+	// Resolve model short name to OpenCode format (github-copilot/...).
 	if modelVal, ok := out["model"]; ok {
 		if modelStr, ok := modelVal.(string); ok && modelStr != "" {
-			out["model"] = resolveModel(modelStr)
+			out["model"] = resolveOpenCodeModel(modelStr)
 		}
 	}
 
@@ -361,7 +369,7 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
 	// Uses buildWorkflowPlaceholderReplacements to avoid double-slash bugs and
 	// to ensure {SDD_MODEL_*} markers are resolved from workflow role metadata.
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, true)
+	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, resolveOpenCodeModel, r.modelOverrides)
 
 	// Capture registry content for catalog injection; apply shared replacements.
 	if wf.Components.Registry != "" {
@@ -459,7 +467,7 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 	}
 
 	if role.Model != "" {
-		entry["model"] = resolveModel(role.Model)
+		entry["model"] = resolveOpenCodeModel(role.Model)
 	}
 
 	return entry
@@ -494,7 +502,7 @@ func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, rol
 	// Orchestrators generally do not specify a model (they inherit session model).
 	// Only set it if explicitly defined in role metadata.
 	if role.Model != "" {
-		entry["model"] = resolveModel(role.Model)
+		entry["model"] = resolveOpenCodeModel(role.Model)
 	}
 
 	return entry, nil

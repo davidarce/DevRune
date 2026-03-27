@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/tui/steps"
@@ -29,6 +30,25 @@ func Run() (model.UserManifest, error) {
 	agents, err := steps.SelectAgents()
 	if err != nil {
 		return model.UserManifest{}, mapErr(err)
+	}
+
+	// Determine early if the SDD model selection step may be active.
+	// The step requires at least one qualifying agent (in SDDModelRoutingAgents)
+	// AND at least one workflow selected. We know the agent condition now; workflow
+	// selection is only known after Step 3. Set TotalSteps to 5 if qualifying
+	// agents exist so that Steps 2 and 3 already show the correct total.
+	// After Step 3 we can confirm (or revert to 4) based on the actual selection.
+	hasQualifyingAgent := false
+	for _, a := range agents {
+		if model.SDDModelRoutingAgents[a] {
+			hasQualifyingAgent = true
+			break
+		}
+	}
+	if hasQualifyingAgent {
+		steps.TotalSteps = 5
+	} else {
+		steps.TotalSteps = 4
 	}
 
 	// Step 2 — repository sources (alt screen, step indicator inside form)
@@ -100,13 +120,62 @@ func Run() (model.UserManifest, error) {
 		}
 	}
 
-	// Step 4 — summary & confirm (alt screen, step indicator inside form)
-	manifest, err := steps.ConfirmSummary(agents, selection)
+	// Now that selection is known, confirm whether the SDD step will actually run.
+	// If no workflows were selected, TotalSteps reverts to 4 even for qualifying agents.
+	if hasQualifyingAgent {
+		hasWorkflow := false
+		for _, repo := range selection.Repos {
+			if len(repo.SelectedWorkflows) > 0 {
+				hasWorkflow = true
+				break
+			}
+		}
+		if !hasWorkflow {
+			steps.TotalSteps = 4
+		}
+	}
+
+	// Step 4 (optional) — SDD model selection
+	// Load saved models from existing devrune.yaml if present.
+	var savedModels map[string]map[string]string
+	savedManifest := loadExistingManifest()
+	if savedManifest != nil {
+		savedModels = savedManifest.SDDModels
+	}
+
+	sddModels, err := steps.RunSDDModelSelection(agents, selection, savedModels)
+	if err != nil {
+		return model.UserManifest{}, mapErr(err)
+	}
+
+	// Final confirmation: sync TotalSteps with the actual outcome of RunSDDModelSelection.
+	if sddModels != nil {
+		steps.TotalSteps = 5
+	} else {
+		steps.TotalSteps = 4
+	}
+
+	// Final step — summary & confirm (alt screen, step indicator inside form)
+	manifest, err := steps.ConfirmSummary(agents, selection, sddModels)
 	if err != nil {
 		return model.UserManifest{}, mapErr(err)
 	}
 
 	return manifest, nil
+}
+
+// loadExistingManifest reads devrune.yaml from the current working directory
+// and returns the parsed manifest. Returns nil on any error (file not found, parse error).
+func loadExistingManifest() *model.UserManifest {
+	data, err := os.ReadFile("devrune.yaml")
+	if err != nil {
+		return nil
+	}
+	var manifest model.UserManifest
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
+		return nil
+	}
+	return &manifest
 }
 
 // cachePath returns the default cache directory: ~/.cache/devrune/packages/

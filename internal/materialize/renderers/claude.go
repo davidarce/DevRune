@@ -34,6 +34,7 @@ type ClaudeRenderer struct {
 	installedSkills      []model.ContentItem
 	registryContents     map[string]string // keyed by workflow name
 	mcpAgentInstructions map[string]string // keyed by MCP name
+	modelOverrides       map[string]string // role-name → model-value from TUI SDD model selection
 }
 
 // NewClaudeRenderer constructs a ClaudeRenderer from the given agent definition.
@@ -71,6 +72,13 @@ func (r *ClaudeRenderer) NeedsCopyMode() bool { return true }
 // Called by the materializer before InstallWorkflow.
 func (r *ClaudeRenderer) SetInstalledSkills(skills []model.ContentItem) {
 	r.installedSkills = skills
+}
+
+// SetModelOverrides stores per-role model overrides selected in the TUI SDD model
+// selection step. When set, these override the role.Model values from workflow.yaml
+// when building {SDD_MODEL_*} placeholder replacements.
+func (r *ClaudeRenderer) SetModelOverrides(overrides map[string]string) {
+	r.modelOverrides = overrides
 }
 
 // RenderSkill reads the canonical SKILL.md from canonicalPath, strips non-Claude
@@ -384,7 +392,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
 	// Hoisted outside the registry block so postProcessWorkflow can use it too.
-	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir+"/"+wf.Metadata.Name, false)
+	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir+"/"+wf.Metadata.Name, nil, r.modelOverrides)
 
 	// T021: Load registry content if declared in the workflow manifest.
 	if wf.Components.Registry != "" {

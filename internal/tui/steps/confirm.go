@@ -2,25 +2,30 @@ package steps
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/davidarce/devrune/internal/model"
+	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
 // ConfirmSummary displays a summary of all selections and asks the user to confirm.
 // Returns the populated UserManifest on confirmation, or ErrUserAborted (from huh)
 // if the user declines.
-func ConfirmSummary(agents []string, selection SelectionResult) (model.UserManifest, error) {
-	description := buildSelectionSummary(agents, selection)
+//
+// sddModels is the optional map of agent→role→model from the SDD model selection step.
+// May be nil if the step was skipped or no models were selected.
+func ConfirmSummary(agents []string, selection SelectionResult, sddModels map[string]map[string]string) (model.UserManifest, error) {
+	description := buildSelectionSummary(agents, selection, sddModels)
 
 	confirmed := true
 
 	form := huh.NewForm(
 		huh.NewGroup(
-			stepHeader(4, 4, "Confirm"),
+			stepHeader(TotalSteps, TotalSteps, "Confirm"),
 			huh.NewNote().
 				Title("Summary").
 				Description(description),
@@ -30,7 +35,11 @@ func ConfirmSummary(agents []string, selection SelectionResult) (model.UserManif
 				Negative("Cancel").
 				Value(&confirmed),
 		),
-	).WithProgramOptions(tea.WithAltScreen())
+	).WithTheme(tuistyles.DevRuneThemeFunc).
+		WithViewHook(func(v tea.View) tea.View {
+			v.AltScreen = true
+			return v
+		})
 
 	if err := form.Run(); err != nil {
 		return model.UserManifest{}, err
@@ -40,11 +49,11 @@ func ConfirmSummary(agents []string, selection SelectionResult) (model.UserManif
 		return model.UserManifest{}, huh.ErrUserAborted
 	}
 
-	return buildManifestFromSelection(agents, selection), nil
+	return buildManifestFromSelection(agents, selection, sddModels), nil
 }
 
 // buildSelectionSummary produces a human-readable description of the selections.
-func buildSelectionSummary(agents []string, selection SelectionResult) string {
+func buildSelectionSummary(agents []string, selection SelectionResult, sddModels map[string]map[string]string) string {
 	var b strings.Builder
 
 	_, _ = fmt.Fprintf(&b, "Agents: %s\n\n", formatList(agents, "(none)"))
@@ -68,6 +77,35 @@ func buildSelectionSummary(agents []string, selection SelectionResult) string {
 		b.WriteString("\n")
 	}
 
+	// Append SDD model selections when non-nil.
+	if len(sddModels) > 0 {
+		b.WriteString("SDD Models:\n")
+		// Sort agent names for deterministic output.
+		agentNames := make([]string, 0, len(sddModels))
+		for agentName := range sddModels {
+			agentNames = append(agentNames, agentName)
+		}
+		sort.Strings(agentNames)
+		for _, agentName := range agentNames {
+			roleModels := sddModels[agentName]
+			if len(roleModels) == 0 {
+				continue
+			}
+			_, _ = fmt.Fprintf(&b, "  %s:\n", agentName)
+			// Display in SDD phase order.
+			for _, roleName := range model.SDDPhaseRoleNames {
+				if m, ok := roleModels[roleName]; ok && m != "" {
+					label := model.SDDPhaseLabels[roleName]
+					if label == "" {
+						label = roleName
+					}
+					_, _ = fmt.Fprintf(&b, "    %s: %s\n", label, m)
+				}
+			}
+		}
+		b.WriteString("\n")
+	}
+
 	return b.String()
 }
 
@@ -87,7 +125,7 @@ func formatList(items []string, fallback string) string {
 }
 
 // buildManifestFromSelection constructs a UserManifest from the wizard selections.
-func buildManifestFromSelection(agents []string, selection SelectionResult) model.UserManifest {
+func buildManifestFromSelection(agents []string, selection SelectionResult, sddModels map[string]map[string]string) model.UserManifest {
 	agentRefs := make([]model.AgentRef, 0, len(agents))
 	for _, a := range agents {
 		agentRefs = append(agentRefs, model.AgentRef{Name: a})
@@ -138,6 +176,7 @@ func buildManifestFromSelection(agents []string, selection SelectionResult) mode
 		Packages:      pkgRefs,
 		MCPs:          mcpRefs,
 		Workflows:     workflowSources,
+		SDDModels:     sddModels,
 	}
 }
 

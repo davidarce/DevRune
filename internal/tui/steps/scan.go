@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
@@ -51,7 +51,7 @@ type scanModel struct {
 func newScanModel(sources []string, scanFn ScanFunc, cachePath string) scanModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(tuistyles.ColorCyan)
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // ANSI bright green
 
 	return scanModel{
 		spinner: s,
@@ -106,14 +106,16 @@ func (m scanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m scanModel) View() string {
+func (m scanModel) View() tea.View {
 	if m.done {
-		return ""
+		v := tea.NewView("")
+		v.AltScreen = true
+		return v
 	}
 
 	var sb strings.Builder
 
-	sb.WriteString(bannerText)
+	sb.WriteString(responsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleStepIndicator.Render("Step 3/4: Select content"))
@@ -131,7 +133,9 @@ func (m scanModel) View() string {
 		sb.WriteString("\n")
 	}
 
-	return sb.String()
+	v := tea.NewView(sb.String())
+	v.AltScreen = true
+	return v
 }
 
 // RunScanModel runs the scanning spinner within an alt-screen bubbletea program.
@@ -139,7 +143,7 @@ func (m scanModel) View() string {
 // that should be shown to the user.
 func RunScanModel(sources []string, scanFn ScanFunc, cachePath string) ([]ScanResult, []string, error) {
 	m := newScanModel(sources, scanFn, cachePath)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 
 	finalModel, err := p.Run()
 	if err != nil {

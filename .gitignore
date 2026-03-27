@@ -47,4 +47,9 @@ internal/materialize/.mcp.json
 
 # >>> devrune managed — do not edit
 .devrune/
+.claude/
+.opencode/
+.github/
+.factory/
+.mcp.json
 # <<< devrune managed

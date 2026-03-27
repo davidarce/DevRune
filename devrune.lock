@@ -1,15 +1,15 @@
 schemaVersion: devrune/lock/v1
-manifestHash: sha256:6703aa8736fbfb4cf96823b79e2ab1267eee6111ec1811428d28afd843ad1f24
+manifestHash: sha256:2df88823a5a56cf1a33ff4dbc8e1fe0b810e6ee24803c7fccbf86563e97047fc
 packages:
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
         subpath: ""
-        path: ./devrune-starter-catalog
+        path: ""
         host: ""
-      hash: sha256:bce5dfab0ace53b6c47ef88b36757c9bf971caf7428daa5e2b7596642b9cc62b
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       contents:
         - kind: rule
           name: api/api-standards-rules
@@ -122,9 +122,25 @@ packages:
             description: Mother builder pattern, test data construction, BDDMockito
             display_name: mother-pattern
         - kind: skill
+          name: api-first-adviser
+          path: skills/api-first-adviser/
+          description: API-first design patterns — OpenAPI, REST conventions, error models, versioning
+        - kind: skill
+          name: arch-flow-explorer
+          path: skills/arch-flow-explorer/
+          description: Generate interactive HTML playgrounds that visualize backend architecture flows as clickable node diagrams with pan/zoom and animated walkthroughs. Use when the user wants to understand, explain, document, or explore system flows, architectures, or component interactions. Triggers on natural language like "explícame el flujo de X", "muéstrame cómo funciona X", "show me the X flow", "visualize the X architecture", "how does X work", "explain the X pipeline", "diagram the X system". Produces a single self-contained HTML file with interactive nodes, animated connections, step-by-step playback, and contextual prompts.
+        - kind: skill
           name: architect-adviser
           path: skills/architect-adviser/
           description: 'Clean architecture patterns: hexagonal, DDD, ports and adapters, layered design.'
+        - kind: skill
+          name: component-adviser
+          path: skills/component-adviser/
+          description: React component design patterns — composition, hooks, state management, performance
+        - kind: skill
+          name: frontend-test-adviser
+          path: skills/frontend-test-adviser/
+          description: Frontend testing patterns — React Testing Library, Vitest/Jest, Cypress e2e
         - kind: skill
           name: git-commit
           path: skills/git-commit/
@@ -134,78 +150,93 @@ packages:
           path: skills/git-pull-request/
           description: Create pull requests with template selection and platform auto-detection (GitHub/GitLab).
         - kind: skill
+          name: integration-test-adviser
+          path: skills/integration-test-adviser/
+          description: Integration test patterns — adapter testing, external service mocking, test slicing
+        - kind: skill
           name: unit-test-adviser
           path: skills/unit-test-adviser/
           description: 'Domain unit test patterns: test structure, mocking strategies, test data builders, Given-When-Then.'
+        - kind: skill
+          name: web-accessibility-adviser
+          path: skills/web-accessibility-adviser/
+          description: Web accessibility patterns — WCAG 2.1 AA, ARIA, keyboard navigation, screen readers
 mcps:
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/mcps/atlassian.yaml
+        subpath: mcps/atlassian
+        path: ""
         host: ""
-      hash: sha256:bda910df7f5c09043e35002f1e3e35c63b9fe370ce6ae5d17361a0b72a7a541b
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: atlassian
+      dir: mcps/atlassian
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/mcps/context7.yaml
+        subpath: mcps/context7
+        path: ""
         host: ""
-      hash: sha256:07aa3643ada8aadba1d7ee043e28a0c5c841592d43f144cebebf4c613f340f3b
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: context7
+      dir: mcps/context7
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/mcps/engram.yaml
+        subpath: mcps/engram
+        path: ""
         host: ""
-      hash: sha256:a90a2d749554d1ba5399487771e14ad267f872355e63c5ccb375b5fdca13fefa
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: engram
+      dir: mcps/engram
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/mcps/exa.yaml
+        subpath: mcps/exa
+        path: ""
         host: ""
-      hash: sha256:cb9ca54607b4e52781ed01b6b0900b8d69b6815bbdb47e18fed17af220a63776
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: exa
+      dir: mcps/exa
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/mcps/playwright.yaml
+        subpath: mcps/playwright
+        path: ""
         host: ""
-      hash: sha256:473914bff85152fc6c4e136f1b891c78e6b95b37b188c9dc053681d02afeba6c
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: playwright
+      dir: mcps/playwright
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/mcps/ref.yaml
+        subpath: mcps/ref
+        path: ""
         host: ""
-      hash: sha256:0d96a3572ceebfdfb9dd899d41d2b02ad06ccb5c755a65e16389b86fe967199c
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: ref
+      dir: mcps/ref
 workflows:
     - source:
-        scheme: local
-        owner: ""
-        repo: ""
+        scheme: github
+        owner: davidarce
+        repo: devrune-starter-catalog
         ref: ""
-        subpath: ""
-        path: ./devrune-starter-catalog/workflows/sdd
+        subpath: workflows/sdd
+        path: ""
         host: ""
-      hash: sha256:719ef61fbd15ac7c9004410c92f5c98b2bf1c56ff830435d9612eaa930e639aa
+      hash: sha256:13bcb962b7a85724b548651341ec7ba36832ede110fca8df059341bf711e660c
       name: sdd
+      dir: workflows/sdd

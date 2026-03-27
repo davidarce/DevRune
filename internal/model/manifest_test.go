@@ -3,7 +3,10 @@ package model
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestUserManifest_Validate tests the Validate method on UserManifest.
@@ -372,6 +375,128 @@ agents:
 				t.Errorf("ManifestHashMatches() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestUserManifest_SDDModels_Serialization tests that SDDModels serializes to YAML correctly.
+func TestUserManifest_SDDModels_Serialization(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		SDDModels: map[string]map[string]string{
+			"claude": {
+				"sdd-explorer": "sonnet",
+				"sdd-planner":  "opus",
+			},
+		},
+	}
+
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	yamlStr := string(data)
+	if !strings.Contains(yamlStr, "sddModels:") {
+		t.Errorf("serialized YAML does not contain 'sddModels:' key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "claude:") {
+		t.Errorf("serialized YAML does not contain 'claude:' agent key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "sdd-explorer:") {
+		t.Errorf("serialized YAML does not contain 'sdd-explorer:' role key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "sonnet") {
+		t.Errorf("serialized YAML does not contain model value 'sonnet':\n%s", yamlStr)
+	}
+}
+
+// TestUserManifest_SDDModels_OmitWhenNil tests that nil SDDModels omits the key entirely.
+func TestUserManifest_SDDModels_OmitWhenNil(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		SDDModels:     nil,
+	}
+
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	yamlStr := string(data)
+	if strings.Contains(yamlStr, "sddModels") {
+		t.Errorf("serialized YAML contains 'sddModels' for nil value (omitempty violation):\n%s", yamlStr)
+	}
+}
+
+// TestUserManifest_SDDModels_RoundTrip tests that marshal → unmarshal preserves SDDModels.
+func TestUserManifest_SDDModels_RoundTrip(t *testing.T) {
+	original := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}, {Name: "opencode"}},
+		SDDModels: map[string]map[string]string{
+			"claude": {
+				"sdd-explorer":    "sonnet",
+				"sdd-planner":     "opus",
+				"sdd-implementer": "haiku",
+				"sdd-reviewer":    "sonnet",
+			},
+			"opencode": {
+				"sdd-explorer": "claude-sonnet-4.5",
+			},
+		},
+	}
+
+	data, err := yaml.Marshal(original)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	var restored UserManifest
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	if len(restored.SDDModels) != len(original.SDDModels) {
+		t.Errorf("SDDModels agent count after round-trip = %d, want %d", len(restored.SDDModels), len(original.SDDModels))
+	}
+
+	for agent, roles := range original.SDDModels {
+		restoredRoles, ok := restored.SDDModels[agent]
+		if !ok {
+			t.Errorf("SDDModels missing agent %q after round-trip", agent)
+			continue
+		}
+		for role, wantModel := range roles {
+			gotModel, ok := restoredRoles[role]
+			if !ok {
+				t.Errorf("SDDModels[%q] missing role %q after round-trip", agent, role)
+				continue
+			}
+			if gotModel != wantModel {
+				t.Errorf("SDDModels[%q][%q] = %q after round-trip, want %q", agent, role, gotModel, wantModel)
+			}
+		}
+	}
+}
+
+// TestUserManifest_SDDModels_ValidatePassesWithSDDModels tests that Validate() succeeds
+// when SDDModels is populated.
+func TestUserManifest_SDDModels_ValidatePassesWithSDDModels(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		Packages:      []PackageRef{{Source: "github:owner/repo@v1.0.0"}},
+		SDDModels: map[string]map[string]string{
+			"claude": {
+				"sdd-explorer": "sonnet",
+			},
+		},
+	}
+
+	if err := manifest.Validate(); err != nil {
+		t.Errorf("Validate() with SDDModels populated returned error = %v, want nil", err)
 	}
 }
 

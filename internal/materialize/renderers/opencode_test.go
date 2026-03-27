@@ -94,8 +94,8 @@ Body.
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
-	if fm["model"] != "anthropic/claude-sonnet-4-20250514" {
-		t.Errorf("model = %v, want %q", fm["model"], "anthropic/claude-sonnet-4-20250514")
+	if fm["model"] != "github-copilot/claude-sonnet-4.6" {
+		t.Errorf("model = %v, want %q", fm["model"], "github-copilot/claude-sonnet-4.6")
 	}
 }
 
@@ -110,13 +110,14 @@ func TestOpenCodeRenderer_ModelResolution_Opus(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
-	if fm["model"] != "anthropic/claude-opus-4-20250514" {
-		t.Errorf("model = %v, want %q", fm["model"], "anthropic/claude-opus-4-20250514")
+	if fm["model"] != "github-copilot/claude-opus-4.6" {
+		t.Errorf("model = %v, want %q", fm["model"], "github-copilot/claude-opus-4.6")
 	}
 }
 
-// TestOpenCodeRenderer_ModelResolution_UnknownPassthrough verifies unknown model passes through.
-func TestOpenCodeRenderer_ModelResolution_UnknownPassthrough(t *testing.T) {
+// TestOpenCodeRenderer_ModelResolution_UnknownBareName verifies that an unknown bare model
+// name (no provider prefix) gets the github-copilot/ prefix prepended.
+func TestOpenCodeRenderer_ModelResolution_UnknownBareName(t *testing.T) {
 	r := renderers.NewOpenCodeRenderer(openCodeAgentDef())
 	input := "---\nname: custom-skill\ndescription: Test\nmodel: gpt-4o\n---\nBody.\n"
 	srcDir := writeSkillFile(t, input)
@@ -126,8 +127,26 @@ func TestOpenCodeRenderer_ModelResolution_UnknownPassthrough(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
 	fm, _, _ := parse.ParseFrontmatter(data)
 
-	if fm["model"] != "gpt-4o" {
-		t.Errorf("model = %v, want %q", fm["model"], "gpt-4o")
+	// Unknown bare names get the github-copilot/ prefix so OpenCode can route them.
+	if fm["model"] != "github-copilot/gpt-4o" {
+		t.Errorf("model = %v, want %q", fm["model"], "github-copilot/gpt-4o")
+	}
+}
+
+// TestOpenCodeRenderer_ModelResolution_AlreadyQualifiedPassthrough verifies that a model ID
+// that already contains a provider prefix ("/") is returned unchanged.
+func TestOpenCodeRenderer_ModelResolution_AlreadyQualifiedPassthrough(t *testing.T) {
+	r := renderers.NewOpenCodeRenderer(openCodeAgentDef())
+	input := "---\nname: custom-skill\ndescription: Test\nmodel: anthropic/claude-3-5-sonnet-20241022\n---\nBody.\n"
+	srcDir := writeSkillFile(t, input)
+	destDir := t.TempDir()
+
+	_ = r.RenderSkill(srcDir, destDir)
+	data, _ := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
+	fm, _, _ := parse.ParseFrontmatter(data)
+
+	if fm["model"] != "anthropic/claude-3-5-sonnet-20241022" {
+		t.Errorf("model = %v, want %q", fm["model"], "anthropic/claude-3-5-sonnet-20241022")
 	}
 }
 
@@ -594,7 +613,7 @@ func TestOpenCodeRenderer_InstallWorkflow_ModelResolvedInAgentEntry(t *testing.T
 	agentSection := cfg["agent"].(map[string]interface{})
 	planner := agentSection["sdd-planner"].(map[string]interface{})
 
-	const wantModel = "anthropic/claude-sonnet-4-20250514"
+	const wantModel = "github-copilot/claude-sonnet-4.6"
 	if planner["model"] != wantModel {
 		t.Errorf("sdd-planner model = %v, want %q", planner["model"], wantModel)
 	}

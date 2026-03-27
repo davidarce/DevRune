@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
@@ -43,26 +43,26 @@ func (m completionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m completionModel) View() string {
+func (m completionModel) View() tea.View {
 	var sb strings.Builder
 
 	// Box styles.
 	boxBorder := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(tuistyles.ColorGreen).
+		BorderForeground(lipgloss.Color("2")). // ANSI green
 		Padding(1, 3).
 		MarginTop(1).
 		MarginLeft(2)
 
 	// Title.
 	title := lipgloss.NewStyle().
-		Foreground(tuistyles.ColorGreen).
+		Foreground(lipgloss.Color("2")). // ANSI green
 		Bold(true).
 		Render("  Installation Complete!")
 
 	// Divider.
 	divider := lipgloss.NewStyle().
-		Foreground(tuistyles.ColorGray).
+		Foreground(lipgloss.Color("8")). // ANSI gray
 		Render("  ─────────────────────────────────────")
 
 	// Summary lines.
@@ -92,7 +92,7 @@ func (m completionModel) View() string {
 
 	// Footer hint.
 	hint := lipgloss.NewStyle().
-		Foreground(tuistyles.ColorGray).
+		Foreground(lipgloss.Color("8")). // ANSI gray
 		Italic(true).
 		MarginLeft(4).
 		MarginTop(1).
@@ -109,7 +109,9 @@ func (m completionModel) View() string {
 	sb.WriteString(hint)
 	sb.WriteString("\n\n")
 
-	return sb.String()
+	v := tea.NewView(sb.String())
+	v.AltScreen = true
+	return v
 }
 
 // fmtLine formats a key-value pair for the summary.
@@ -121,7 +123,7 @@ func fmtLine(key, value string) string {
 // RunCompletion shows the interactive completion screen and blocks until Q is pressed.
 func RunCompletion(info CompletionInfo) error {
 	m := completionModel{info: info}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }

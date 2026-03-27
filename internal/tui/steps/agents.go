@@ -3,8 +3,10 @@ package steps
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+
+	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
 // knownAgents lists the agents that DevRune can configure.
@@ -22,11 +24,12 @@ func SelectAgents() ([]string, error) {
 
 	form := huh.NewForm(
 		huh.NewGroup(
-			stepHeader(1, 4, "Agent selection"),
+			stepHeader(1, TotalSteps, "Agent selection"),
 			huh.NewMultiSelect[string]().
 				Title("Which agents do you want to configure?").
 				Description("Select one or more AI agents. Use space to toggle, enter to confirm.").
 				Options(options...).
+				Height(len(knownAgents)+2).
 				Validate(func(v []string) error {
 					if len(v) == 0 {
 						return fmt.Errorf("please select at least one agent")
@@ -35,7 +38,11 @@ func SelectAgents() ([]string, error) {
 				}).
 				Value(&selected),
 		),
-	).WithProgramOptions(tea.WithAltScreen())
+	).WithTheme(tuistyles.DevRuneThemeFunc).
+		WithViewHook(func(v tea.View) tea.View {
+			v.AltScreen = true
+			return v
+		})
 
 	if err := form.Run(); err != nil {
 		return nil, err

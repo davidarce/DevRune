@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/davidarce/devrune/internal/model"
@@ -82,7 +82,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 						Negative("Cancel").
 						Value(&overwrite),
 				),
-			).WithProgramOptions(tea.WithAltScreen())
+			).WithTheme(tuistyles.DevRuneThemeFunc).
+				WithViewHook(func(v tea.View) tea.View {
+					v.AltScreen = true
+					return v
+				})
 			if err := form.Run(); err != nil {
 				return err
 			}

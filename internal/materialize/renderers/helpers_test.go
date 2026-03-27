@@ -1,7 +1,9 @@
 package renderers_test
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/davidarce/devrune/internal/materialize/renderers"
@@ -546,4 +548,460 @@ func TestApplyMCPEnvTransform_NoEnvKey(t *testing.T) {
 	if _, ok := result["env"]; ok {
 		t.Error("no env key should be present when source had none")
 	}
+}
+
+// TestApplyMCPEnvTransform_HeadersOpenCodeStyle verifies that ${REF_API_KEY} in
+// the "headers" field is transformed to {env:REF_API_KEY} for OpenCode style.
+// This covers HTTP-type MCPs (ref, context7) that pass API keys via headers.
+func TestApplyMCPEnvTransform_HeadersOpenCodeStyle(t *testing.T) {
+	input := map[string]interface{}{
+		"type": "remote",
+		"url":  "https://api.ref.tools/mcp",
+		"headers": map[string]interface{}{
+			"x-ref-api-key": "${REF_API_KEY}",
+		},
+	}
+	cfg := model.MCPConfig{EnvKey: "env", EnvVarStyle: "{env:VAR}"}
+
+	result := renderers.ApplyMCPEnvTransform(input, cfg)
+
+	headers, ok := result["headers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("headers should be a map, got %T", result["headers"])
+	}
+	got := headers["x-ref-api-key"]
+	if got != "{env:REF_API_KEY}" {
+		t.Errorf("x-ref-api-key = %v, want {env:REF_API_KEY}", got)
+	}
+}
+
+// TestApplyMCPEnvTransform_HeadersCopilotStyle verifies that ${CONTEXT7_API_KEY} in
+// the "headers" field is transformed to ${env:CONTEXT7_API_KEY} for Copilot style.
+func TestApplyMCPEnvTransform_HeadersCopilotStyle(t *testing.T) {
+	input := map[string]interface{}{
+		"type": "remote",
+		"url":  "https://mcp.context7.com/mcp",
+		"headers": map[string]interface{}{
+			"CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}",
+		},
+	}
+	cfg := model.MCPConfig{EnvKey: "env", EnvVarStyle: "${env:VAR}"}
+
+	result := renderers.ApplyMCPEnvTransform(input, cfg)
+
+	headers, ok := result["headers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("headers should be a map, got %T", result["headers"])
+	}
+	got := headers["CONTEXT7_API_KEY"]
+	if got != "${env:CONTEXT7_API_KEY}" {
+		t.Errorf("CONTEXT7_API_KEY = %v, want ${env:CONTEXT7_API_KEY}", got)
+	}
+}
+
+// TestApplyMCPEnvTransform_HeadersClaudeStyle verifies that ${REF_API_KEY} in headers
+// passes through unchanged when envVarStyle is the Claude default ${VAR}.
+func TestApplyMCPEnvTransform_HeadersClaudeStyle(t *testing.T) {
+	input := map[string]interface{}{
+		"type": "remote",
+		"url":  "https://api.ref.tools/mcp",
+		"headers": map[string]interface{}{
+			"x-ref-api-key": "${REF_API_KEY}",
+		},
+	}
+	cfg := model.MCPConfig{EnvKey: "env", EnvVarStyle: "${VAR}"}
+
+	result := renderers.ApplyMCPEnvTransform(input, cfg)
+
+	headers, ok := result["headers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("headers should be a map, got %T", result["headers"])
+	}
+	got := headers["x-ref-api-key"]
+	if got != "${REF_API_KEY}" {
+		t.Errorf("x-ref-api-key = %v, want ${REF_API_KEY}", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for BuildWorkflowPlaceholderReplacements (model override behaviour)
+// ---------------------------------------------------------------------------
+
+// makeWFWithRoles builds a minimal WorkflowManifest with the given roles for testing.
+func makeWFWithRoles(roles []model.WorkflowRole) model.WorkflowManifest {
+	var wf model.WorkflowManifest
+	wf.Components.Roles = roles
+	return wf
+}
+
+// TestBuildWorkflowPlaceholderReplacements_OverrideTakesPrecedence verifies that a
+// value in modelOverrides replaces the role.Model from workflow.yaml.
+func TestBuildWorkflowPlaceholderReplacements_OverrideTakesPrecedence(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-explorer", Kind: "subagent", Model: "haiku"},
+	})
+	overrides := map[string]string{
+		"sdd-explorer": "sonnet",
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
+
+	got := result["{SDD_MODEL_EXPLORE}"]
+	if got != "sonnet" {
+		t.Errorf("{SDD_MODEL_EXPLORE} = %q, want %q (override should win)", got, "sonnet")
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToRoleModel verifies
+// that the SDDModelInheritOption sentinel in overrides is treated as "no override",
+// causing fallback to role.Model.
+func TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToRoleModel(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
+	})
+	overrides := map[string]string{
+		"sdd-planner": model.SDDModelInheritOption, // sentinel = no override
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
+
+	got := result["{SDD_MODEL_PLAN}"]
+	if got != "opus" {
+		t.Errorf("{SDD_MODEL_PLAN} = %q, want %q (inherit sentinel should fall back to role.Model)", got, "opus")
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_EmptyOverrideMapIsBackwardCompatible verifies
+// that an empty (non-nil) override map behaves the same as nil — role.Model is used.
+func TestBuildWorkflowPlaceholderReplacements_EmptyOverrideMapIsBackwardCompatible(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-implementer", Kind: "subagent", Model: "sonnet"},
+	})
+	emptyOverrides := map[string]string{}
+
+	resultWithEmpty := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, emptyOverrides)
+	resultWithNil := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+
+	if resultWithEmpty["{SDD_MODEL_IMPLEMENT}"] != resultWithNil["{SDD_MODEL_IMPLEMENT}"] {
+		t.Errorf("empty override map produced %q, nil produced %q — should be equal",
+			resultWithEmpty["{SDD_MODEL_IMPLEMENT}"], resultWithNil["{SDD_MODEL_IMPLEMENT}"])
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_NilOverridesIsBackwardCompatible verifies that
+// nil modelOverrides does not change any existing placeholder behaviour.
+func TestBuildWorkflowPlaceholderReplacements_NilOverridesIsBackwardCompatible(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-reviewer", Kind: "subagent", Model: "haiku"},
+	})
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+
+	got := result["{SDD_MODEL_REVIEW}"]
+	if got != "haiku" {
+		t.Errorf("{SDD_MODEL_REVIEW} = %q, want %q", got, "haiku")
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsTrue verifies that
+// when a modelResolver is provided, a short-name override is resolved to the full model ID.
+func TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsTrue(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-explorer", Kind: "subagent", Model: "haiku"},
+	})
+	overrides := map[string]string{
+		"sdd-explorer": "sonnet",
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", renderers.ResolveModel, overrides)
+
+	got := result["{SDD_MODEL_EXPLORE}"]
+	wantPrefix := "anthropic/claude-sonnet" // full ID starts with this
+	if len(got) == 0 {
+		t.Fatal("{SDD_MODEL_EXPLORE} is empty, want resolved full model ID")
+	}
+	if got == "sonnet" {
+		t.Errorf("{SDD_MODEL_EXPLORE} = %q (short name), want resolved full ID starting with %q", got, wantPrefix)
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsFalse verifies that
+// when modelResolver is nil, the raw override value is used as-is without resolution.
+func TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsFalse(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
+	})
+	overrides := map[string]string{
+		"sdd-planner": "sonnet",
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
+
+	got := result["{SDD_MODEL_PLAN}"]
+	if got != "sonnet" {
+		t.Errorf("{SDD_MODEL_PLAN} = %q, want %q (raw short name without resolution)", got, "sonnet")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for resolveOpenCodeModel
+// ---------------------------------------------------------------------------
+
+// TestResolveOpenCodeModel_ShortNames verifies that known short names resolve to
+// github-copilot/{bareModelID} format.
+func TestResolveOpenCodeModel_ShortNames(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"sonnet", "github-copilot/claude-sonnet-4.6"},
+		{"opus", "github-copilot/claude-opus-4.6"},
+		{"haiku", "github-copilot/claude-haiku-4.5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := renderers.ResolveOpenCodeModel(tt.input)
+			if got != tt.want {
+				t.Errorf("ResolveOpenCodeModel(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestResolveOpenCodeModel_AlreadyQualifiedPassesThrough verifies that a model ID
+// that already contains a provider prefix ("/") is returned unchanged.
+func TestResolveOpenCodeModel_AlreadyQualifiedPassesThrough(t *testing.T) {
+	input := "github-copilot/claude-sonnet-4.6"
+	got := renderers.ResolveOpenCodeModel(input)
+	if got != input {
+		t.Errorf("ResolveOpenCodeModel(%q) = %q, want %q (already qualified, should pass through)", input, got, input)
+	}
+}
+
+// TestResolveOpenCodeModel_UnknownBareNameGetsPrefixed verifies that an unknown
+// bare model name (no "/" prefix) gets the github-copilot/ prefix prepended.
+func TestResolveOpenCodeModel_UnknownBareNameGetsPrefixed(t *testing.T) {
+	input := "gpt-4o"
+	want := "github-copilot/gpt-4o"
+	got := renderers.ResolveOpenCodeModel(input)
+	if got != want {
+		t.Errorf("ResolveOpenCodeModel(%q) = %q, want %q", input, got, want)
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_OpenCodeResolver verifies that using
+// resolveOpenCodeModel produces github-copilot/... format placeholders.
+func TestBuildWorkflowPlaceholderReplacements_OpenCodeResolver(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-explorer", Kind: "subagent", Model: "sonnet"},
+	})
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", renderers.ResolveOpenCodeModel, nil)
+
+	got := result["{SDD_MODEL_EXPLORE}"]
+	const want = "github-copilot/claude-sonnet-4.6"
+	if got != want {
+		t.Errorf("{SDD_MODEL_EXPLORE} = %q, want %q", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for buildWorkflowPathReplacements
+// ---------------------------------------------------------------------------
+
+// TestBuildWorkflowPathReplacements_OnlySkillsPath verifies that the function
+// returns only a {SKILLS_PATH} entry and no {SDD_MODEL_*} entries.
+func TestBuildWorkflowPathReplacements_OnlySkillsPath(t *testing.T) {
+	result := renderers.BuildWorkflowPathReplacements("/ws", "skills")
+
+	if len(result) != 1 {
+		t.Errorf("expected exactly 1 replacement, got %d: %v", len(result), result)
+	}
+	got, ok := result["{SKILLS_PATH}"]
+	if !ok {
+		t.Fatal("{SKILLS_PATH} key missing from result")
+	}
+	if got != "/ws/skills" {
+		t.Errorf("{SKILLS_PATH} = %q, want %q", got, "/ws/skills")
+	}
+	// Verify no model placeholders are present.
+	for key := range result {
+		if key != "{SKILLS_PATH}" {
+			t.Errorf("unexpected key %q in result — only {SKILLS_PATH} should be present", key)
+		}
+	}
+}
+
+// TestBuildWorkflowPathReplacements_EmptySkillDir uses workspaceDir directly when skillDir is empty.
+func TestBuildWorkflowPathReplacements_EmptySkillDir(t *testing.T) {
+	result := renderers.BuildWorkflowPathReplacements("/ws", "")
+	got := result["{SKILLS_PATH}"]
+	if got != "/ws" {
+		t.Errorf("{SKILLS_PATH} = %q, want %q (empty skillDir should yield workspaceDir only)", got, "/ws")
+	}
+}
+
+// TestBuildWorkflowPathReplacements_TrailingSlashStripped verifies trailing slashes are
+// stripped from both workspaceDir and skillDir before joining.
+func TestBuildWorkflowPathReplacements_TrailingSlashStripped(t *testing.T) {
+	result := renderers.BuildWorkflowPathReplacements("/ws/", "skills/")
+	got := result["{SKILLS_PATH}"]
+	const want = "/ws/skills"
+	if got != want {
+		t.Errorf("{SKILLS_PATH} = %q, want %q (trailing slashes should be stripped)", got, want)
+	}
+}
+
+// TestBuildWorkflowPathReplacements_NoModelKeysEvenWithRoles verifies that unlike
+// buildWorkflowPlaceholderReplacements, this function never adds {SDD_MODEL_*} keys
+// regardless of the workflow manifest roles provided.
+func TestBuildWorkflowPathReplacements_NoModelKeysEvenWithRoles(t *testing.T) {
+	// The function doesn't take a WorkflowManifest — this test confirms the design
+	// by checking that no model keys appear when we use the path-only function.
+	result := renderers.BuildWorkflowPathReplacements("/project", "agents")
+	for key := range result {
+		if key != "{SKILLS_PATH}" {
+			t.Errorf("unexpected key %q — buildWorkflowPathReplacements must only produce {SKILLS_PATH}", key)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for removeModelPlaceholderLines
+// ---------------------------------------------------------------------------
+
+// TestRemoveModelPlaceholderLines_RemovesModelLines verifies that lines containing
+// {SDD_MODEL_*} are removed from .md files while leaving other content intact.
+func TestRemoveModelPlaceholderLines_RemovesModelLines(t *testing.T) {
+	dir := t.TempDir()
+	mdFile := filepath.Join(dir, "ORCHESTRATOR.md")
+
+	content := "# Orchestrator\n\nTask(\n  description: 'explore',\n  subagent_type: 'general',\n  model: '{SDD_MODEL_EXPLORE}',\n  prompt: 'Do the thing.'\n)\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	if err := renderers.RemoveModelPlaceholderLines(dir); err != nil {
+		t.Fatalf("RemoveModelPlaceholderLines() error: %v", err)
+	}
+
+	got, err := os.ReadFile(mdFile)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	result := string(got)
+
+	if contains(result, "{SDD_MODEL_EXPLORE}") {
+		t.Error("result still contains {SDD_MODEL_EXPLORE} placeholder — should have been removed")
+	}
+	if contains(result, "model:") {
+		t.Error("result still contains 'model:' line — the whole line should have been removed")
+	}
+	// Non-model content should be preserved.
+	if !contains(result, "description: 'explore'") {
+		t.Error("description line was incorrectly removed")
+	}
+	if !contains(result, "subagent_type: 'general'") {
+		t.Error("subagent_type line was incorrectly removed")
+	}
+}
+
+// TestRemoveModelPlaceholderLines_AllFourPlaceholders verifies all four SDD model
+// placeholders (EXPLORE, PLAN, IMPLEMENT, REVIEW) are removed.
+func TestRemoveModelPlaceholderLines_AllFourPlaceholders(t *testing.T) {
+	dir := t.TempDir()
+	mdFile := filepath.Join(dir, "ORCHESTRATOR.md")
+
+	content := "  model: '{SDD_MODEL_EXPLORE}',\n  model: '{SDD_MODEL_PLAN}',\n  model: '{SDD_MODEL_IMPLEMENT}',\n  model: '{SDD_MODEL_REVIEW}',\n  other: 'kept',\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	if err := renderers.RemoveModelPlaceholderLines(dir); err != nil {
+		t.Fatalf("RemoveModelPlaceholderLines() error: %v", err)
+	}
+
+	got, _ := os.ReadFile(mdFile)
+	result := string(got)
+
+	for _, placeholder := range []string{"{SDD_MODEL_EXPLORE}", "{SDD_MODEL_PLAN}", "{SDD_MODEL_IMPLEMENT}", "{SDD_MODEL_REVIEW}"} {
+		if contains(result, placeholder) {
+			t.Errorf("placeholder %q was not removed", placeholder)
+		}
+	}
+	if !contains(result, "other: 'kept'") {
+		t.Error("non-model line 'other: kept' was incorrectly removed")
+	}
+}
+
+// TestRemoveModelPlaceholderLines_NoOpWhenNoPlaceholders verifies the function
+// does not modify files that contain no {SDD_MODEL_*} patterns.
+func TestRemoveModelPlaceholderLines_NoOpWhenNoPlaceholders(t *testing.T) {
+	dir := t.TempDir()
+	mdFile := filepath.Join(dir, "clean.md")
+	original := "# No model placeholders here\n\nJust text.\n"
+	if err := os.WriteFile(mdFile, []byte(original), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	if err := renderers.RemoveModelPlaceholderLines(dir); err != nil {
+		t.Fatalf("RemoveModelPlaceholderLines() error: %v", err)
+	}
+
+	got, _ := os.ReadFile(mdFile)
+	if string(got) != original {
+		t.Errorf("file was modified when no placeholders present:\ngot:  %q\nwant: %q", string(got), original)
+	}
+}
+
+// TestRemoveModelPlaceholderLines_SkipsNonMdFiles verifies that non-.md files are
+// not modified even if they contain {SDD_MODEL_*} strings.
+func TestRemoveModelPlaceholderLines_SkipsNonMdFiles(t *testing.T) {
+	dir := t.TempDir()
+	txtFile := filepath.Join(dir, "config.txt")
+	original := "model: '{SDD_MODEL_EXPLORE}'\n"
+	if err := os.WriteFile(txtFile, []byte(original), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	if err := renderers.RemoveModelPlaceholderLines(dir); err != nil {
+		t.Fatalf("RemoveModelPlaceholderLines() error: %v", err)
+	}
+
+	got, _ := os.ReadFile(txtFile)
+	if string(got) != original {
+		t.Errorf("non-.md file was modified (should be skipped): got %q, want %q", string(got), original)
+	}
+}
+
+// TestRemoveModelPlaceholderLines_WalksSubdirectories verifies the function
+// recursively processes .md files in subdirectories.
+func TestRemoveModelPlaceholderLines_WalksSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "sdd-orchestrator")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mdFile := filepath.Join(subDir, "ORCHESTRATOR.md")
+	if err := os.WriteFile(mdFile, []byte("  model: '{SDD_MODEL_PLAN}',\n  prompt: 'x',\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := renderers.RemoveModelPlaceholderLines(dir); err != nil {
+		t.Fatalf("RemoveModelPlaceholderLines() error: %v", err)
+	}
+
+	got, _ := os.ReadFile(mdFile)
+	result := string(got)
+	if contains(result, "{SDD_MODEL_PLAN}") {
+		t.Error("placeholder in subdirectory file was not removed")
+	}
+	if !contains(result, "prompt: 'x'") {
+		t.Error("non-placeholder line was incorrectly removed")
+	}
+}
+
+// contains is a helper to check substring presence in test output strings.
+func contains(s, sub string) bool {
+	return strings.Contains(s, sub)
 }

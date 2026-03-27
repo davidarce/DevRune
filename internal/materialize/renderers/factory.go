@@ -34,6 +34,7 @@ type FactoryRenderer struct {
 	agentDef         model.AgentDefinition
 	registryContents map[string]string // keyed by workflow name
 	normalizedMCPs   []normalizedMCP   // MCP entries with agentInstructions for catalog injection
+	modelOverrides   map[string]string // role-name → model-value from TUI SDD model selection
 }
 
 // NewFactoryRenderer constructs a FactoryRenderer from the given agent definition.
@@ -57,6 +58,13 @@ func (r *FactoryRenderer) Name() string { return r.agentDef.Name }
 
 // AgentType returns "factory".
 func (r *FactoryRenderer) AgentType() string { return "factory" }
+
+// SetModelOverrides stores per-role model overrides selected in the TUI SDD model
+// selection step. When set, these override the role.Model values from workflow.yaml
+// when building {SDD_MODEL_*} placeholder replacements.
+func (r *FactoryRenderer) SetModelOverrides(overrides map[string]string) {
+	r.modelOverrides = overrides
+}
 
 // Definition returns the agent definition.
 func (r *FactoryRenderer) Definition() model.AgentDefinition { return r.agentDef }
@@ -327,10 +335,13 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		managedPaths = append(managedPaths, dstPath)
 	}
 
-	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
-	// Uses buildWorkflowPlaceholderReplacements to avoid double-slash bugs and
-	// to ensure {SDD_MODEL_*} markers are resolved from workflow role metadata.
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, true)
+	// Build shared placeholder replacements: {SKILLS_PATH} only.
+	// Factory does not support model routing in the TUI, so {SDD_MODEL_*} placeholders
+	// are intentionally left unresolved here and removed entirely by
+	// removeModelPlaceholderLines below. This prevents invalid model IDs from being
+	// written into the installed ORCHESTRATOR.md, allowing sub-agents to inherit the
+	// session's active model instead.
+	replacements := buildWorkflowPathReplacements(workspaceRoot, r.def.SkillDir)
 
 	// Capture registry content for catalog injection; apply shared replacements.
 	if wf.Components.Registry != "" {
@@ -343,9 +354,15 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		}
 	}
 
-	// Resolve placeholders in all installed .md files (covers {SKILLS_PATH} and {SDD_MODEL_*}).
+	// Resolve placeholders in all installed .md files (covers {SKILLS_PATH}).
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: resolve placeholders: %w", err)
+	}
+
+	// Remove any lines containing unresolved {SDD_MODEL_*} placeholders.
+	// Factory does not support model routing; sub-agents must inherit the session model.
+	if err := removeModelPlaceholderLines(skillsBase); err != nil {
+		return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: remove model placeholder lines: %w", err)
 	}
 
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil

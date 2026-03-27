@@ -1,7 +1,7 @@
 ---
 description: Automate git commits following Conventional Commits with JIRA ticket integration.
 mode: subagent
-model: anthropic/claude-sonnet-4-20250514
+model: github-copilot/claude-sonnet-4.6
 name: git-commit
 reasoning-effort: low
 temperature: 0.7

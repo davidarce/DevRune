@@ -1,12 +1,18 @@
 schemaVersion: devrune/v1
 packages:
-    - source: local:./devrune-starter-catalog
+    - source: github:davidarce/devrune-starter-catalog
       select:
         skills:
+            - api-first-adviser
+            - arch-flow-explorer
             - architect-adviser
+            - component-adviser
+            - frontend-test-adviser
             - git-commit
             - git-pull-request
+            - integration-test-adviser
             - unit-test-adviser
+            - web-accessibility-adviser
         rules:
             - api/api-standards-rules
             - architecture/4-rules-of-simple-design-rules
@@ -20,16 +26,27 @@ packages:
             - testing/java-unit-tests-rules
             - testing/mother-pattern-rules
 mcps:
-    - source: local:./devrune-starter-catalog/mcps/engram.yaml
-    - source: local:./devrune-starter-catalog/mcps/exa.yaml
-    - source: local:./devrune-starter-catalog/mcps/ref.yaml
-    - source: local:./devrune-starter-catalog/mcps/atlassian.yaml
-    - source: local:./devrune-starter-catalog/mcps/context7.yaml
-    - source: local:./devrune-starter-catalog/mcps/playwright.yaml
+    - source: github:davidarce/devrune-starter-catalog//mcps/atlassian
+    - source: github:davidarce/devrune-starter-catalog//mcps/context7
+    - source: github:davidarce/devrune-starter-catalog//mcps/engram
+    - source: github:davidarce/devrune-starter-catalog//mcps/exa
+    - source: github:davidarce/devrune-starter-catalog//mcps/playwright
+    - source: github:davidarce/devrune-starter-catalog//mcps/ref
 agents:
     - name: claude
     - name: opencode
     - name: copilot
     - name: factory
 workflows:
-    - local:./devrune-starter-catalog/workflows/sdd
+    - github:davidarce/devrune-starter-catalog//workflows/sdd
+sddModels:
+    claude:
+        sdd-explorer: sonnet
+        sdd-implementer: sonnet
+        sdd-planner: opus
+        sdd-reviewer: opus
+    opencode:
+        sdd-explorer: claude-sonnet-4.6
+        sdd-implementer: claude-sonnet-4.6
+        sdd-planner: gemini-3.1-pro-preview
+        sdd-reviewer: claude-opus-4.6

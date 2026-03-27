@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
@@ -20,8 +22,8 @@ var (
 	StyleSummaryValue  = tuistyles.StyleSummaryValue
 )
 
-// Banner returns the DevRune ASCII art banner string with gradient effect.
-// Uses the same rendering as the steps package banner for consistency.
+// Banner returns the DevRune ASCII art banner string.
+// Uses ANSI bright green (10) for a hacker/dev brand color.
 func Banner() string {
 	artLines := []string{
 		`  ██████╗ ███████╗██╗   ██╗██████╗ ██╗   ██╗███╗   ██╗███████╗`,
@@ -32,23 +34,19 @@ func Banner() string {
 		`  ╚═════╝ ╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝`,
 	}
 
-	gradient := tuistyles.BannerGradient(65)
+	artStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true) // ANSI bright green
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))            // ANSI gray
 
 	var b strings.Builder
 	b.WriteString("\n")
 	for _, line := range artLines {
-		b.WriteString(tuistyles.GradientLine(line, gradient))
+		b.WriteString(artStyle.Render(line))
 		b.WriteString("\n")
 	}
 
-	subtitleText := "  ░▒▓ AI Agent Configuration Toolkit ▓▒░"
-	subtitleGrad := tuistyles.SubtitleGradient(40)
-	b.WriteString(tuistyles.GradientLine(subtitleText, subtitleGrad))
+	b.WriteString(dimStyle.Render("  AI Agent Configuration Toolkit"))
 	b.WriteString("\n")
-
-	shimmerText := "  ─────────────────────────────────────────────────────────────────"
-	shimmerGrad := tuistyles.ShimmerGradient(65)
-	b.WriteString(tuistyles.GradientLine(shimmerText, shimmerGrad))
+	b.WriteString(dimStyle.Render("  ─────────────────────────────────────────────────────────────────"))
 
 	return b.String()
 }

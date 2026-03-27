@@ -60,6 +60,7 @@ type CopilotRenderer struct {
 	registryContents map[string]string // keyed by workflow name
 	// Normalized MCPs for catalog instruction injection.
 	normalizedMCPs []normalizedMCP
+	modelOverrides map[string]string // role-name → model-value from TUI SDD model selection
 }
 
 // NewCopilotRenderer constructs a CopilotRenderer from the given agent definition.
@@ -81,6 +82,13 @@ func NewCopilotRenderer(agentDef model.AgentDefinition) *CopilotRenderer {
 
 // Name returns the agent name.
 func (r *CopilotRenderer) Name() string { return r.agentDef.Name }
+
+// SetModelOverrides stores per-role model overrides selected in the TUI SDD model
+// selection step. When set, these override the role.Model values from workflow.yaml
+// when building {SDD_MODEL_*} placeholder replacements.
+func (r *CopilotRenderer) SetModelOverrides(overrides map[string]string) {
+	r.modelOverrides = overrides
+}
 
 // AgentType returns "copilot".
 func (r *CopilotRenderer) AgentType() string { return "copilot" }
@@ -377,11 +385,16 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: read workflow dir %q: %w", cachePath, err)
 	}
 
-	// Build shared placeholder replacements for this workflow.
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.AgentDir, true)
-	if r.def.AgentDir == "" {
-		replacements = buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, true)
+	// Build shared placeholder replacements for this workflow: {SKILLS_PATH} only.
+	// Copilot does not support model routing in the TUI, so {SDD_MODEL_*} placeholders
+	// are intentionally left unresolved here and removed entirely by
+	// removeModelPlaceholderLines below. Sub-agents inherit the session's active model
+	// via the frontmatter synthesized in installOrchestratorAgent / generateSubAgentFile.
+	agentSkillDir := r.def.AgentDir
+	if agentSkillDir == "" {
+		agentSkillDir = r.def.SkillDir
 	}
+	replacements := buildWorkflowPathReplacements(workspaceRoot, agentSkillDir)
 
 	var managedPaths []string
 
@@ -467,6 +480,16 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// Resolve placeholders in all installed .md files under skillsBase.
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders: %w", err)
+	}
+
+	// Remove any lines containing unresolved {SDD_MODEL_*} placeholders.
+	// Copilot does not support model routing; sub-agents must inherit the session model.
+	// Apply to both skillsBase and agentsBase since agent files are written to agentsBase.
+	if err := removeModelPlaceholderLines(skillsBase); err != nil {
+		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: remove model placeholder lines (skills): %w", err)
+	}
+	if err := removeModelPlaceholderLines(agentsBase); err != nil {
+		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: remove model placeholder lines (agents): %w", err)
 	}
 
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil

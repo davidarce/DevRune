@@ -10,7 +10,8 @@ type UserManifest struct {
 	MCPs          []MCPRef      `yaml:"mcps,omitempty"`
 	Agents        []AgentRef    `yaml:"agents"`
 	Workflows     []string      `yaml:"workflows,omitempty"` // source ref strings
-	Install       InstallConfig `yaml:"install,omitempty"`
+	Install       InstallConfig                `yaml:"install,omitempty"`
+	SDDModels     map[string]map[string]string `yaml:"sddModels,omitempty"` // per-agent SDD phase model selections
 }
 
 // PackageRef is a reference to a package in the user manifest.

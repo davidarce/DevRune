@@ -3,8 +3,10 @@ package steps
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+
+	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
 // knownSource describes a predefined repository source that appears
@@ -29,19 +31,24 @@ func EnterRepositories() ([]string, error) {
 
 	options := make([]huh.Option[string], len(knownSources))
 	for i, ks := range knownSources {
-		options[i] = huh.NewOption(ks.label, ks.value)
+		options[i] = huh.NewOption(ks.label, ks.value).Selected(true)
 	}
 
 	selectForm := huh.NewForm(
 		huh.NewGroup(
-			stepHeader(2, 4, "Repository sources"),
+			stepHeader(2, TotalSteps, "Repository sources"),
 			huh.NewMultiSelect[string]().
 				Title("Select repository catalogs").
 				Description("Use space to toggle, enter to confirm. You can add custom sources next.").
 				Options(options...).
+				Height(len(knownSources)+2).
 				Value(&predefined),
 		),
-	).WithProgramOptions(tea.WithAltScreen())
+	).WithTheme(tuistyles.DevRuneThemeFunc).
+		WithViewHook(func(v tea.View) tea.View {
+			v.AltScreen = true
+			return v
+		})
 	if err := selectForm.Run(); err != nil {
 		return nil, err
 	}
@@ -58,7 +65,11 @@ func EnterRepositories() ([]string, error) {
 					Negative("No, continue").
 					Value(&wantCustom),
 			),
-		).WithProgramOptions(tea.WithAltScreen())
+		).WithTheme(tuistyles.DevRuneThemeFunc).
+			WithViewHook(func(v tea.View) tea.View {
+				v.AltScreen = true
+				return v
+			})
 		if err := confirmForm.Run(); err != nil {
 			return nil, err
 		}
@@ -80,14 +91,18 @@ func EnterRepositories() ([]string, error) {
 
 			inputForm := huh.NewForm(
 				huh.NewGroup(
-					stepHeader(2, 4, "Repository sources"),
+					stepHeader(2, TotalSteps, "Repository sources"),
 					huh.NewInput().
 						Title(prompt).
 						Description(desc).
 						Placeholder("github:owner/repo@v1").
 						Value(&src),
 				),
-			).WithProgramOptions(tea.WithAltScreen())
+			).WithTheme(tuistyles.DevRuneThemeFunc).
+				WithViewHook(func(v tea.View) tea.View {
+					v.AltScreen = true
+					return v
+				})
 			if err := inputForm.Run(); err != nil {
 				return nil, err
 			}
@@ -116,7 +131,11 @@ func EnterRepositories() ([]string, error) {
 						Negative("No, continue").
 						Value(&addMore),
 				),
-			).WithProgramOptions(tea.WithAltScreen())
+			).WithTheme(tuistyles.DevRuneThemeFunc).
+				WithViewHook(func(v tea.View) tea.View {
+					v.AltScreen = true
+					return v
+				})
 			if err := moreForm.Run(); err != nil {
 				return nil, err
 			}

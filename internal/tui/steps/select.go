@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
@@ -357,9 +357,11 @@ func (m SelectModel) updateExpanded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model.
-func (m SelectModel) View() string {
+func (m SelectModel) View() tea.View {
 	if m.done {
-		return ""
+		v := tea.NewView("")
+		v.AltScreen = true
+		return v
 	}
 
 	var sb strings.Builder
@@ -370,14 +372,16 @@ func (m SelectModel) View() string {
 		sb.WriteString(m.renderCollapsed())
 	}
 
-	return sb.String()
+	v := tea.NewView(sb.String())
+	v.AltScreen = true
+	return v
 }
 
 // renderCollapsed renders the category list view.
 func (m *SelectModel) renderCollapsed() string {
 	var sb strings.Builder
 
-	sb.WriteString(bannerText)
+	sb.WriteString(responsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleStepIndicator.Render("Step 3/4: Select content"))
@@ -579,7 +583,7 @@ func RunSelectModel(repos []ScannedRepoInput) (SelectionResult, error) {
 	}
 
 	m := NewSelectModel(repos)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 
 	finalModel, err := p.Run()
 	if err != nil {
