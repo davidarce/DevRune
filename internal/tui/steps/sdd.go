@@ -216,8 +216,8 @@ func newSDDModelForm(
 	// Clear screen + cursor home before printing the header so that
 	// previous form output (e.g. the Claude form) doesn't stack with
 	// the next agent's header (e.g. OpenCode).
-	fmt.Fprint(os.Stdout, "\033[2J\033[H")
-	fmt.Fprintln(os.Stdout, stepHeaderString(4, TotalSteps, stepLabel))
+	_, _ = fmt.Fprint(os.Stdout, "\033[2J\033[H")
+	_, _ = fmt.Fprintln(os.Stdout, stepHeaderString(4, TotalSteps, stepLabel))
 
 	// Run the four phase selects in a 2-column grid layout.
 	// No AltScreen here: the form renders inline so the header printed via
