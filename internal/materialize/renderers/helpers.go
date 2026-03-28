@@ -230,19 +230,6 @@ func resolvePlaceholders(rootDir string, replacements map[string]string) error {
 	})
 }
 
-// findWorkflowRole returns the first WorkflowRole in roles whose Name equals name,
-// or nil if no matching role is found. This is a lightweight utility so renderers
-// do not repeat the same linear scan boilerplate when looking up specific roles
-// (e.g. finding the orchestrator role to derive its prompt source).
-func findWorkflowRole(roles []model.WorkflowRole, name string) *model.WorkflowRole {
-	for i := range roles {
-		if roles[i].Name == name {
-			return &roles[i]
-		}
-	}
-	return nil
-}
-
 // findWorkflowRoleByKind returns the first WorkflowRole in roles whose Kind equals kind,
 // or nil if no matching role is found. This is the generalised alternative to
 // findWorkflowRole — renderers should prefer this when looking up roles by their
