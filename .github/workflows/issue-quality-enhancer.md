@@ -5,6 +5,31 @@ on:
 
 if: github.actor == github.repository_owner
 
+# Modelos disponibles para el campo "model:", ordenados de menor a mayor coste.
+# El coste se mide en "premium requests" del plan de GitHub Copilot.
+#
+# ── GRATUITOS (incluidos en planes de pago, multiplicador 0x) ──────────────────
+#   gpt-4o          → GPT-4o. Rápido y equilibrado. Buena opción por defecto.
+#   gpt-4.1         → GPT-4.1. Alta precisión en completaciones de código.
+#   gpt-5-mini      → GPT-5 mini. Velocidad + calidad para la mayoría de tareas.
+#
+# ── PREMIUM - COSTE BAJO (multiplicador ~1x) ───────────────────────────────────
+#   claude-haiku-4.5  → Claude Haiku 4.5. El más rápido y barato de Anthropic.
+#   claude-sonnet-4.5 → Claude Sonnet 4.5. Equilibrio calidad/coste.
+#   claude-sonnet-4-6 → Claude Sonnet 4.6. Razonamiento mejorado respecto a 4.5.
+#
+# ── PREMIUM - COSTE MEDIO (multiplicador ~1-2x) ────────────────────────────────
+#   gemini-2.5-pro  → Gemini 2.5 Pro. Ideal para contextos largos y depuración.
+#   gpt-5           → GPT-5. Razonamiento profundo y depuración avanzada.
+#   gpt-5.1         → GPT-5.1. Mayor precisión en análisis multi-fichero.
+#
+# ── PREMIUM - COSTE ALTO (multiplicador ~3x) ───────────────────────────────────
+#   claude-opus-4.5 → Claude Opus 4.5. Máxima capacidad de razonamiento (3x).
+#   claude-opus-4-6 → Claude Opus 4.6. Versión mejorada de Opus 4.5 (3x+).
+#
+# Notas:
+#   · Los multiplicadores y la disponibilidad de modelos pueden cambiar.
+#   · Referencia oficial: https://docs.github.com/en/copilot/using-github-copilot/ai-models/supported-ai-models-in-copilot
 model: gpt-4o
 
 permissions:
