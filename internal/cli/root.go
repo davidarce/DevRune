@@ -30,6 +30,7 @@ definitions, and workflows into developer workspaces.`,
 		newInitCmd(),
 		newResolveCmd(),
 		newInstallCmd(),
+		newSyncCmd(),
 		newStatusCmd(),
 		newVersionCmd(version, commit),
 	)
