@@ -2,6 +2,7 @@
 on:
   issues:
     types: [opened, reopened]
+  reaction: eyes
 permissions:
       contents: read
       issues: read
@@ -9,6 +10,7 @@ permissions:
 engine: copilot
 network: defaults
 tools:
+  bash: false
   github:
     toolsets: [default]
 safe-outputs:
