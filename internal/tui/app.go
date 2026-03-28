@@ -34,15 +34,15 @@ func Run() (model.UserManifest, error) {
 		return model.UserManifest{}, mapErr(err)
 	}
 
-	// Determine early if the SDD model selection step may be active.
-	// The step requires at least one qualifying agent (in SDDModelRoutingAgents)
+	// Determine early if the workflow model selection step may be active.
+	// The step requires at least one qualifying agent (in ModelRoutingAgents)
 	// AND at least one workflow selected. We know the agent condition now; workflow
 	// selection is only known after Step 3. Set TotalSteps to 5 if qualifying
 	// agents exist so that Steps 2 and 3 already show the correct total.
 	// After Step 3 we can confirm (or revert to 4) based on the actual selection.
 	hasQualifyingAgent := false
 	for _, a := range agents {
-		if model.SDDModelRoutingAgents[a] {
+		if model.ModelRoutingAgents[a] {
 			hasQualifyingAgent = true
 			break
 		}
@@ -137,28 +137,30 @@ func Run() (model.UserManifest, error) {
 		}
 	}
 
-	// Step 4 (optional) — SDD model selection
+	// Step 4 (optional) — Workflow model selection
 	// Load saved models from existing devrune.yaml if present.
 	var savedModels map[string]map[string]string
 	savedManifest := loadExistingManifest()
 	if savedManifest != nil {
-		savedModels = savedManifest.SDDModels
+		savedModels = savedManifest.WorkflowModels
 	}
 
-	sddModels, err := steps.RunSDDModelSelection(agents, selection, savedModels)
+	// TODO: resolve workflow manifests from selection to pass to RunWorkflowModelSelection.
+	// For now, pass nil — the function will skip if no roles have models.
+	workflowModels, err := steps.RunWorkflowModelSelection(agents, selection, savedModels, nil)
 	if err != nil {
 		return model.UserManifest{}, mapErr(err)
 	}
 
-	// Final confirmation: sync TotalSteps with the actual outcome of RunSDDModelSelection.
-	if sddModels != nil {
+	// Final confirmation: sync TotalSteps with the actual outcome.
+	if workflowModels != nil {
 		steps.TotalSteps = 5
 	} else {
 		steps.TotalSteps = 4
 	}
 
 	// Final step — summary & confirm (alt screen, step indicator inside form)
-	manifest, err := steps.ConfirmSummary(agents, selection, sddModels)
+	manifest, err := steps.ConfirmSummary(agents, selection, workflowModels)
 	if err != nil {
 		return model.UserManifest{}, mapErr(err)
 	}

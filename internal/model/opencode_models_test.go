@@ -289,11 +289,11 @@ func TestOpenCodeModelOptions_PrependsInheritSentinel(t *testing.T) {
 	}
 
 	// First option must be the inherit sentinel.
-	if opts[0].Value != SDDModelInheritOption {
-		t.Errorf("opts[0].Value = %q, want inherit sentinel %q", opts[0].Value, SDDModelInheritOption)
+	if opts[0].Value != ModelInheritOption {
+		t.Errorf("opts[0].Value = %q, want inherit sentinel %q", opts[0].Value, ModelInheritOption)
 	}
-	if opts[0].Label != SDDModelInheritOption {
-		t.Errorf("opts[0].Label = %q, want inherit sentinel %q", opts[0].Label, SDDModelInheritOption)
+	if opts[0].Label != ModelInheritOption {
+		t.Errorf("opts[0].Label = %q, want inherit sentinel %q", opts[0].Label, ModelInheritOption)
 	}
 
 	// Remaining options should be the models.

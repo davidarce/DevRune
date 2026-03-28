@@ -134,7 +134,7 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 
 	_, _ = fmt.Fprintf(out, "Installing workspace...")
 
-	if err := materializer.Install(ctx, lockfile, manifest.Agents, manifest.Install, workDir, manifest.SDDModels); err != nil {
+	if err := materializer.Install(ctx, lockfile, manifest.Agents, manifest.Install, workDir, manifest.WorkflowModels); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 

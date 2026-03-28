@@ -2,7 +2,11 @@
 
 package model
 
-import "fmt"
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
 
 // UserManifest represents the user's devrune.yaml file.
 // It declares packages, MCP servers, agents, and optional workflows to install.
@@ -13,7 +17,11 @@ type UserManifest struct {
 	Agents        []AgentRef    `yaml:"agents"`
 	Workflows     []string      `yaml:"workflows,omitempty"` // source ref strings
 	Install       InstallConfig                `yaml:"install,omitempty"`
-	SDDModels     map[string]map[string]string `yaml:"sddModels,omitempty"` // per-agent SDD phase model selections
+	// WorkflowModels holds per-agent, per-workflow role model selections.
+	// Structure: WorkflowModels[agentName][roleName] = modelValue
+	// The YAML key is "workflowModels" but we also accept the legacy "sddModels"
+	// key via custom UnmarshalYAML for backward compatibility.
+	WorkflowModels map[string]map[string]string `yaml:"workflowModels,omitempty"`
 }
 
 // PackageRef is a reference to a package in the user manifest.
@@ -42,6 +50,41 @@ type InstallConfig struct {
 type SelectFilter struct {
 	Skills []string `yaml:"skills,omitempty"`
 	Rules  []string `yaml:"rules,omitempty"`
+}
+
+// userManifestRaw is an alias used by UnmarshalYAML to decode without infinite recursion.
+type userManifestRaw UserManifest
+
+// legacyManifestOverlay captures only the legacy sddModels key from YAML.
+type legacyManifestOverlay struct {
+	SDDModels map[string]map[string]string `yaml:"sddModels,omitempty"`
+}
+
+// UnmarshalYAML implements custom YAML decoding for UserManifest.
+// It migrates the legacy "sddModels" key to WorkflowModels when the new key is absent.
+func (m *UserManifest) UnmarshalYAML(value *yaml.Node) error {
+	// Decode into the raw alias to get all standard fields.
+	var raw userManifestRaw
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*m = UserManifest(raw)
+
+	// If WorkflowModels is already populated, nothing to migrate.
+	if len(m.WorkflowModels) > 0 {
+		return nil
+	}
+
+	// Check for legacy sddModels key.
+	var legacy legacyManifestOverlay
+	if err := value.Decode(&legacy); err != nil {
+		return nil // non-fatal: ignore decode errors for legacy overlay
+	}
+	if len(legacy.SDDModels) > 0 {
+		m.WorkflowModels = legacy.SDDModels
+	}
+
+	return nil
 }
 
 // Validate checks that the UserManifest has all required fields and is consistent.

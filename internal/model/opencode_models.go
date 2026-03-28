@@ -97,8 +97,8 @@ func OpenCodeModelOptions(fallback []string) []ModelOption {
 	models := LoadOpenCodeModels(fallback)
 	opts := make([]ModelOption, 0, len(models)+1)
 	opts = append(opts, ModelOption{
-		Label: SDDModelInheritOption,
-		Value: SDDModelInheritOption,
+		Label: ModelInheritOption,
+		Value: ModelInheritOption,
 	})
 	for _, id := range models {
 		opts = append(opts, ModelOption{

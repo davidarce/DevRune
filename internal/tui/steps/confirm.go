@@ -18,10 +18,10 @@ import (
 // Returns the populated UserManifest on confirmation, or ErrUserAborted (from huh)
 // if the user declines.
 //
-// sddModels is the optional map of agent→role→model from the SDD model selection step.
+// workflowModels is the optional map of agent→role→model from the workflow model selection step.
 // May be nil if the step was skipped or no models were selected.
-func ConfirmSummary(agents []string, selection SelectionResult, sddModels map[string]map[string]string) (model.UserManifest, error) {
-	description := buildSelectionSummary(agents, selection, sddModels)
+func ConfirmSummary(agents []string, selection SelectionResult, workflowModels map[string]map[string]string) (model.UserManifest, error) {
+	description := buildSelectionSummary(agents, selection, workflowModels)
 
 	confirmed := true
 
@@ -51,11 +51,11 @@ func ConfirmSummary(agents []string, selection SelectionResult, sddModels map[st
 		return model.UserManifest{}, huh.ErrUserAborted
 	}
 
-	return buildManifestFromSelection(agents, selection, sddModels), nil
+	return buildManifestFromSelection(agents, selection, workflowModels), nil
 }
 
 // buildSelectionSummary produces a human-readable description of the selections.
-func buildSelectionSummary(agents []string, selection SelectionResult, sddModels map[string]map[string]string) string {
+func buildSelectionSummary(agents []string, selection SelectionResult, workflowModels map[string]map[string]string) string {
 	var b strings.Builder
 
 	_, _ = fmt.Fprintf(&b, "Agents: %s\n\n", formatList(agents, "(none)"))
@@ -79,29 +79,30 @@ func buildSelectionSummary(agents []string, selection SelectionResult, sddModels
 		b.WriteString("\n")
 	}
 
-	// Append SDD model selections when non-nil.
-	if len(sddModels) > 0 {
-		b.WriteString("SDD Models:\n")
+	// Append workflow model selections when non-nil.
+	if len(workflowModels) > 0 {
+		b.WriteString("Workflow Models:\n")
 		// Sort agent names for deterministic output.
-		agentNames := make([]string, 0, len(sddModels))
-		for agentName := range sddModels {
+		agentNames := make([]string, 0, len(workflowModels))
+		for agentName := range workflowModels {
 			agentNames = append(agentNames, agentName)
 		}
 		sort.Strings(agentNames)
 		for _, agentName := range agentNames {
-			roleModels := sddModels[agentName]
+			roleModels := workflowModels[agentName]
 			if len(roleModels) == 0 {
 				continue
 			}
 			_, _ = fmt.Fprintf(&b, "  %s:\n", agentName)
-			// Display in SDD phase order.
-			for _, roleName := range model.SDDPhaseRoleNames {
-				if m, ok := roleModels[roleName]; ok && m != "" {
-					label := model.SDDPhaseLabels[roleName]
-					if label == "" {
-						label = roleName
-					}
-					_, _ = fmt.Fprintf(&b, "    %s: %s\n", label, m)
+			// Sort role names for deterministic output.
+			roleNames := make([]string, 0, len(roleModels))
+			for roleName := range roleModels {
+				roleNames = append(roleNames, roleName)
+			}
+			sort.Strings(roleNames)
+			for _, roleName := range roleNames {
+				if m := roleModels[roleName]; m != "" {
+					_, _ = fmt.Fprintf(&b, "    %s: %s\n", roleName, m)
 				}
 			}
 		}
@@ -127,7 +128,7 @@ func formatList(items []string, fallback string) string {
 }
 
 // buildManifestFromSelection constructs a UserManifest from the wizard selections.
-func buildManifestFromSelection(agents []string, selection SelectionResult, sddModels map[string]map[string]string) model.UserManifest {
+func buildManifestFromSelection(agents []string, selection SelectionResult, workflowModels map[string]map[string]string) model.UserManifest {
 	agentRefs := make([]model.AgentRef, 0, len(agents))
 	for _, a := range agents {
 		agentRefs = append(agentRefs, model.AgentRef{Name: a})
@@ -178,7 +179,7 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, sddM
 		Packages:      pkgRefs,
 		MCPs:          mcpRefs,
 		Workflows:     workflowSources,
-		SDDModels:     sddModels,
+		WorkflowModels: workflowModels,
 	}
 }
 
