@@ -378,14 +378,16 @@ func resolveMCPDefDir(cacheRoot, dir string) string {
 
 // buildWorkflowPlaceholderReplacements constructs the shared placeholder replacement
 // map for a workflow. All renderers should use this helper to avoid double-slash
-// bugs and unresolved {SDD_MODEL_*} markers.
+// bugs and unresolved model placeholder markers.
 //
 // Produced replacements:
 //   - {SKILLS_PATH} → "<workspaceDir>/<skillDir>" (no trailing slash)
-//   - {SDD_MODEL_EXPLORE}    → model value for the "sdd-explorer" role
-//   - {SDD_MODEL_PLAN}       → model value for the "sdd-planner" role
-//   - {SDD_MODEL_IMPLEMENT}  → model value for the "sdd-implementer" role
-//   - {SDD_MODEL_REVIEW}     → model value for the "sdd-reviewer" role
+//   - {WORKFLOW_MODEL_<KEY>} → resolved model value for each subagent role
+//   - {SDD_MODEL_*} legacy aliases when wf.Metadata.Name == "sdd"
+//
+// The KEY for each role is derived via model.PlaceholderKeyFromRole:
+//   - Auto-derived: strip "<workflowName>-" prefix, uppercase, hyphens → underscores
+//   - Explicit: role.Placeholder overrides auto-derivation
 //
 // modelResolver is an optional function that maps a raw model value to the
 // fully qualified ID expected by the target platform. When nil, the raw
@@ -397,7 +399,7 @@ func resolveMCPDefDir(cacheRoot, dir string) string {
 //
 // modelOverrides is an optional map of role-name → model-value. When non-nil,
 // an override for a role takes precedence over the role's own Model field from
-// workflow.yaml. The SDDModelInheritOption sentinel is treated as "no override"
+// workflow.yaml. The ModelInheritOption sentinel is treated as "no override"
 // (falls back to role.Model). Passing nil is fully backward-compatible.
 //
 // Model placeholders are only added when the corresponding role has a non-empty Model field.
@@ -422,36 +424,49 @@ func buildWorkflowPlaceholderReplacements(
 		"{SKILLS_PATH}": skillsPath,
 	}
 
-	// Map from placeholder suffix to role name.
-	modelPlaceholders := []struct {
-		placeholder string
-		roleName    string
-	}{
-		{"{SDD_MODEL_EXPLORE}", "sdd-explorer"},
-		{"{SDD_MODEL_PLAN}", "sdd-planner"},
-		{"{SDD_MODEL_IMPLEMENT}", "sdd-implementer"},
-		{"{SDD_MODEL_REVIEW}", "sdd-reviewer"},
+	wfName := wf.Metadata.Name
+
+	// Legacy SDD placeholder-to-role mapping for backward compatibility.
+	// When wfName == "sdd", we also emit these aliases alongside the new
+	// {WORKFLOW_MODEL_*} placeholders.
+	sddLegacyMap := map[string]string{
+		"EXPLORER":    "{SDD_MODEL_EXPLORE}",
+		"PLANNER":     "{SDD_MODEL_PLAN}",
+		"IMPLEMENTER": "{SDD_MODEL_IMPLEMENT}",
+		"REVIEWER":    "{SDD_MODEL_REVIEW}",
 	}
 
-	for _, mp := range modelPlaceholders {
+	for _, role := range wf.Components.Roles {
+		if role.Kind != "subagent" {
+			continue
+		}
+
 		// Check TUI-selected override first, then fall back to role.Model from workflow.yaml.
 		modelValue := ""
 		if modelOverrides != nil {
-			if v, ok := modelOverrides[mp.roleName]; ok && v != "" && v != model.SDDModelInheritOption {
+			if v, ok := modelOverrides[role.Name]; ok && v != "" && v != model.ModelInheritOption {
 				modelValue = v
 			}
 		}
-		if modelValue == "" {
-			role := findWorkflowRole(wf.Components.Roles, mp.roleName)
-			if role != nil && role.Model != "" {
-				modelValue = role.Model
-			}
+		if modelValue == "" && role.Model != "" {
+			modelValue = role.Model
 		}
-		if modelValue != "" {
-			if modelResolver != nil {
-				replacements[mp.placeholder] = modelResolver(modelValue)
-			} else {
-				replacements[mp.placeholder] = modelValue
+		if modelValue == "" {
+			continue
+		}
+
+		resolved := modelValue
+		if modelResolver != nil {
+			resolved = modelResolver(modelValue)
+		}
+
+		key := model.PlaceholderKeyFromRole(wfName, role.Name, role.Placeholder)
+		replacements["{WORKFLOW_MODEL_"+key+"}"] = resolved
+
+		// Emit legacy SDD aliases for backward compatibility.
+		if wfName == "sdd" {
+			if legacyPlaceholder, ok := sddLegacyMap[key]; ok {
+				replacements[legacyPlaceholder] = resolved
 			}
 		}
 	}
@@ -461,10 +476,10 @@ func buildWorkflowPlaceholderReplacements(
 
 // buildWorkflowPathReplacements constructs a minimal replacement map containing
 // only the {SKILLS_PATH} placeholder. It is used by renderers that do not support
-// model routing (Factory, Copilot) so that {SDD_MODEL_*} placeholders are never
-// resolved from workflow role metadata. The caller is responsible for removing
-// the unresolved {SDD_MODEL_*} lines from installed files via
-// removeModelPlaceholderLines after calling resolvePlaceholders.
+// model routing (Factory, Copilot) so that model placeholders are never resolved
+// from workflow role metadata. The caller is responsible for removing unresolved
+// model placeholder lines from installed files via removeModelPlaceholderLines
+// after calling resolvePlaceholders.
 //
 // workspaceDir and skillDir must not have trailing slashes.
 func buildWorkflowPathReplacements(workspaceDir, skillDir string) map[string]string {
@@ -480,15 +495,15 @@ func buildWorkflowPathReplacements(workspaceDir, skillDir string) map[string]str
 }
 
 // removeModelPlaceholderLines walks all .md files under rootDir and removes any
-// line that contains an unresolved {SDD_MODEL_*} placeholder. This is used by
-// renderers that do not support model routing (Factory, Copilot): their
-// ORCHESTRATOR.md templates contain model: '{SDD_MODEL_*}' lines that must be
-// stripped entirely so sub-agents inherit the session's active model instead of
-// receiving an invalid model value.
+// line that contains an unresolved model placeholder. This is used by renderers
+// that do not support model routing (Factory, Copilot): their ORCHESTRATOR.md
+// templates contain model placeholder lines that must be stripped entirely so
+// sub-agents inherit the session's active model instead of receiving an invalid
+// model value.
 //
-// A line is removed if it contains the literal substring "{SDD_MODEL_". The
-// removal is line-granular — the surrounding content is left intact.
-// Only files that contain at least one such line are rewritten.
+// A line is removed if it contains the literal substring "{SDD_MODEL_" or
+// "{WORKFLOW_MODEL_". The removal is line-granular — the surrounding content
+// is left intact. Only files that contain at least one such line are rewritten.
 func removeModelPlaceholderLines(rootDir string) error {
 	return filepath.WalkDir(rootDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -507,14 +522,14 @@ func removeModelPlaceholderLines(rootDir string) error {
 		}
 
 		content := string(data)
-		if !strings.Contains(content, "{SDD_MODEL_") {
+		if !strings.Contains(content, "{SDD_MODEL_") && !strings.Contains(content, "{WORKFLOW_MODEL_") {
 			return nil // nothing to remove
 		}
 
 		lines := strings.Split(content, "\n")
 		filtered := lines[:0]
 		for _, line := range lines {
-			if !strings.Contains(line, "{SDD_MODEL_") {
+			if !strings.Contains(line, "{SDD_MODEL_") && !strings.Contains(line, "{WORKFLOW_MODEL_") {
 				filtered = append(filtered, line)
 			}
 		}

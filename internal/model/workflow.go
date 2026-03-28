@@ -65,6 +65,13 @@ type WorkflowRole struct {
 	// Model is an optional short alias for the model used by this role (e.g. "sonnet", "opus").
 	// When omitted, renderers apply TUI-prompt or session-inheritance fallback rules.
 	Model string `yaml:"model,omitempty"`
+
+	// Placeholder is an optional explicit placeholder key suffix override.
+	// When set, the placeholder {WORKFLOW_MODEL_<Placeholder>} is used instead of
+	// auto-deriving from the role name. Example: placeholder: "CHECKER" →
+	// {WORKFLOW_MODEL_CHECKER}. When omitted, the key is derived by stripping the
+	// workflow name prefix from the role name.
+	Placeholder string `yaml:"placeholder,omitempty"`
 }
 
 // WorkflowComponents declares the components that make up the workflow.

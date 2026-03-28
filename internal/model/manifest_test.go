@@ -380,12 +380,12 @@ agents:
 	}
 }
 
-// TestUserManifest_SDDModels_Serialization tests that SDDModels serializes to YAML correctly.
-func TestUserManifest_SDDModels_Serialization(t *testing.T) {
+// TestUserManifest_WorkflowModels_Serialization tests that WorkflowModels serializes to YAML correctly.
+func TestUserManifest_WorkflowModels_Serialization(t *testing.T) {
 	manifest := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}},
-		SDDModels: map[string]map[string]string{
+		WorkflowModels: map[string]map[string]string{
 			"claude": {
 				"sdd-explorer": "sonnet",
 				"sdd-planner":  "opus",
@@ -399,8 +399,8 @@ func TestUserManifest_SDDModels_Serialization(t *testing.T) {
 	}
 
 	yamlStr := string(data)
-	if !strings.Contains(yamlStr, "sddModels:") {
-		t.Errorf("serialized YAML does not contain 'sddModels:' key:\n%s", yamlStr)
+	if !strings.Contains(yamlStr, "workflowModels:") {
+		t.Errorf("serialized YAML does not contain 'workflowModels:' key:\n%s", yamlStr)
 	}
 	if !strings.Contains(yamlStr, "claude:") {
 		t.Errorf("serialized YAML does not contain 'claude:' agent key:\n%s", yamlStr)
@@ -413,12 +413,12 @@ func TestUserManifest_SDDModels_Serialization(t *testing.T) {
 	}
 }
 
-// TestUserManifest_SDDModels_OmitWhenNil tests that nil SDDModels omits the key entirely.
-func TestUserManifest_SDDModels_OmitWhenNil(t *testing.T) {
+// TestUserManifest_WorkflowModels_OmitWhenNil tests that nil WorkflowModels omits the key entirely.
+func TestUserManifest_WorkflowModels_OmitWhenNil(t *testing.T) {
 	manifest := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}},
-		SDDModels:     nil,
+		WorkflowModels: nil,
 	}
 
 	data, err := yaml.Marshal(manifest)
@@ -427,17 +427,17 @@ func TestUserManifest_SDDModels_OmitWhenNil(t *testing.T) {
 	}
 
 	yamlStr := string(data)
-	if strings.Contains(yamlStr, "sddModels") {
-		t.Errorf("serialized YAML contains 'sddModels' for nil value (omitempty violation):\n%s", yamlStr)
+	if strings.Contains(yamlStr, "workflowModels") {
+		t.Errorf("serialized YAML contains 'workflowModels' for nil value (omitempty violation):\n%s", yamlStr)
 	}
 }
 
-// TestUserManifest_SDDModels_RoundTrip tests that marshal → unmarshal preserves SDDModels.
-func TestUserManifest_SDDModels_RoundTrip(t *testing.T) {
+// TestUserManifest_WorkflowModels_RoundTrip tests that marshal → unmarshal preserves WorkflowModels.
+func TestUserManifest_WorkflowModels_RoundTrip(t *testing.T) {
 	original := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}, {Name: "opencode"}},
-		SDDModels: map[string]map[string]string{
+		WorkflowModels: map[string]map[string]string{
 			"claude": {
 				"sdd-explorer":    "sonnet",
 				"sdd-planner":     "opus",
@@ -460,37 +460,37 @@ func TestUserManifest_SDDModels_RoundTrip(t *testing.T) {
 		t.Fatalf("yaml.Unmarshal() error = %v", err)
 	}
 
-	if len(restored.SDDModels) != len(original.SDDModels) {
-		t.Errorf("SDDModels agent count after round-trip = %d, want %d", len(restored.SDDModels), len(original.SDDModels))
+	if len(restored.WorkflowModels) != len(original.WorkflowModels) {
+		t.Errorf("WorkflowModels agent count after round-trip = %d, want %d", len(restored.WorkflowModels), len(original.WorkflowModels))
 	}
 
-	for agent, roles := range original.SDDModels {
-		restoredRoles, ok := restored.SDDModels[agent]
+	for agent, roles := range original.WorkflowModels {
+		restoredRoles, ok := restored.WorkflowModels[agent]
 		if !ok {
-			t.Errorf("SDDModels missing agent %q after round-trip", agent)
+			t.Errorf("WorkflowModels missing agent %q after round-trip", agent)
 			continue
 		}
 		for role, wantModel := range roles {
 			gotModel, ok := restoredRoles[role]
 			if !ok {
-				t.Errorf("SDDModels[%q] missing role %q after round-trip", agent, role)
+				t.Errorf("WorkflowModels[%q] missing role %q after round-trip", agent, role)
 				continue
 			}
 			if gotModel != wantModel {
-				t.Errorf("SDDModels[%q][%q] = %q after round-trip, want %q", agent, role, gotModel, wantModel)
+				t.Errorf("WorkflowModels[%q][%q] = %q after round-trip, want %q", agent, role, gotModel, wantModel)
 			}
 		}
 	}
 }
 
-// TestUserManifest_SDDModels_ValidatePassesWithSDDModels tests that Validate() succeeds
-// when SDDModels is populated.
-func TestUserManifest_SDDModels_ValidatePassesWithSDDModels(t *testing.T) {
+// TestUserManifest_WorkflowModels_ValidatePassesWithWorkflowModels tests that Validate() succeeds
+// when WorkflowModels is populated.
+func TestUserManifest_WorkflowModels_ValidatePassesWithWorkflowModels(t *testing.T) {
 	manifest := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}},
 		Packages:      []PackageRef{{Source: "github:owner/repo@v1.0.0"}},
-		SDDModels: map[string]map[string]string{
+		WorkflowModels: map[string]map[string]string{
 			"claude": {
 				"sdd-explorer": "sonnet",
 			},
@@ -498,7 +498,36 @@ func TestUserManifest_SDDModels_ValidatePassesWithSDDModels(t *testing.T) {
 	}
 
 	if err := manifest.Validate(); err != nil {
-		t.Errorf("Validate() with SDDModels populated returned error = %v, want nil", err)
+		t.Errorf("Validate() with WorkflowModels populated returned error = %v, want nil", err)
+	}
+}
+
+// TestUserManifest_LegacySDDModels_Migration tests that the legacy "sddModels" YAML key
+// is migrated to WorkflowModels during unmarshalling.
+func TestUserManifest_LegacySDDModels_Migration(t *testing.T) {
+	yamlData := []byte(`
+schemaVersion: devrune/v1
+agents:
+  - name: claude
+sddModels:
+  claude:
+    sdd-explorer: sonnet
+    sdd-planner: opus
+`)
+
+	var manifest UserManifest
+	if err := yaml.Unmarshal(yamlData, &manifest); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	if manifest.WorkflowModels == nil {
+		t.Fatal("WorkflowModels is nil after legacy migration")
+	}
+	if got := manifest.WorkflowModels["claude"]["sdd-explorer"]; got != "sonnet" {
+		t.Errorf("WorkflowModels[claude][sdd-explorer] = %q, want %q", got, "sonnet")
+	}
+	if got := manifest.WorkflowModels["claude"]["sdd-planner"]; got != "opus" {
+		t.Errorf("WorkflowModels[claude][sdd-planner] = %q, want %q", got, "opus")
 	}
 }
 

@@ -69,14 +69,14 @@ func NewMaterializer(
 // projectRoot is the absolute path to the project root (where devrune.yaml lives).
 // It must be provided so that .gitignore and .mcp.json are written to the correct
 // directory regardless of the process working directory.
-// sddModels is the optional per-agent model override map from devrune.yaml (may be nil).
+// workflowModels is the optional per-agent role model override map from devrune.yaml (may be nil).
 func (m *Materializer) Install(
 	ctx context.Context,
 	lock model.Lockfile,
 	agents []model.AgentRef,
 	installCfg model.InstallConfig,
 	projectRoot string,
-	sddModels map[string]map[string]string,
+	workflowModels map[string]map[string]string,
 ) error {
 	// Step 1: Acquire advisory lock.
 	if err := m.stateMgr.AcquireLock(); err != nil {
@@ -206,11 +206,11 @@ func (m *Materializer) Install(
 			setter.SetInstalledSkills(installedSkills)
 		}
 
-		// Inject per-agent SDD model overrides into the renderer (T014).
+		// Inject per-agent workflow model overrides into the renderer.
 		// Uses interface-based injection so renderers that don't support this are silently skipped.
 		if setter, ok := renderer.(interface{ SetModelOverrides(map[string]string) }); ok {
-			if sddModels != nil {
-				if agentModels, exists := sddModels[agentRef.Name]; exists {
+			if workflowModels != nil {
+				if agentModels, exists := workflowModels[agentRef.Name]; exists {
 					setter.SetModelOverrides(agentModels)
 				}
 			}

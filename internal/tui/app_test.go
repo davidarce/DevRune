@@ -34,9 +34,9 @@ func TestLoadExistingManifest_NoFile(t *testing.T) {
 	}
 }
 
-// TestLoadExistingManifest_WithSDDModels verifies loadExistingManifest returns
-// a populated manifest with SDDModels when devrune.yaml contains the sddModels field.
-func TestLoadExistingManifest_WithSDDModels(t *testing.T) {
+// TestLoadExistingManifest_WithWorkflowModels verifies loadExistingManifest returns
+// a populated manifest with WorkflowModels when devrune.yaml contains the workflowModels field.
+func TestLoadExistingManifest_WithWorkflowModels(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, err := os.Getwd()
 	if err != nil {
@@ -49,11 +49,11 @@ func TestLoadExistingManifest_WithSDDModels(t *testing.T) {
 		_ = os.Chdir(origDir)
 	})
 
-	// Write a devrune.yaml with sddModels.
+	// Write a devrune.yaml with workflowModels.
 	manifest := model.UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}},
-		SDDModels: map[string]map[string]string{
+		WorkflowModels: map[string]map[string]string{
 			"claude": {
 				"sdd-explorer": "sonnet",
 				"sdd-planner":  "opus",
@@ -72,14 +72,14 @@ func TestLoadExistingManifest_WithSDDModels(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil manifest when devrune.yaml exists")
 	}
-	if result.SDDModels == nil {
-		t.Fatal("expected SDDModels to be populated")
+	if result.WorkflowModels == nil {
+		t.Fatal("expected WorkflowModels to be populated")
 	}
-	if got := result.SDDModels["claude"]["sdd-explorer"]; got != "sonnet" {
-		t.Errorf("SDDModels[claude][sdd-explorer]: got %q, want %q", got, "sonnet")
+	if got := result.WorkflowModels["claude"]["sdd-explorer"]; got != "sonnet" {
+		t.Errorf("WorkflowModels[claude][sdd-explorer]: got %q, want %q", got, "sonnet")
 	}
-	if got := result.SDDModels["claude"]["sdd-planner"]; got != "opus" {
-		t.Errorf("SDDModels[claude][sdd-planner]: got %q, want %q", got, "opus")
+	if got := result.WorkflowModels["claude"]["sdd-planner"]; got != "opus" {
+		t.Errorf("WorkflowModels[claude][sdd-planner]: got %q, want %q", got, "opus")
 	}
 }
 
@@ -108,16 +108,16 @@ func TestLoadExistingManifest_InvalidYAML(t *testing.T) {
 	}
 }
 
-// TestManifestRoundTrip_WithSDDModels verifies that a manifest with SDDModels
+// TestManifestRoundTrip_WithWorkflowModels verifies that a manifest with WorkflowModels
 // survives a YAML marshal/unmarshal round-trip without data loss.
-func TestManifestRoundTrip_WithSDDModels(t *testing.T) {
+func TestManifestRoundTrip_WithWorkflowModels(t *testing.T) {
 	tmp := t.TempDir()
 	yamlPath := filepath.Join(tmp, "devrune.yaml")
 
 	original := model.UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}, {Name: "opencode"}},
-		SDDModels: map[string]map[string]string{
+		WorkflowModels: map[string]map[string]string{
 			"claude": {
 				"sdd-explorer":    "haiku",
 				"sdd-planner":     "sonnet",
@@ -149,19 +149,19 @@ func TestManifestRoundTrip_WithSDDModels(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// Verify SDDModels are preserved.
-	if loaded.SDDModels == nil {
-		t.Fatal("SDDModels is nil after round-trip")
+	// Verify WorkflowModels are preserved.
+	if loaded.WorkflowModels == nil {
+		t.Fatal("WorkflowModels is nil after round-trip")
 	}
-	for agentName, roles := range original.SDDModels {
-		loadedRoles, ok := loaded.SDDModels[agentName]
+	for agentName, roles := range original.WorkflowModels {
+		loadedRoles, ok := loaded.WorkflowModels[agentName]
 		if !ok {
-			t.Errorf("agent %q missing from loaded SDDModels", agentName)
+			t.Errorf("agent %q missing from loaded WorkflowModels", agentName)
 			continue
 		}
 		for roleName, modelVal := range roles {
 			if got := loadedRoles[roleName]; got != modelVal {
-				t.Errorf("SDDModels[%s][%s]: got %q, want %q", agentName, roleName, got, modelVal)
+				t.Errorf("WorkflowModels[%s][%s]: got %q, want %q", agentName, roleName, got, modelVal)
 			}
 		}
 	}

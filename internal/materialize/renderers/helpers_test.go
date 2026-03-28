@@ -629,9 +629,10 @@ func TestApplyMCPEnvTransform_HeadersClaudeStyle(t *testing.T) {
 // Tests for BuildWorkflowPlaceholderReplacements (model override behaviour)
 // ---------------------------------------------------------------------------
 
-// makeWFWithRoles builds a minimal WorkflowManifest with the given roles for testing.
+// makeWFWithRoles builds a minimal WorkflowManifest named "sdd" with the given roles for testing.
 func makeWFWithRoles(roles []model.WorkflowRole) model.WorkflowManifest {
 	var wf model.WorkflowManifest
+	wf.Metadata.Name = "sdd"
 	wf.Components.Roles = roles
 	return wf
 }
@@ -662,7 +663,7 @@ func TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToRoleMode
 		{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
 	})
 	overrides := map[string]string{
-		"sdd-planner": model.SDDModelInheritOption, // sentinel = no override
+		"sdd-planner": model.ModelInheritOption, // sentinel = no override
 	}
 
 	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
@@ -1006,4 +1007,119 @@ func TestRemoveModelPlaceholderLines_WalksSubdirectories(t *testing.T) {
 // contains is a helper to check substring presence in test output strings.
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
+}
+
+// ---------------------------------------------------------------------------
+// Tests for dynamic {WORKFLOW_MODEL_*} placeholders
+// ---------------------------------------------------------------------------
+
+// TestBuildWorkflowPlaceholderReplacements_SDDEmitsBothFormats verifies that SDD
+// workflows emit both {WORKFLOW_MODEL_*} and legacy {SDD_MODEL_*} placeholders.
+func TestBuildWorkflowPlaceholderReplacements_SDDEmitsBothFormats(t *testing.T) {
+	wf := makeWFWithRoles([]model.WorkflowRole{
+		{Name: "sdd-explorer", Kind: "subagent", Model: "sonnet"},
+	})
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+
+	// New format.
+	if got := result["{WORKFLOW_MODEL_EXPLORER}"]; got != "sonnet" {
+		t.Errorf("{WORKFLOW_MODEL_EXPLORER} = %q, want %q", got, "sonnet")
+	}
+	// Legacy format.
+	if got := result["{SDD_MODEL_EXPLORE}"]; got != "sonnet" {
+		t.Errorf("{SDD_MODEL_EXPLORE} = %q, want %q", got, "sonnet")
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_NonSDDWorkflow verifies that non-SDD
+// workflows emit only {WORKFLOW_MODEL_*} and no {SDD_MODEL_*} placeholders.
+func TestBuildWorkflowPlaceholderReplacements_NonSDDWorkflow(t *testing.T) {
+	var wf model.WorkflowManifest
+	wf.Metadata.Name = "code-review"
+	wf.Components.Roles = []model.WorkflowRole{
+		{Name: "reviewer", Kind: "subagent", Model: "opus"},
+		{Name: "code-review-checker", Kind: "subagent", Model: "sonnet"},
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+
+	if got := result["{WORKFLOW_MODEL_REVIEWER}"]; got != "opus" {
+		t.Errorf("{WORKFLOW_MODEL_REVIEWER} = %q, want %q", got, "opus")
+	}
+	if got := result["{WORKFLOW_MODEL_CHECKER}"]; got != "sonnet" {
+		t.Errorf("{WORKFLOW_MODEL_CHECKER} = %q, want %q", got, "sonnet")
+	}
+	// No SDD legacy aliases.
+	for key := range result {
+		if strings.HasPrefix(key, "{SDD_MODEL_") {
+			t.Errorf("unexpected SDD legacy placeholder %q in non-SDD workflow", key)
+		}
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_ExplicitPlaceholder verifies that a role
+// with an explicit Placeholder field uses it instead of auto-deriving.
+func TestBuildWorkflowPlaceholderReplacements_ExplicitPlaceholder(t *testing.T) {
+	var wf model.WorkflowManifest
+	wf.Metadata.Name = "cicd"
+	wf.Components.Roles = []model.WorkflowRole{
+		{Name: "code-quality-checker", Kind: "subagent", Model: "haiku", Placeholder: "CHECKER"},
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+
+	if got := result["{WORKFLOW_MODEL_CHECKER}"]; got != "haiku" {
+		t.Errorf("{WORKFLOW_MODEL_CHECKER} = %q, want %q", got, "haiku")
+	}
+	// The auto-derived key should NOT be present.
+	if _, ok := result["{WORKFLOW_MODEL_CODE_QUALITY_CHECKER}"]; ok {
+		t.Error("auto-derived key should not be present when explicit Placeholder is set")
+	}
+}
+
+// TestBuildWorkflowPlaceholderReplacements_SkipsOrchestrator verifies that orchestrator
+// roles are not included in the placeholder map.
+func TestBuildWorkflowPlaceholderReplacements_SkipsOrchestrator(t *testing.T) {
+	var wf model.WorkflowManifest
+	wf.Metadata.Name = "myflow"
+	wf.Components.Roles = []model.WorkflowRole{
+		{Name: "myflow-orchestrator", Kind: "orchestrator", Model: "opus"},
+		{Name: "myflow-worker", Kind: "subagent", Model: "sonnet"},
+	}
+
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+
+	if _, ok := result["{WORKFLOW_MODEL_ORCHESTRATOR}"]; ok {
+		t.Error("orchestrator role should not produce a placeholder")
+	}
+	if got := result["{WORKFLOW_MODEL_WORKER}"]; got != "sonnet" {
+		t.Errorf("{WORKFLOW_MODEL_WORKER} = %q, want %q", got, "sonnet")
+	}
+}
+
+// TestRemoveModelPlaceholderLines_RemovesWorkflowModelLines verifies that lines
+// containing {WORKFLOW_MODEL_*} are removed from .md files.
+func TestRemoveModelPlaceholderLines_RemovesWorkflowModelLines(t *testing.T) {
+	dir := t.TempDir()
+	mdFile := filepath.Join(dir, "ORCHESTRATOR.md")
+
+	content := "# Orchestrator\n\n  model: '{WORKFLOW_MODEL_EXPLORER}',\n  other: 'kept',\n"
+	if err := os.WriteFile(mdFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	if err := renderers.RemoveModelPlaceholderLines(dir); err != nil {
+		t.Fatalf("RemoveModelPlaceholderLines() error: %v", err)
+	}
+
+	got, _ := os.ReadFile(mdFile)
+	result := string(got)
+
+	if contains(result, "{WORKFLOW_MODEL_EXPLORER}") {
+		t.Error("result still contains {WORKFLOW_MODEL_EXPLORER} — should have been removed")
+	}
+	if !contains(result, "other: 'kept'") {
+		t.Error("non-model line was incorrectly removed")
+	}
 }
