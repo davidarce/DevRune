@@ -40,11 +40,6 @@ type AgentRenderer interface {
 	// RenderMCPs writes MCP configuration in agent-native format.
 	RenderMCPs(mcps []model.LockedMCP, cacheStore CacheStore, workspaceRoot string) error
 
-	// RenderCatalog generates the agent's guidance/catalog file.
-	// skills is the list of installed skills; rules is the list of installed rules;
-	// workflows is the list of installed workflow manifests.
-	RenderCatalog(skills []model.ContentItem, rules []model.ContentItem, workflows []model.WorkflowManifest, destPath string) error
-
 	// RenderSettings generates the agent's settings file (e.g. .claude/settings.json).
 	// Agents that do not support settings generation return nil.
 	RenderSettings(workspaceRoot string, skills []model.ContentItem, workflows []model.WorkflowManifest) error

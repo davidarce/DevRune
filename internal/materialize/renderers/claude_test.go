@@ -212,262 +212,6 @@ func TestClaudeRenderer_RenderSkill_NonexistentInput(t *testing.T) {
 	}
 }
 
-// TestClaudeRenderer_RenderCatalog_WithSkills verifies catalog format.
-func TestClaudeRenderer_RenderCatalog_WithSkills(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	skills := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "git:commit", Path: "skills/git-commit/"},
-		{Kind: model.KindSkill, Name: "unit-test", Path: "skills/unit-test/"},
-	}
-
-	if err := r.RenderCatalog(skills, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	content, err := os.ReadFile(destPath)
-	if err != nil {
-		t.Fatalf("read catalog: %v", err)
-	}
-	catalog := string(content)
-
-	if !strings.Contains(catalog, "# Claude Code Agent Catalog") {
-		t.Error("catalog missing heading")
-	}
-	if !strings.Contains(catalog, "auto-generated") {
-		t.Error("catalog missing auto-generated note")
-	}
-	if !strings.Contains(catalog, "`git:commit`") {
-		t.Errorf("catalog missing git:commit skill; content:\n%s", catalog)
-	}
-	if !strings.Contains(catalog, "`unit-test`") {
-		t.Errorf("catalog missing unit-test skill; content:\n%s", catalog)
-	}
-}
-
-// TestClaudeRenderer_RenderCatalog_Empty verifies catalog is generated even with no items.
-func TestClaudeRenderer_RenderCatalog_Empty(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	if err := r.RenderCatalog(nil, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog empty: %v", err)
-	}
-
-	content, err := os.ReadFile(destPath)
-	if err != nil {
-		t.Fatalf("read catalog: %v", err)
-	}
-	if !strings.Contains(string(content), "# Claude Code Agent Catalog") {
-		t.Error("empty catalog missing heading")
-	}
-}
-
-// TestClaudeRenderer_RenderCatalog_WithWorkflows verifies workflow section format.
-func TestClaudeRenderer_RenderCatalog_WithWorkflows(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	workflows := []model.WorkflowManifest{
-		{
-			Metadata: model.WorkflowMetadata{
-				Name:        "sdd",
-				Description: "Software Design Document workflow",
-			},
-			Components: model.WorkflowComponents{
-				Commands: []model.WorkflowCommand{
-					{Name: "sdd-explore", Action: "Explore and investigate", Argument: "<topic>"},
-				},
-			},
-		},
-	}
-
-	if err := r.RenderCatalog(nil, nil, workflows, destPath); err != nil {
-		t.Fatalf("RenderCatalog with workflows: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-	if !strings.Contains(content, "## Workflows") {
-		t.Error("catalog missing Workflows section")
-	}
-	if !strings.Contains(content, "sdd") {
-		t.Error("catalog missing workflow name")
-	}
-	// Verify 2-column format (no Argument column).
-	if !strings.Contains(content, "| Command | Action |") {
-		t.Errorf("catalog missing 2-column Command/Action header; content:\n%s", content)
-	}
-	if strings.Contains(content, "| Command | Action | Argument |") {
-		t.Errorf("catalog should NOT have 3-column format; content:\n%s", content)
-	}
-	// Verify argument is merged into the command.
-	if !strings.Contains(content, "`/sdd-explore <topic>`") {
-		t.Errorf("catalog missing merged command+argument; content:\n%s", content)
-	}
-}
-
-// --- T027: RenderCatalog enriched skills table and rules table ---
-
-// TestClaudeRenderer_RenderCatalog_SkillsTableFormat verifies the skills table
-// uses the canonical | Skill | Invocation | Use When | format and that the
-// description populates the "Use When" column.
-func TestClaudeRenderer_RenderCatalog_SkillsTableFormat(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	skills := []model.ContentItem{
-		{
-			Kind:        model.KindSkill,
-			Name:        "unit-test-adviser",
-			Path:        "skills/unit-test-adviser/",
-			Description: "Domain unit test patterns and structure",
-		},
-	}
-
-	if err := r.RenderCatalog(skills, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-
-	// Verify table header format.
-	if !strings.Contains(content, "| Skill | Invocation | Use When |") {
-		t.Errorf("catalog missing expected table header; content:\n%s", content)
-	}
-	if !strings.Contains(content, "|-------|------------|----------|") {
-		t.Errorf("catalog missing expected table separator; content:\n%s", content)
-	}
-	// Verify description appears in "Use When" column.
-	if !strings.Contains(content, "| `unit-test-adviser` | `/unit-test-adviser` | Domain unit test patterns and structure |") {
-		t.Errorf("catalog missing expected skill row; content:\n%s", content)
-	}
-}
-
-// TestClaudeRenderer_RenderCatalog_WithRules verifies the Project Rules table is rendered
-// using the DisplayName field when available.
-func TestClaudeRenderer_RenderCatalog_WithRules(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	rules := []model.ContentItem{
-		{
-			Kind:        model.KindRule,
-			Name:        "architecture/clean-architecture-rules",
-			Path:        "rules/architecture/clean-architecture/",
-			Description: "Hexagonal architecture and DDD patterns",
-			RuleMeta: &model.RuleMeta{
-				Scope:       "architecture",
-				Technology:  "any",
-				AppliesTo:   "architect-adviser",
-				Description: "Hexagonal architecture, DDD patterns, ports and adapters",
-				DisplayName: "clean-architecture",
-			},
-		},
-	}
-
-	if err := r.RenderCatalog(nil, rules, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog with rules: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-
-	if !strings.Contains(content, "## Project Rules") {
-		t.Error("catalog missing Project Rules section")
-	}
-	if !strings.Contains(content, "| Rule | Scope | Technology | Applies To | Description |") {
-		t.Errorf("catalog missing Project Rules table header; content:\n%s", content)
-	}
-	// DisplayName should be used, not the path-based Name.
-	if !strings.Contains(content, "`clean-architecture`") {
-		t.Errorf("catalog should show DisplayName 'clean-architecture'; content:\n%s", content)
-	}
-	if strings.Contains(content, "`architecture/clean-architecture-rules`") {
-		t.Errorf("catalog should NOT show path-based name when DisplayName is set; content:\n%s", content)
-	}
-	if !strings.Contains(content, "architecture") {
-		t.Errorf("catalog missing rule scope; content:\n%s", content)
-	}
-	if !strings.Contains(content, "architect-adviser") {
-		t.Errorf("catalog missing applies-to; content:\n%s", content)
-	}
-}
-
-// TestClaudeRenderer_RenderCatalog_WithRules_FallbackToName verifies that when
-// DisplayName is empty, the rule's ContentItem.Name is used as fallback.
-func TestClaudeRenderer_RenderCatalog_WithRules_FallbackToName(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	rules := []model.ContentItem{
-		{
-			Kind: model.KindRule,
-			Name: "my-custom-rule",
-			Path: "rules/my-custom-rule/",
-			RuleMeta: &model.RuleMeta{
-				Scope:     "architecture",
-				AppliesTo: "architect-adviser",
-				// DisplayName intentionally empty — should fall back to Name.
-			},
-		},
-	}
-
-	if err := r.RenderCatalog(nil, rules, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog with rules: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-
-	if !strings.Contains(content, "`my-custom-rule`") {
-		t.Errorf("catalog should fall back to ContentItem.Name when DisplayName is empty; content:\n%s", content)
-	}
-}
-
-// TestClaudeRenderer_RenderCatalog_DecisionRulesFromWorkflows verifies that
-// DecisionRules from workflow manifests appear in the catalog.
-func TestClaudeRenderer_RenderCatalog_DecisionRulesFromWorkflows(t *testing.T) {
-	r := renderers.NewClaudeRenderer(claudeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "CLAUDE.md")
-
-	workflows := []model.WorkflowManifest{
-		{
-			Metadata: model.WorkflowMetadata{Name: "dev-workflow"},
-			Components: model.WorkflowComponents{
-				Commands: []model.WorkflowCommand{
-					{Name: "dev-build", Action: "Build the project"},
-				},
-				DecisionRules: []model.DecisionRule{
-					{Scenario: `"commit", "create commit"`, Resolution: "Use `git:commit`"},
-					{Scenario: `"PR", "pull request"`, Resolution: "Use `git:pull-request`"},
-				},
-			},
-		},
-	}
-
-	if err := r.RenderCatalog(nil, nil, workflows, destPath); err != nil {
-		t.Fatalf("RenderCatalog with decision rules: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-
-	if !strings.Contains(content, "## Decision Rules") {
-		t.Error("catalog missing Decision Rules section")
-	}
-	if !strings.Contains(content, "git:commit") {
-		t.Errorf("catalog missing decision rule resolution; content:\n%s", content)
-	}
-	if !strings.Contains(content, "git:pull-request") {
-		t.Errorf("catalog missing second decision rule; content:\n%s", content)
-	}
-}
-
 // --- T028: RenderSettings ---
 
 // TestClaudeRenderer_RenderSettings_WithPermissions verifies settings.json is created
@@ -820,17 +564,15 @@ func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Render catalog so registry content is flushed.
-	catalogPath := filepath.Join(workspaceDir, "CLAUDE.md")
-	if err := r.RenderCatalog(nil, nil, []model.WorkflowManifest{wf}, catalogPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
+	// Registry content is stored in the renderer for later use by RenderRootCatalog.
+	contents := r.RegistryContents()
+	content, ok := contents[wf.Metadata.Name]
+	if !ok {
+		t.Fatal("expected registry content for workflow 'sdd' but not found")
 	}
 
-	data := mustReadFile(t, catalogPath)
-	content := string(data)
-
 	if strings.Contains(content, "//") {
-		t.Errorf("double slash found in CLAUDE.md; got:\n%s", content)
+		t.Errorf("double slash found in registry content; got:\n%s", content)
 	}
 	if strings.Contains(content, "{SKILLS_PATH}") {
 		t.Errorf("{SKILLS_PATH} was not resolved; got:\n%s", content)
@@ -1002,18 +744,20 @@ agentInstructions: |
 		t.Errorf(".mcp.json should not contain name field; content:\n%s", mcpContent)
 	}
 
-	// Now render catalog and verify the instructions appear.
-	destPath := filepath.Join(workspaceDir, "CLAUDE.md")
-	if err := r.RenderCatalog(nil, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
+	// Verify MCP instructions are stored in the renderer for later use by RenderRootCatalog.
+	mcpInstructions := r.MCPAgentInstructions()
+	if len(mcpInstructions) == 0 {
+		t.Fatal("MCPAgentInstructions should not be empty after RenderMCPs")
 	}
-
-	catalogContent := string(mustReadFile(t, destPath))
-	if !strings.Contains(catalogContent, "Engram persistent memory") {
-		t.Errorf("catalog should contain injected MCP instructions; content:\n%s", catalogContent)
+	found := false
+	for _, instructions := range mcpInstructions {
+		if strings.Contains(instructions, "Engram persistent memory") {
+			found = true
+			break
+		}
 	}
-	if !strings.Contains(catalogContent, "## Engram") {
-		t.Errorf("catalog should contain MCP section header; content:\n%s", catalogContent)
+	if !found {
+		t.Errorf("MCPAgentInstructions should contain injected MCP instructions; got:\n%v", mcpInstructions)
 	}
 }
 

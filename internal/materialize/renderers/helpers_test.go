@@ -1123,3 +1123,281 @@ func TestRemoveModelPlaceholderLines_RemovesWorkflowModelLines(t *testing.T) {
 		t.Error("non-model line was incorrectly removed")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// T005: WriteManagedBlock and RemoveManagedBlock tests
+// ---------------------------------------------------------------------------
+
+const testBeginMarker = "# >>> test managed"
+const testEndMarker = "# <<< test managed"
+
+// TestWriteManagedBlock_FileDoesNotExist verifies that WriteManagedBlock creates
+// the file with only the managed block when the file does not exist.
+func TestWriteManagedBlock_FileDoesNotExist(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+
+	err := renderers.WriteManagedBlock(path, testBeginMarker, testEndMarker, "hello\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if !strings.Contains(content, testBeginMarker) {
+		t.Error("missing begin marker")
+	}
+	if !strings.Contains(content, testEndMarker) {
+		t.Error("missing end marker")
+	}
+	if !strings.Contains(content, "hello") {
+		t.Error("missing managed content")
+	}
+}
+
+// TestWriteManagedBlock_FileExistsWithoutMarkers verifies that WriteManagedBlock
+// appends the managed block and preserves existing content.
+func TestWriteManagedBlock_FileExistsWithoutMarkers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+	_ = os.WriteFile(path, []byte("# User content\n"), 0o644)
+
+	err := renderers.WriteManagedBlock(path, testBeginMarker, testEndMarker, "managed\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if !strings.Contains(content, "# User content") {
+		t.Error("existing content was lost")
+	}
+	if !strings.Contains(content, testBeginMarker) {
+		t.Error("missing begin marker")
+	}
+	if !strings.Contains(content, "managed") {
+		t.Error("missing managed content")
+	}
+}
+
+// TestWriteManagedBlock_ReplacesExistingBlock verifies that WriteManagedBlock
+// replaces only the managed block and preserves surrounding content.
+func TestWriteManagedBlock_ReplacesExistingBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+	initial := "# Before\n" + testBeginMarker + "\nold content\n" + testEndMarker + "\n# After\n"
+	_ = os.WriteFile(path, []byte(initial), 0o644)
+
+	err := renderers.WriteManagedBlock(path, testBeginMarker, testEndMarker, "new content\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if strings.Contains(content, "old content") {
+		t.Error("old managed content was not replaced")
+	}
+	if !strings.Contains(content, "new content") {
+		t.Error("new managed content is missing")
+	}
+	if !strings.Contains(content, "# Before") {
+		t.Error("content before managed block was lost")
+	}
+	if !strings.Contains(content, "# After") {
+		t.Error("content after managed block was lost")
+	}
+}
+
+// TestWriteManagedBlock_EmptyContent verifies that WriteManagedBlock writes
+// markers with no content between them when content is empty.
+func TestWriteManagedBlock_EmptyContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+
+	err := renderers.WriteManagedBlock(path, testBeginMarker, testEndMarker, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if !strings.Contains(content, testBeginMarker) {
+		t.Error("missing begin marker")
+	}
+	if !strings.Contains(content, testEndMarker) {
+		t.Error("missing end marker")
+	}
+}
+
+// TestRemoveManagedBlock_FileDoesNotExist verifies that RemoveManagedBlock
+// returns nil when the file does not exist.
+func TestRemoveManagedBlock_FileDoesNotExist(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nonexistent.md")
+	if err := renderers.RemoveManagedBlock(path, testBeginMarker, testEndMarker); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+}
+
+// TestRemoveManagedBlock_RemovesBlockPreservesOtherContent verifies that
+// RemoveManagedBlock removes only the managed block and leaves other content intact.
+func TestRemoveManagedBlock_RemovesBlockPreservesOtherContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+	initial := "# User content\n" + testBeginMarker + "\nmanaged\n" + testEndMarker + "\n# More user content\n"
+	_ = os.WriteFile(path, []byte(initial), 0o644)
+
+	if err := renderers.RemoveManagedBlock(path, testBeginMarker, testEndMarker); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if strings.Contains(content, testBeginMarker) {
+		t.Error("begin marker still present after removal")
+	}
+	if strings.Contains(content, "managed") {
+		t.Error("managed content still present after removal")
+	}
+	if !strings.Contains(content, "# User content") {
+		t.Error("user content was removed unexpectedly")
+	}
+	if !strings.Contains(content, "# More user content") {
+		t.Error("trailing user content was removed unexpectedly")
+	}
+}
+
+// TestRemoveManagedBlock_DeletesFileWhenEmpty verifies that RemoveManagedBlock
+// deletes the file entirely when only the managed block remains.
+func TestRemoveManagedBlock_DeletesFileWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+	initial := testBeginMarker + "\nmanaged\n" + testEndMarker + "\n"
+	_ = os.WriteFile(path, []byte(initial), 0o644)
+
+	if err := renderers.RemoveManagedBlock(path, testBeginMarker, testEndMarker); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("file should have been deleted but still exists")
+	}
+}
+
+// TestRemoveManagedBlock_NoMarkersReturnsNil verifies that RemoveManagedBlock
+// returns nil and leaves the file unchanged when markers are not present.
+func TestRemoveManagedBlock_NoMarkersReturnsNil(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.md")
+	_ = os.WriteFile(path, []byte("# User content\n"), 0o644)
+
+	if err := renderers.RemoveManagedBlock(path, testBeginMarker, testEndMarker); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "# User content\n" {
+		t.Error("file was modified even though markers were not found")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T006: CreateSymlinkOrCopy and RemoveSymlinkOrCopy tests
+// ---------------------------------------------------------------------------
+
+// TestCreateSymlinkOrCopy_CreatesSymlink verifies that a symlink is created
+// at linkPath pointing to target when linkPath does not exist.
+func TestCreateSymlinkOrCopy_CreatesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "AGENTS.md")
+	linkPath := filepath.Join(dir, "CLAUDE.md")
+	_ = os.WriteFile(target, []byte("content"), 0o644)
+
+	if err := renderers.CreateSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// linkPath must exist and be readable.
+	data, err := os.ReadFile(linkPath)
+	if err != nil {
+		t.Fatalf("cannot read linkPath after creation: %v", err)
+	}
+	if string(data) != "content" {
+		t.Errorf("linkPath content = %q, want %q", string(data), "content")
+	}
+}
+
+// TestCreateSymlinkOrCopy_NoopWhenCorrectSymlinkExists verifies that
+// CreateSymlinkOrCopy is a no-op when the correct symlink already exists.
+func TestCreateSymlinkOrCopy_NoopWhenCorrectSymlinkExists(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "AGENTS.md")
+	linkPath := filepath.Join(dir, "CLAUDE.md")
+	_ = os.WriteFile(target, []byte("content"), 0o644)
+
+	// Create symlink first.
+	if err := renderers.CreateSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("first call failed: %v", err)
+	}
+	// Second call must succeed (no-op).
+	if err := renderers.CreateSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("second call (no-op) failed: %v", err)
+	}
+}
+
+// TestCreateSymlinkOrCopy_ErrorOnRegularFile verifies that CreateSymlinkOrCopy
+// returns an error when linkPath already exists as a regular file.
+func TestCreateSymlinkOrCopy_ErrorOnRegularFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "AGENTS.md")
+	linkPath := filepath.Join(dir, "CLAUDE.md")
+	_ = os.WriteFile(target, []byte("agents"), 0o644)
+	_ = os.WriteFile(linkPath, []byte("user content"), 0o644) // pre-existing regular file
+
+	err := renderers.CreateSymlinkOrCopy(target, linkPath)
+	if err == nil {
+		t.Fatal("expected error when linkPath is a regular file, got nil")
+	}
+}
+
+// TestRemoveSymlinkOrCopy_RemovesSymlink verifies that RemoveSymlinkOrCopy
+// removes a symlink pointing to the expected target.
+func TestRemoveSymlinkOrCopy_RemovesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "AGENTS.md")
+	linkPath := filepath.Join(dir, "CLAUDE.md")
+	_ = os.WriteFile(target, []byte("content"), 0o644)
+	if err := renderers.CreateSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	if err := renderers.RemoveSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Error("linkPath still exists after removal")
+	}
+}
+
+// TestRemoveSymlinkOrCopy_NoopWhenNotExist verifies that RemoveSymlinkOrCopy
+// returns nil when linkPath does not exist.
+func TestRemoveSymlinkOrCopy_NoopWhenNotExist(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "AGENTS.md")
+	linkPath := filepath.Join(dir, "CLAUDE.md")
+	_ = os.WriteFile(target, []byte("content"), 0o644)
+
+	if err := renderers.RemoveSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+}
+
+// TestRemoveSymlinkOrCopy_LeavesUserOwnedFile verifies that RemoveSymlinkOrCopy
+// does not remove a regular file whose content differs from the target.
+func TestRemoveSymlinkOrCopy_LeavesUserOwnedFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "AGENTS.md")
+	linkPath := filepath.Join(dir, "CLAUDE.md")
+	_ = os.WriteFile(target, []byte("agents content"), 0o644)
+	_ = os.WriteFile(linkPath, []byte("user owned — different content"), 0o644)
+
+	if err := renderers.RemoveSymlinkOrCopy(target, linkPath); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(linkPath); err != nil {
+		t.Error("user-owned file was incorrectly removed")
+	}
+}
