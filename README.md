@@ -113,14 +113,15 @@ workflows:
   - github:davidarce/devrune-starter-catalog@main//workflows/sdd
 ```
 
-**2. Resolve and install:**
+**2. Sync (resolve + install):**
 
 ```bash
-devrune resolve   # Fetch packages, compute hashes → devrune.lock
-devrune install   # Materialize workspace files for all agents
+devrune sync   # Fetch packages, update lockfile, materialize workspace
 ```
 
 That's it. Your workspace now has correctly formatted skills, rules, MCP configs, and workflows for Claude, OpenCode, and Copilot.
+
+> You can also run `devrune resolve` and `devrune install` separately for advanced workflows (CI/CD, offline installs).
 
 ## How It Works
 
@@ -147,6 +148,7 @@ Usage:
 
 Commands:
   init        Initialize, resolve, and install in one step (interactive TUI wizard)
+  sync        Resolve packages and install workspace in one step
   resolve     Resolve packages and produce devrune.lock
   install     Materialize the workspace from devrune.lock
   status      Show workspace installation state
@@ -181,6 +183,20 @@ devrune init --non-interactive \
 | `--mcp` | MCP server source refs (repeatable) |
 | `--workflow` | Workflow source refs (repeatable) |
 | `--force` | Overwrite existing `devrune.yaml` without prompting |
+
+### `devrune sync`
+
+Resolve and install in one step — the recommended way to apply changes:
+
+```bash
+devrune sync
+devrune sync --manifest custom-manifest.yaml
+```
+
+| Flag | Description |
+|------|-------------|
+| `--manifest` | Path to the manifest file (default `devrune.yaml`) |
+| `--offline` | Fail if any package is not cached |
 
 ### `devrune resolve`
 
@@ -336,7 +352,7 @@ make run      # Run via go run
 DevRune/
 ├── cmd/devrune/           # CLI entrypoint
 ├── internal/
-│   ├── cli/               # Cobra commands (init, resolve, install, status, version)
+│   ├── cli/               # Cobra commands (init, sync, resolve, install, status, version)
 │   ├── cache/             # Package fetchers (GitHub, GitLab, local)
 │   ├── resolve/           # Dependency resolver → devrune.lock
 │   ├── materialize/       # Workspace materializer
