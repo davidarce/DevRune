@@ -1,27 +1,21 @@
 ---
 on:
   issues:
-    types: [opened]
-
-if: github.actor == github.repository_owner
-
-model: gpt-5-mini
-
+    types: [opened, reopened]
 permissions:
-  issues: write
-  contents: read
-
-safe-outputs:
-  update-issue:
-    title:
-    body:
-
+      contents: read
+      issues: read
+      pull-requests: read
+engine: copilot
+network: defaults
 tools:
   github:
-    toolsets: [issues]
+    toolsets: [default]
+safe-outputs:
+  update-issue:
 ---
 
-# Mejorador de Issues
+# Issue Enhancer
 
 Mejora automáticamente los issues nuevos para que sean claros, estén bien estructurados y sean fáciles de entender.
 
@@ -40,7 +34,7 @@ Mejora automáticamente los issues nuevos para que sean claros, estén bien estr
 
 ### 1. Obtener contexto
 
-- Lee el README para entender el proyecto (es una CLI en Go para gestionar runbooks de desarrollo)
+- Lee el README para entender el proyecto (DevRune configures AI development agents by resolving, fetching, and materializing packages of **skills**, **rules**, **MCP server definitions**, and **workflows** into your workspace)
 - Lista las etiquetas del repositorio (las necesitarás después)
 
 ### 2. Mejorar el título
@@ -136,3 +130,4 @@ Usa secciones claras con encabezados emoji.
 - Si el issue ya está bien escrito, haz cambios mínimos
 - Mantén el contenido útil, no verboso
 - Todo el contenido debe estar en español
+
