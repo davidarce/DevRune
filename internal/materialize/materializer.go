@@ -25,6 +25,14 @@ const (
 	RulesModeBoth       = "both"
 )
 
+// catalogContributor is an optional interface that renderers may implement
+// to expose MCP agent instructions and registry contents for root catalog generation.
+// The materializer uses a type assertion to discover which renderers support this.
+type catalogContributor interface {
+	MCPAgentInstructions() map[string]string
+	RegistryContents() map[string]string
+}
+
 // Materializer orchestrates the 12-step installation pipeline.
 // It reads from the cache, delegates agent-specific rendering to AgentRenderer
 // implementations, and writes the final workspace state.
@@ -37,7 +45,7 @@ const (
 //  5. Materialize rules per agent's configured mode
 //  6. RenderMCPs() for all locked MCPs
 //  7. InstallWorkflow() for each locked workflow
-//  8. RenderCatalog() with all installed skills + workflows
+//  8. Generate root catalog (AGENTS.md) with all skills/rules/workflows
 //  9. Update .gitignore for each workflow
 //  10. Finalize()
 //  11. Write state
@@ -101,6 +109,13 @@ func (m *Materializer) Install(
 	var managedPaths []string
 	var activeAgents []string
 
+	// Accumulate all installed content across agents for root catalog generation.
+	// These are populated inside the per-agent loop and deduplicated before use.
+	var allSkills []model.ContentItem
+	var allRules []model.ContentItem
+	var allWorkflowNames []string // tracks names to avoid duplicates
+	var allWorkflows []model.WorkflowManifest
+
 	for _, agentRef := range agents {
 		renderer, ok := m.renderers[agentRef.Name]
 		if !ok {
@@ -128,7 +143,6 @@ func (m *Materializer) Install(
 
 		// Collect all skills and rules for catalog generation.
 		var installedSkills []model.ContentItem
-		var installedRules []model.ContentItem
 
 		// Step 4 + 5: RenderSkill() and materialize rules for each locked package.
 		for _, pkg := range lock.Packages {
@@ -161,6 +175,8 @@ func (m *Materializer) Install(
 				}
 				managedPaths = append(managedPaths, destDir)
 				installedSkills = append(installedSkills, item)
+				// Accumulate for cross-agent root catalog (deduplicated by name).
+				allSkills = appendIfNotPresent(allSkills, item)
 			}
 
 			// Step 5: Rules.
@@ -180,7 +196,8 @@ func (m *Materializer) Install(
 					return fmt.Errorf("materializer: materialize rule %q for agent %q: %w",
 						item.Name, agentRef.Name, err)
 				}
-				installedRules = append(installedRules, item)
+				// Accumulate for cross-agent root catalog (deduplicated by name).
+				allRules = appendIfNotPresent(allRules, item)
 			}
 		}
 
@@ -255,6 +272,11 @@ func (m *Materializer) Install(
 			// which is safe — they opt in by returning ManagedPaths.
 			managedPaths = append(managedPaths, wfResult.ManagedPaths...)
 			installedWorkflows = append(installedWorkflows, wfManifest)
+			// Accumulate for cross-agent root catalog (deduplicated by name).
+			if !containsString(allWorkflowNames, wfManifest.Metadata.Name) {
+				allWorkflowNames = append(allWorkflowNames, wfManifest.Metadata.Name)
+				allWorkflows = append(allWorkflows, wfManifest)
+			}
 
 			// Step 9: Update .gitignore for this workflow.
 			if err := addGitignoreEntry(wfManifest.Metadata.Name, projectRoot); err != nil {
@@ -264,12 +286,7 @@ func (m *Materializer) Install(
 			}
 		}
 
-		// Step 8: RenderCatalog().
-		catalogPath := filepath.Join(agentWorkspace, def.CatalogFile)
-		if err := renderer.RenderCatalog(installedSkills, installedRules, installedWorkflows, catalogPath); err != nil {
-			return fmt.Errorf("materializer: render catalog for agent %q: %w", agentRef.Name, err)
-		}
-		managedPaths = append(managedPaths, catalogPath)
+		// Step 8: RenderCatalog removed — root catalog is generated after the per-agent loop (T021).
 
 		// Step 8.5: RenderSettings() — generate agent settings file (e.g. .claude/settings.json).
 		if err := renderer.RenderSettings(agentWorkspace, installedSkills, installedWorkflows); err != nil {
@@ -282,6 +299,53 @@ func (m *Materializer) Install(
 		}
 
 		activeAgents = append(activeAgents, agentRef.Name)
+	}
+
+	// Step 8 (post-loop): Collect mcpInstructions and registryContents from all renderers.
+	mcpInstructions := make(map[string]string)
+	registryContents := make(map[string]string)
+	for _, agentRef := range agents {
+		renderer, ok := m.renderers[agentRef.Name]
+		if !ok {
+			continue
+		}
+		if cc, ok := renderer.(catalogContributor); ok {
+			for k, v := range cc.MCPAgentInstructions() {
+				if _, exists := mcpInstructions[k]; !exists {
+					mcpInstructions[k] = v
+				}
+			}
+			for k, v := range cc.RegistryContents() {
+				if _, exists := registryContents[k]; !exists {
+					registryContents[k] = v
+				}
+			}
+		}
+	}
+
+	// T022: Remove old workspace catalog files before writing root catalog.
+	for _, old := range []string{
+		filepath.Join(projectRoot, ".claude", "CLAUDE.md"),
+		filepath.Join(projectRoot, ".opencode", "AGENTS.md"),
+		filepath.Join(projectRoot, ".factory", "AGENTS.md"),
+		filepath.Join(projectRoot, ".github", "copilot-instructions.md"),
+	} {
+		_ = os.Remove(old) // ignore errors — files may not exist
+	}
+
+	// T021: Generate root catalog AGENTS.md with all skills/rules/workflows.
+	catalogContent, err := renderers.RenderRootCatalog(allSkills, allRules, allWorkflows, mcpInstructions, registryContents)
+	if err != nil {
+		return fmt.Errorf("materializer: render root catalog: %w", err)
+	}
+	agentsPath := filepath.Join(projectRoot, "AGENTS.md")
+	if err := renderers.WriteManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, catalogContent); err != nil {
+		return fmt.Errorf("materializer: write root AGENTS.md: %w", err)
+	}
+	claudePath := filepath.Join(projectRoot, "CLAUDE.md")
+	if err := renderers.CreateSymlinkOrCopy(agentsPath, claudePath); err != nil {
+		// Non-fatal: warn but don't block install (e.g. user has a custom CLAUDE.md).
+		_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: create CLAUDE.md symlink: %v\n", err)
 	}
 
 	// Step 6.5: Ensure project-root .mcp.json exists for any MCP-enabled install.
@@ -590,4 +654,24 @@ func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer
 	}
 
 	return os.WriteFile(gitignorePath, []byte(content), 0o644)
+}
+
+// appendIfNotPresent appends item to slice only if no existing item has the same Name.
+func appendIfNotPresent(slice []model.ContentItem, item model.ContentItem) []model.ContentItem {
+	for _, existing := range slice {
+		if existing.Name == item.Name {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
+
+// containsString reports whether s is in the slice.
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

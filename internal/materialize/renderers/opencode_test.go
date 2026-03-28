@@ -292,31 +292,6 @@ func TestOpenCodeRenderer_DropsArgumentHint(t *testing.T) {
 	}
 }
 
-// TestOpenCodeRenderer_RenderCatalog verifies catalog generation.
-func TestOpenCodeRenderer_RenderCatalog(t *testing.T) {
-	r := renderers.NewOpenCodeRenderer(openCodeAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "AGENTS.md")
-
-	skills := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "git:commit", Path: "skills/git-commit/"},
-	}
-
-	if err := r.RenderCatalog(skills, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-
-	if !strings.Contains(content, "# OpenCode Agent Catalog") {
-		t.Error("catalog missing heading")
-	}
-	// OpenCode applies colonToHyphen in catalog.
-	if !strings.Contains(content, "`git-commit`") {
-		t.Errorf("catalog should contain git-commit (hyphen), not git:commit; content:\n%s", content)
-	}
-}
-
 // TestOpenCodeRenderer_RenderCommand verifies command rendering.
 func TestOpenCodeRenderer_RenderCommand(t *testing.T) {
 	r := renderers.NewOpenCodeRenderer(openCodeAgentDef())
@@ -709,18 +684,17 @@ components:
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Render catalog and verify registry content appears in it.
-	catalogPath := filepath.Join(workspaceRoot, "AGENTS.md")
-	workflows := []model.WorkflowManifest{wf}
-	if err := r.RenderCatalog(nil, nil, workflows, catalogPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	catalog := string(mustReadFile(t, catalogPath))
-	// The workflow name ("sdd") must appear in the catalog as the workflow section heading.
-	// Registry content is intentionally NOT injected verbatim — a minimal section is emitted instead.
-	if !strings.Contains(catalog, "sdd") {
-		t.Errorf("catalog should contain workflow name 'sdd'; content:\n%s", catalog)
+	// Registry content is captured in the renderer for later use by RenderRootCatalog.
+	contents := r.RegistryContents()
+	// The workflow name "sdd" must exist as a key.
+	if _, ok := contents[wf.Metadata.Name]; !ok {
+		t.Errorf("RegistryContents should contain captured content for workflow 'sdd'; got keys: %v", func() []string {
+			var keys []string
+			for k := range contents {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
 	}
 
 	// NEGATIVE: REGISTRY.md must NOT exist in the workspace.

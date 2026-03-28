@@ -350,10 +350,41 @@ Create a detailed implementation plan.
 		t.Errorf("ORCHESTRATOR.md not installed: %v", err)
 	}
 
-	// Catalog file must exist.
-	catalogPath := filepath.Join(claudeDir, "CLAUDE.md")
+	// Root AGENTS.md must exist with managed markers.
+	agentsMdPath := filepath.Join(projectRoot, "AGENTS.md")
+	if _, err := os.Stat(agentsMdPath); err != nil {
+		t.Errorf("AGENTS.md not created at project root: %v", err)
+	} else {
+		agentsMdContent, readErr := os.ReadFile(agentsMdPath)
+		if readErr != nil {
+			t.Errorf("could not read AGENTS.md: %v", readErr)
+		} else if !strings.Contains(string(agentsMdContent), "# >>> devrune managed") {
+			t.Errorf("AGENTS.md missing managed begin marker")
+		}
+	}
+
+	// Root CLAUDE.md must exist (symlink or copy pointing to AGENTS.md).
+	catalogPath := filepath.Join(projectRoot, "CLAUDE.md")
 	if _, err := os.Stat(catalogPath); err != nil {
-		t.Errorf("CLAUDE.md not created: %v", err)
+		t.Errorf("CLAUDE.md not created at project root: %v", err)
+	}
+
+	// .claude/CLAUDE.md must NOT exist (workspace catalog removed).
+	oldCatalogPath := filepath.Join(claudeDir, "CLAUDE.md")
+	if _, err := os.Stat(oldCatalogPath); err == nil {
+		t.Errorf(".claude/CLAUDE.md must NOT exist after root catalog generation")
+	}
+
+	// .opencode/AGENTS.md must NOT exist.
+	opencodeAgentsPath := filepath.Join(projectRoot, ".opencode", "AGENTS.md")
+	if _, err := os.Stat(opencodeAgentsPath); err == nil {
+		t.Errorf(".opencode/AGENTS.md must NOT exist after root catalog generation")
+	}
+
+	// .github/copilot-instructions.md must NOT exist.
+	copilotPath := filepath.Join(projectRoot, ".github", "copilot-instructions.md")
+	if _, err := os.Stat(copilotPath); err == nil {
+		t.Errorf(".github/copilot-instructions.md must NOT exist after root catalog generation")
 	}
 
 	// State file must exist.
@@ -387,6 +418,9 @@ Create a detailed implementation plan.
 	// Artifacts should still be present after reinstall.
 	if _, err := os.Stat(gitCommitInstalled); err != nil {
 		t.Errorf("git-commit/SKILL.md missing after reinstall: %v", err)
+	}
+	if _, err := os.Stat(agentsMdPath); err != nil {
+		t.Errorf("AGENTS.md missing after reinstall: %v", err)
 	}
 	if _, err := os.Stat(catalogPath); err != nil {
 		t.Errorf("CLAUDE.md missing after reinstall: %v", err)

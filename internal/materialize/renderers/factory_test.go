@@ -183,64 +183,6 @@ Body.
 	}
 }
 
-// TestFactoryRenderer_RenderCatalog_WithSkills verifies catalog format.
-func TestFactoryRenderer_RenderCatalog_WithSkills(t *testing.T) {
-	r := renderers.NewFactoryRenderer(factoryAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "AGENTS.md")
-
-	skills := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "architect-adviser", Path: "skills/architect-adviser/"},
-	}
-
-	if err := r.RenderCatalog(skills, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-
-	if !strings.Contains(content, "# Factory AI Agent Catalog") {
-		t.Error("catalog missing Factory heading")
-	}
-	if !strings.Contains(content, "`architect-adviser`") {
-		t.Errorf("catalog missing skill name; content:\n%s", content)
-	}
-}
-
-// TestFactoryRenderer_RenderCatalog_WithWorkflows verifies workflow section with commands.
-func TestFactoryRenderer_RenderCatalog_WithWorkflows(t *testing.T) {
-	r := renderers.NewFactoryRenderer(factoryAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "AGENTS.md")
-
-	workflows := []model.WorkflowManifest{
-		{
-			Metadata: model.WorkflowMetadata{
-				Name:        "sdd",
-				Description: "SDD workflow",
-			},
-			Components: model.WorkflowComponents{
-				Commands: []model.WorkflowCommand{
-					{Name: "sdd-explore", Action: "Explore and investigate"},
-					{Name: "sdd-plan", Action: "Create implementation plan"},
-				},
-			},
-		},
-	}
-
-	if err := r.RenderCatalog(nil, nil, workflows, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-	if !strings.Contains(content, "sdd") {
-		t.Error("catalog missing workflow name")
-	}
-	if !strings.Contains(content, "sdd-explore") {
-		t.Error("catalog missing command name")
-	}
-}
-
 // TestFactoryRenderer_RenderCommand verifies command rendering.
 func TestFactoryRenderer_RenderCommand(t *testing.T) {
 	r := renderers.NewFactoryRenderer(factoryAgentDef())
@@ -540,20 +482,25 @@ func TestFactoryRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Call RenderCatalog with the workflow in the list.
-	destPath := filepath.Join(workspaceRoot, "AGENTS.md")
-	if err := r.RenderCatalog(nil, nil, []model.WorkflowManifest{wf}, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
+	// Registry content is captured in the renderer for later use by RenderRootCatalog.
+	contents := r.RegistryContents()
+	registryContent, ok := contents[wf.Metadata.Name]
+	if !ok {
+		t.Fatalf("RegistryContents should contain captured content for workflow 'sdd'; got keys: %v", func() []string {
+			var keys []string
+			for k := range contents {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
 	}
 
-	catalogContent := string(mustReadFile(t, destPath))
-
-	// Registry text should appear in catalog.
-	if !strings.Contains(catalogContent, "# SDD Skills Registry") {
-		t.Errorf("catalog missing registry heading; content:\n%s", catalogContent)
+	// Registry text should be in the captured content.
+	if !strings.Contains(registryContent, "# SDD Skills Registry") {
+		t.Errorf("registry content missing heading; content:\n%s", registryContent)
 	}
-	if !strings.Contains(catalogContent, "| sdd-explore |") {
-		t.Errorf("catalog missing registry table row; content:\n%s", catalogContent)
+	if !strings.Contains(registryContent, "| sdd-explore |") {
+		t.Errorf("registry content missing table row; content:\n%s", registryContent)
 	}
 
 	// REGISTRY.md must NOT exist as a loose file anywhere under skills/.

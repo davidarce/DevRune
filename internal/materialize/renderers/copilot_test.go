@@ -317,46 +317,6 @@ Body.
 	}
 }
 
-// TestCopilotRenderer_RenderCatalog verifies the copilot catalog format.
-func TestCopilotRenderer_RenderCatalog(t *testing.T) {
-	r := renderers.NewCopilotRenderer(copilotAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "copilot-instructions.md")
-
-	skills := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "git:commit", Path: "skills/git-commit/"},
-	}
-
-	if err := r.RenderCatalog(skills, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-	if !strings.Contains(content, "# GitHub Copilot Custom Agent Instructions") {
-		t.Error("catalog missing Copilot heading")
-	}
-	// Copilot applies colonToHyphen in catalog.
-	if !strings.Contains(content, "`git-commit`") {
-		t.Errorf("catalog should contain git-commit (hyphen); content:\n%s", content)
-	}
-}
-
-// TestCopilotRenderer_RenderCatalog_Empty verifies empty catalog generation.
-func TestCopilotRenderer_RenderCatalog_Empty(t *testing.T) {
-	r := renderers.NewCopilotRenderer(copilotAgentDef())
-	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "copilot-instructions.md")
-
-	if err := r.RenderCatalog(nil, nil, nil, destPath); err != nil {
-		t.Fatalf("RenderCatalog empty: %v", err)
-	}
-
-	content := string(mustReadFile(t, destPath))
-	if !strings.Contains(content, "GitHub Copilot") {
-		t.Error("empty catalog missing heading")
-	}
-}
-
 // TestCopilotRenderer_Finalize_NoOp verifies Finalize is a no-op.
 func TestCopilotRenderer_Finalize(t *testing.T) {
 	r := renderers.NewCopilotRenderer(copilotAgentDef())
@@ -560,24 +520,18 @@ func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Render catalog to verify registry content is injected.
-	catalogPath := filepath.Join(workspaceRoot, "copilot-instructions.md")
-	workflows := []model.WorkflowManifest{wf}
-	if err := r.RenderCatalog(nil, nil, workflows, catalogPath); err != nil {
-		t.Fatalf("RenderCatalog: %v", err)
-	}
-
-	catalogData, err := os.ReadFile(catalogPath)
-	if err != nil {
-		t.Fatalf("read catalog: %v", err)
-	}
-	catalog := string(catalogData)
-
-	// The workflow name ("sdd") must appear in the catalog as the workflow section heading.
-	// Registry text is intentionally NOT injected verbatim — the catalog now emits a
-	// minimal section (name + description + orchestrator pointer) instead of the full REGISTRY.md.
-	if !strings.Contains(catalog, "sdd") {
-		t.Errorf("catalog should contain workflow name 'sdd'; content:\n%s", catalog)
+	// Verify registry content is captured (for later use by RenderRootCatalog).
+	contents := r.RegistryContents()
+	// Registry content is captured but not verbatim-injected (Copilot emits minimal pointer).
+	// The workflow name "sdd" must exist as a key.
+	if _, ok := contents[wf.Metadata.Name]; !ok {
+		t.Errorf("RegistryContents should contain captured content for workflow 'sdd'; got keys: %v", func() []string {
+			var keys []string
+			for k := range contents {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
 	}
 
 	// No loose REGISTRY.md should exist anywhere in workspace.

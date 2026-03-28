@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/davidarce/devrune/internal/materialize"
@@ -81,16 +82,11 @@ type stubRenderer struct {
 	agentType          string
 	def                model.AgentDefinition
 	skillErr           error
-	catalogErr         error
 	settingsErr        error
 	finalizeErr        error
 	renderedSkills     []string
-	catalogCalled      bool
 	settingsCalled     bool
 	finalizeCalled     bool
-	catalogSkills      []model.ContentItem
-	catalogRules       []model.ContentItem
-	catalogWorkflows   []model.WorkflowManifest
 	settingsSkills     []model.ContentItem
 	settingsWorkflows  []model.WorkflowManifest
 	setInstalledSkills []model.ContentItem
@@ -134,18 +130,6 @@ func (r *stubRenderer) RenderCommand(cmd model.WorkflowCommand, destDir string) 
 
 func (r *stubRenderer) RenderMCPs(mcps []model.LockedMCP, cache matypes.CacheStore, workspaceRoot string) error {
 	return nil
-}
-
-func (r *stubRenderer) RenderCatalog(skills []model.ContentItem, rules []model.ContentItem, workflows []model.WorkflowManifest, destPath string) error {
-	r.catalogCalled = true
-	r.catalogSkills = skills
-	r.catalogRules = rules
-	r.catalogWorkflows = workflows
-	if r.catalogErr != nil {
-		return r.catalogErr
-	}
-	_ = os.MkdirAll(filepath.Dir(destPath), 0o755)
-	return os.WriteFile(destPath, []byte("# catalog\n"), 0o644)
 }
 
 func (r *stubRenderer) RenderSettings(workspaceRoot string, skills []model.ContentItem, workflows []model.WorkflowManifest) error {
@@ -307,9 +291,6 @@ func TestMaterializer_Install_RendersSkills(t *testing.T) {
 	if len(renderer.renderedSkills) != 1 {
 		t.Errorf("RenderSkill called %d times, want 1", len(renderer.renderedSkills))
 	}
-	if !renderer.catalogCalled {
-		t.Error("RenderCatalog should have been called")
-	}
 	if !renderer.finalizeCalled {
 		t.Error("Finalize should have been called")
 	}
@@ -453,7 +434,7 @@ func TestMaterializer_Install_WritesSchemaVersion(t *testing.T) {
 }
 
 // TestMaterializer_Install_CallsRenderSettings verifies that RenderSettings is
-// called during Install after RenderCatalog.
+// called during Install.
 func TestMaterializer_Install_CallsRenderSettings(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -479,63 +460,6 @@ func TestMaterializer_Install_CallsRenderSettings(t *testing.T) {
 
 	if !renderer.settingsCalled {
 		t.Error("RenderSettings should have been called during Install")
-	}
-}
-
-// TestMaterializer_Install_PassesRulesToRenderCatalog verifies that rules from
-// locked packages are collected and forwarded to RenderCatalog.
-func TestMaterializer_Install_PassesRulesToRenderCatalog(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a fake package with a rule file in the cache.
-	pkgDir := t.TempDir()
-	ruleDir := filepath.Join(pkgDir, "rules", "architecture")
-	_ = os.MkdirAll(ruleDir, 0o755)
-	_ = os.WriteFile(filepath.Join(ruleDir, "clean-architecture-rules.md"), []byte("# Clean Architecture\n"), 0o644)
-
-	cache := newStubCache()
-	pkgHash := "sha256:rulepkg"
-	cache.entries[pkgHash] = pkgDir
-
-	agentDef := model.AgentDefinition{
-		Name:        "claude",
-		Type:        "claude",
-		Workspace:   filepath.Join(tmpDir, ".claude"),
-		SkillDir:    "skills",
-		RulesDir:    "rules",
-		CatalogFile: "CLAUDE.md",
-	}
-	renderer := newStubRenderer("claude", "claude", agentDef)
-	stateMgr := &stubStateManager{}
-	linker, _ := materialize.NewLinker("copy")
-
-	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
-
-	lock := model.Lockfile{
-		SchemaVersion: "v1",
-		ManifestHash:  "sha256:manifest-rules",
-		Packages: []model.LockedPackage{
-			{
-				Hash: pkgHash,
-				Contents: []model.ContentItem{
-					{Kind: model.KindRule, Name: "architecture/clean-architecture-rules", Path: "rules/architecture/clean-architecture-rules.md"},
-				},
-			},
-		},
-	}
-
-	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-
-	if !renderer.catalogCalled {
-		t.Fatal("RenderCatalog should have been called")
-	}
-	if len(renderer.catalogRules) != 1 {
-		t.Errorf("RenderCatalog received %d rules, want 1", len(renderer.catalogRules))
-	}
-	if renderer.catalogRules[0].Name != "architecture/clean-architecture-rules" {
-		t.Errorf("catalogRules[0].Name = %q, want %q", renderer.catalogRules[0].Name, "architecture/clean-architecture-rules")
 	}
 }
 
@@ -1148,5 +1072,294 @@ func TestMaterializer_Install_RenderSettingsReceivesSkillsAndWorkflows(t *testin
 	}
 	if len(renderer.settingsSkills) > 0 && renderer.settingsSkills[0].Name != "git-commit" {
 		t.Errorf("settingsSkills[0].Name = %q, want %q", renderer.settingsSkills[0].Name, "git-commit")
+	}
+}
+
+// --- T023: Root catalog generation tests ---
+
+// TestMaterializer_Install_WritesRootCatalog verifies that Install creates AGENTS.md
+// at the project root containing a managed block with catalog content.
+func TestMaterializer_Install_WritesRootCatalog(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	agentDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   filepath.Join(tmpDir, ".claude"),
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+	renderer := newStubRenderer("claude", "claude", agentDef)
+	stateMgr := &stubStateManager{}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
+
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:root-catalog"}
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// AGENTS.md must exist at project root.
+	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
+	data, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("AGENTS.md should exist at project root: %v", err)
+	}
+	content := string(data)
+
+	// Must contain managed block markers.
+	if !strings.Contains(content, "# >>> devrune managed") {
+		t.Errorf("AGENTS.md should contain begin marker; got:\n%s", content)
+	}
+	if !strings.Contains(content, "# <<< devrune managed") {
+		t.Errorf("AGENTS.md should contain end marker; got:\n%s", content)
+	}
+	// Must contain catalog header.
+	if !strings.Contains(content, "# Agent Catalog") {
+		t.Errorf("AGENTS.md should contain '# Agent Catalog'; got:\n%s", content)
+	}
+}
+
+// TestMaterializer_Install_CreatesCLAUDEmdSymlink verifies that CLAUDE.md is created
+// at project root (as symlink or copy pointing to AGENTS.md).
+func TestMaterializer_Install_CreatesCLAUDEmdSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	agentDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   filepath.Join(tmpDir, ".claude"),
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+	renderer := newStubRenderer("claude", "claude", agentDef)
+	stateMgr := &stubStateManager{}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
+
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:symlink-test"}
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// CLAUDE.md must exist at project root.
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	if _, err := os.Stat(claudePath); err != nil {
+		t.Fatalf("CLAUDE.md should exist at project root: %v", err)
+	}
+
+	// CLAUDE.md content must match AGENTS.md content (it is a symlink or copy).
+	agentsData, _ := os.ReadFile(filepath.Join(tmpDir, "AGENTS.md"))
+	claudeData, _ := os.ReadFile(claudePath)
+	if string(agentsData) != string(claudeData) {
+		t.Errorf("CLAUDE.md content should match AGENTS.md; AGENTS.md=%q CLAUDE.md=%q",
+			string(agentsData), string(claudeData))
+	}
+}
+
+// TestMaterializer_Install_RemovesOldWorkspaceCatalogs verifies that old workspace
+// catalog files (.claude/CLAUDE.md, .opencode/AGENTS.md, etc.) are removed during install.
+func TestMaterializer_Install_RemovesOldWorkspaceCatalogs(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create old workspace catalog files to simulate a pre-migration install.
+	oldPaths := []string{
+		filepath.Join(tmpDir, ".claude", "CLAUDE.md"),
+		filepath.Join(tmpDir, ".opencode", "AGENTS.md"),
+		filepath.Join(tmpDir, ".factory", "AGENTS.md"),
+		filepath.Join(tmpDir, ".github", "copilot-instructions.md"),
+	}
+	for _, p := range oldPaths {
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		_ = os.WriteFile(p, []byte("old catalog content"), 0o644)
+	}
+
+	agentDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   filepath.Join(tmpDir, ".claude"),
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+	renderer := newStubRenderer("claude", "claude", agentDef)
+	stateMgr := &stubStateManager{}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
+
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:old-catalogs"}
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// All old workspace catalog files must be removed.
+	for _, p := range oldPaths {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("old workspace catalog %q should have been removed", p)
+		}
+	}
+}
+
+// TestMaterializer_Install_RootCatalogContainsSkillNames verifies that the root
+// AGENTS.md includes skill names when skills are installed.
+func TestMaterializer_Install_RootCatalogContainsSkillNames(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a fake skill package in the cache.
+	pkgDir := t.TempDir()
+	skillDir := filepath.Join(pkgDir, "skills", "unit-test-adviser")
+	_ = os.MkdirAll(skillDir, 0o755)
+	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: unit-test-adviser\ndescription: Domain unit test patterns\n---\nBody.\n"), 0o644)
+
+	cache := newStubCache()
+	pkgHash := "sha256:skill-catalog-test"
+	cache.entries[pkgHash] = pkgDir
+
+	agentDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   filepath.Join(tmpDir, ".claude"),
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+	renderer := newStubRenderer("claude", "claude", agentDef)
+	stateMgr := &stubStateManager{}
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
+
+	lock := model.Lockfile{
+		SchemaVersion: "v1",
+		ManifestHash:  "sha256:skill-catalog",
+		Packages: []model.LockedPackage{
+			{
+				Hash: pkgHash,
+				Contents: []model.ContentItem{
+					{Kind: model.KindSkill, Name: "unit-test-adviser", Path: "skills/unit-test-adviser", Description: "Domain unit test patterns"},
+				},
+			},
+		},
+	}
+
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
+	data, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("AGENTS.md should exist: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "unit-test-adviser") {
+		t.Errorf("AGENTS.md should contain skill name 'unit-test-adviser'; got:\n%s", content)
+	}
+}
+
+// --- T025: Uninstall / managed block removal tests ---
+
+// TestMaterializer_Reinstall_PreservesUserContentInRootCatalog verifies that
+// user content outside the managed block is preserved across reinstalls.
+func TestMaterializer_Reinstall_PreservesUserContentInRootCatalog(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	agentDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   filepath.Join(tmpDir, ".claude"),
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	// First install.
+	renderer1 := newStubRenderer("claude", "claude", agentDef)
+	stateMgr := &stubStateManager{}
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer1})
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:reinstall-1"}
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("first Install: %v", err)
+	}
+
+	// Simulate user adding content before the managed block.
+	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
+	existing, _ := os.ReadFile(agentsPath)
+	userContent := "# My Custom Notes\n\nKeep this content.\n\n"
+	_ = os.WriteFile(agentsPath, append([]byte(userContent), existing...), 0o644)
+
+	// Second install — same state manager (prev state from first install).
+	renderer2 := newStubRenderer("claude", "claude", agentDef)
+	stateMgr2 := &stubStateManager{readState: stateMgr.written}
+	m2 := materialize.NewMaterializer(cache, linker, stateMgr2, map[string]materialize.AgentRenderer{"claude": renderer2})
+	lock2 := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:reinstall-2"}
+	if err := m2.Install(context.Background(), lock2, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+
+	// User content before the managed block must still be present.
+	data, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("AGENTS.md should still exist after reinstall: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "# My Custom Notes") {
+		t.Errorf("user content should be preserved after reinstall; got:\n%s", content)
+	}
+	if !strings.Contains(content, "# Agent Catalog") {
+		t.Errorf("catalog content should be present after reinstall; got:\n%s", content)
+	}
+}
+
+// TestMaterializer_Install_CLAUDEmd_NotRemovedIfUserOwned verifies that if CLAUDE.md
+// already exists as a user-owned file (not a symlink to AGENTS.md), the install
+// completes successfully (with a warning) and CLAUDE.md is not clobbered.
+func TestMaterializer_Install_CLAUDEmd_NotRemovedIfUserOwned(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a user-owned CLAUDE.md that should NOT be overwritten.
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	userContent := "# My custom instructions\n\nDo not overwrite me.\n"
+	_ = os.WriteFile(claudePath, []byte(userContent), 0o644)
+
+	agentDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   filepath.Join(tmpDir, ".claude"),
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+	renderer := newStubRenderer("claude", "claude", agentDef)
+	stateMgr := &stubStateManager{}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"claude": renderer})
+
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:user-owned-claude"}
+	// Install should succeed even though CLAUDE.md is user-owned (warn only, non-fatal).
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "claude"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install should succeed even with user-owned CLAUDE.md: %v", err)
+	}
+
+	// User-owned CLAUDE.md must NOT be overwritten.
+	data, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("CLAUDE.md should still exist: %v", err)
+	}
+	if string(data) != userContent {
+		t.Errorf("user-owned CLAUDE.md should not be overwritten; got:\n%s", string(data))
+	}
+
+	// AGENTS.md must still exist at project root.
+	if _, err := os.Stat(filepath.Join(tmpDir, "AGENTS.md")); err != nil {
+		t.Errorf("AGENTS.md should still be created at project root: %v", err)
 	}
 }

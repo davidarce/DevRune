@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -16,6 +17,172 @@ import (
 	"github.com/davidarce/devrune/internal/materialize/matypes"
 	"github.com/davidarce/devrune/internal/model"
 )
+
+// WriteManagedBlock writes content between beginMarker and endMarker in filePath.
+// If the markers already exist in the file, the block between them (inclusive) is replaced.
+// If the markers are absent, the managed block is appended to the file.
+// If the file does not exist, it is created with only the managed block.
+// The file is written with 0o644 permissions.
+func WriteManagedBlock(filePath, beginMarker, endMarker, content string) error {
+	existing := ""
+	data, err := os.ReadFile(filePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("WriteManagedBlock: read %q: %w", filePath, err)
+	}
+	if err == nil {
+		existing = string(data)
+	}
+
+	block := beginMarker + "\n" + content
+	if !strings.HasSuffix(block, "\n") {
+		block += "\n"
+	}
+	block += endMarker + "\n"
+
+	var result string
+	beginIdx := strings.Index(existing, beginMarker)
+	endIdx := strings.Index(existing, endMarker)
+	if beginIdx >= 0 && endIdx > beginIdx {
+		// Replace existing managed block (inclusive of markers and trailing newline).
+		after := existing[endIdx+len(endMarker):]
+		after = strings.TrimPrefix(after, "\n")
+		result = existing[:beginIdx] + block + after
+	} else {
+		// Append managed block.
+		if existing != "" && !strings.HasSuffix(existing, "\n") {
+			existing += "\n"
+		}
+		result = existing + "\n" + block
+		if existing == "" {
+			result = block
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return fmt.Errorf("WriteManagedBlock: mkdir %q: %w", filepath.Dir(filePath), err)
+	}
+	return os.WriteFile(filePath, []byte(result), 0o644)
+}
+
+// RemoveManagedBlock removes the content between beginMarker and endMarker (inclusive)
+// from filePath. If the file does not exist or the markers are not found, returns nil.
+// If the remaining content is only whitespace after removal, the file is deleted entirely.
+func RemoveManagedBlock(filePath, beginMarker, endMarker string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("RemoveManagedBlock: read %q: %w", filePath, err)
+	}
+	content := string(data)
+
+	beginIdx := strings.Index(content, beginMarker)
+	endIdx := strings.Index(content, endMarker)
+	if beginIdx < 0 || endIdx <= beginIdx {
+		return nil // markers not found
+	}
+
+	// Remove from beginMarker to endMarker (inclusive) plus trailing newline.
+	end := endIdx + len(endMarker)
+	if end < len(content) && content[end] == '\n' {
+		end++
+	}
+	result := content[:beginIdx] + content[end:]
+
+	if strings.TrimSpace(result) == "" {
+		return os.Remove(filePath)
+	}
+	return os.WriteFile(filePath, []byte(result), 0o644)
+}
+
+// CreateSymlinkOrCopy creates a symlink at linkPath pointing to target on Unix,
+// or copies the file content from target to linkPath on Windows.
+// If linkPath already exists as a symlink pointing to the correct target, it is a no-op.
+// If linkPath exists as a regular file (not a symlink), an error is returned to avoid
+// clobbering user-owned files.
+// The symlink target uses just the base filename since both files are in the same directory.
+func CreateSymlinkOrCopy(target, linkPath string) error {
+	// Check if linkPath already exists.
+	linfo, err := os.Lstat(linkPath)
+	if err == nil {
+		// linkPath exists — inspect it.
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			// It's a symlink — check where it points.
+			dest, err := os.Readlink(linkPath)
+			if err != nil {
+				return fmt.Errorf("CreateSymlinkOrCopy: readlink %q: %w", linkPath, err)
+			}
+			// Accept both relative (base filename) and absolute targets.
+			if dest == filepath.Base(target) || dest == target {
+				return nil // already correct — no-op
+			}
+			// Points elsewhere — remove and recreate.
+			if err := os.Remove(linkPath); err != nil {
+				return fmt.Errorf("CreateSymlinkOrCopy: remove stale symlink %q: %w", linkPath, err)
+			}
+		} else {
+			// Regular file — refuse to clobber.
+			return fmt.Errorf("CreateSymlinkOrCopy: %q already exists as a regular file; rename or remove it first", linkPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("CreateSymlinkOrCopy: lstat %q: %w", linkPath, err)
+	}
+
+	if runtime.GOOS == "windows" {
+		// On Windows, copy file content instead of creating a symlink.
+		info, err := os.Stat(target)
+		if err != nil {
+			return fmt.Errorf("CreateSymlinkOrCopy: stat target %q: %w", target, err)
+		}
+		return copySingleFile(target, linkPath, info.Mode())
+	}
+	// Unix: use relative target (just the filename) since both are in the same dir.
+	return os.Symlink(filepath.Base(target), linkPath)
+}
+
+// RemoveSymlinkOrCopy removes linkPath if it is a symlink pointing to target (Unix),
+// or if it is a regular file with identical content to target (Windows).
+// If linkPath does not exist, returns nil.
+// If linkPath is a user-owned file (different content or symlink to different target),
+// it is left untouched.
+func RemoveSymlinkOrCopy(target, linkPath string) error {
+	linfo, err := os.Lstat(linkPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("RemoveSymlinkOrCopy: lstat %q: %w", linkPath, err)
+	}
+
+	if linfo.Mode()&os.ModeSymlink != 0 {
+		// It's a symlink — remove only if it points to the expected target.
+		dest, err := os.Readlink(linkPath)
+		if err != nil {
+			return fmt.Errorf("RemoveSymlinkOrCopy: readlink %q: %w", linkPath, err)
+		}
+		if dest == filepath.Base(target) || dest == target {
+			return os.Remove(linkPath)
+		}
+		// Points elsewhere — leave it alone.
+		return nil
+	}
+
+	// Regular file (Windows copy case): compare content.
+	linkData, err := os.ReadFile(linkPath)
+	if err != nil {
+		return fmt.Errorf("RemoveSymlinkOrCopy: read %q: %w", linkPath, err)
+	}
+	targetData, err := os.ReadFile(target)
+	if err != nil {
+		return fmt.Errorf("RemoveSymlinkOrCopy: read target %q: %w", target, err)
+	}
+	if string(linkData) == string(targetData) {
+		return os.Remove(linkPath)
+	}
+	// Content differs — user-owned file, leave it alone.
+	return nil
+}
 
 // parseYAML decodes YAML data into the target value.
 func parseYAML(data []byte, target interface{}) error {
@@ -683,29 +850,6 @@ func transformEnvVarPlaceholder(value, agentFormat string) string {
 	default:
 		return value
 	}
-}
-
-// generateMCPCatalogSections produces the Memory/Engram catalog section text for
-// non-Claude renderers. The output matches what ClaudeRenderer appends: for each
-// MCP entry with a non-empty AgentInstructions, a `## <CapitalizedName>` heading
-// followed by the instructions body is written.
-//
-// The returned string is ready to be appended to a catalog file. If no MCPs have
-// agent instructions, an empty string is returned.
-func generateMCPCatalogSections(mcps []normalizedMCP) string {
-	var sb strings.Builder
-	for _, mcp := range mcps {
-		if mcp.AgentInstructions == "" {
-			continue
-		}
-		_, _ = fmt.Fprintf(&sb, "## %s\n\n", capitalizeFirst(mcp.Name))
-		sb.WriteString(mcp.AgentInstructions)
-		if !strings.HasSuffix(mcp.AgentInstructions, "\n") {
-			sb.WriteString("\n")
-		}
-		sb.WriteString("\n")
-	}
-	return sb.String()
 }
 
 // EffectiveMCPConfig returns the MCP configuration to use for rendering.
