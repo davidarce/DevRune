@@ -21,12 +21,12 @@
 <p align="center">
   <strong>Package manager for AI agent instructions</strong>
   <br>
-  <em>One manifest, every agent. Skills, rules, MCPs, and workflows — resolved, locked, installed.</em>
+  <em>One manifest, every agent. Skills, rules, MCPs, workflows, and tools — resolved, locked, installed.</em>
 </p>
 
 ---
 
-DevRune configures AI development agents by resolving, fetching, and materializing packages of **skills**, **rules**, **MCP server definitions**, and **workflows** into your workspace. Write one `devrune.yaml` manifest and DevRune generates the correct files for every agent you use.
+DevRune configures AI development agents by resolving, fetching, and materializing packages of **skills**, **rules**, **MCP server definitions**, **workflows**, and **tools** into your workspace. Write one `devrune.yaml` manifest and DevRune generates the correct files for every agent you use.
 
 Think of it as **npm for AI agent instructions** — you declare what you need, DevRune handles the rest.
 
@@ -79,7 +79,7 @@ Installs to `~/.local/bin` by default. Override with `INSTALL_DIR=/usr/local/bin
 devrune init
 ```
 
-The wizard walks you through selecting agents and package sources, then resolves and installs everything automatically.
+The wizard walks you through selecting agents and package sources, then resolves and installs everything automatically. If the catalog includes developer tools, the wizard will also offer to install them via Homebrew.
 
 ### Manual
 
@@ -119,7 +119,7 @@ workflows:
 devrune sync   # Fetch packages, update lockfile, materialize workspace
 ```
 
-That's it. Your workspace now has correctly formatted skills, rules, MCP configs, and workflows for Claude, OpenCode, and Copilot.
+That's it. Your workspace now has correctly formatted skills, rules, MCP configs, and workflows for Claude, OpenCode, and Copilot. If the catalog includes developer tools (e.g. Crit, Engram), `devrune init` will also offer to install them via Homebrew.
 
 > You can also run `devrune resolve` and `devrune install` separately for advanced workflows (CI/CD, offline installs).
 
@@ -137,6 +137,8 @@ devrune.yaml  →  resolve  →  devrune.lock  →  install  →  workspace file
 2. **Install** — Reads `devrune.lock` and the manifest, then materializes workspace files for each configured agent. Each agent has a dedicated renderer that transforms the canonical format into the agent's native format.
 
 3. **State tracking** — After install, DevRune writes `.devrune/state.yaml` to track what was installed, which agents are active, and the lockfile hash. Running `devrune status` compares the current lockfile against the installed state to detect drift.
+
+4. **Tool install** (init only) — During `devrune init`, after resolving and installing packages, the wizard discovers developer tools from the catalog (e.g. Crit, Engram), filters them based on your selected MCPs and workflows, detects which are already installed, and offers to install the rest via Homebrew in parallel.
 
 ## CLI Reference
 
@@ -162,7 +164,7 @@ Global Flags:
 
 ### `devrune init`
 
-Full setup in one command. Launches an interactive TUI wizard or accepts flags for CI:
+Full setup in one command. Launches an interactive TUI wizard that guides you through agent selection, package configuration, and developer tool installation — or accepts flags for CI:
 
 ```bash
 # Interactive
@@ -266,6 +268,8 @@ install:
     opencode: individual
 ```
 
+> **Note on tools:** Developer tools (e.g. Crit, Engram) are defined in the catalog's `tools/` directory, not in the manifest. During `devrune init`, the wizard automatically discovers tools from your selected catalog sources, checks which ones are relevant based on your selections (MCPs, workflows), and offers to install them via Homebrew. Tools are a side-effect of init — they don't appear in `devrune.yaml` or `devrune.lock`.
+
 ### Source Ref Formats
 
 | Scheme | Format | Example |
@@ -295,17 +299,45 @@ my-catalog/
 ├── mcps/
 │   ├── engram.yaml            # MCP server definitions
 │   └── context7.yaml
-└── workflows/
-    └── sdd/
-        ├── workflow.yaml      # Workflow definition with roles
-        └── skills/
-            ├── sdd-explore/
-            │   └── SKILL.md
-            └── sdd-plan/
-                └── SKILL.md
+├── workflows/
+│   └── sdd/
+│       ├── workflow.yaml      # Workflow definition with roles
+│       └── skills/
+│           ├── sdd-explore/
+│           │   └── SKILL.md
+│           └── sdd-plan/
+│               └── SKILL.md
+└── tools/
+    ├── crit.yaml              # Developer tool definitions
+    └── engram.yaml            # Auto-installed via Homebrew during init
 ```
 
 See [devrune-starter-catalog](https://github.com/davidarce/devrune-starter-catalog) for a complete example.
+
+### Tool Definitions
+
+Tools are developer CLI utilities that complement your agent setup. Each tool is a YAML file in the `tools/` directory:
+
+```yaml
+name: engram
+description: "Persistent memory for AI agents"
+command: "brew install gentleman-programming/tap/engram"
+binary: engram
+depends_on:
+  mcp: engram        # Only shown if MCP "engram" is selected
+  workflow: sdd      # ...OR workflow "sdd" is selected
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Display name shown in the wizard |
+| `description` | Yes | Short description |
+| `command` | Yes | Homebrew install command |
+| `binary` | No | Binary name to detect if already installed (via `$PATH` lookup) |
+| `depends_on.mcp` | No | Only offer this tool if the named MCP is selected |
+| `depends_on.workflow` | No | Only offer this tool if the named workflow is selected |
+
+During `devrune init`, the wizard filters tools based on your selections — if you didn't select the SDD workflow, you won't be prompted to install Crit. Already-installed tools (detected via `binary` field) are shown with a ✓ and skipped during installation.
 
 ## Platforms
 
