@@ -399,7 +399,7 @@ components:
 	}
 
 	// Verify the placeholder was replaced.
-	destSkillMD := filepath.Join(workspaceDir, "skills", "sdd", "sdd-explore", "SKILL.md")
+	destSkillMD := filepath.Join(workspaceDir, "skills", "sdd-explore", "SKILL.md")
 	data := mustReadFile(t, destSkillMD)
 	content := string(data)
 
@@ -622,7 +622,7 @@ func TestClaudeRenderer_InstallWorkflow_NoAdviserSkills(t *testing.T) {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	destSkillMD := filepath.Join(workspaceDir, "skills", "sdd", "sdd-explore", "SKILL.md")
+	destSkillMD := filepath.Join(workspaceDir, "skills", "sdd-explore", "SKILL.md")
 	data := mustReadFile(t, destSkillMD)
 	content := string(data)
 

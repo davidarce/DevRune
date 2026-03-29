@@ -238,6 +238,8 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: read workflow dir %q: %w", cachePath, err)
 	}
 
+	var skillDirs []string
+
 	for _, entry := range entries {
 		name := entry.Name()
 		srcPath := filepath.Join(cachePath, name)
@@ -248,6 +250,8 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		}
 
 		if skillsSet[name] {
+			// Install skills at first level so the Skill tool can discover them.
+			dstPath = filepath.Join(workspaceRoot, r.def.SkillDir, name)
 			// Apply frontmatter transform.
 			if err := r.RenderSkill(srcPath, dstPath); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow skill %q: %w", name, err)
@@ -255,6 +259,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 			if err := copySkillSubdirs(srcPath, dstPath); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy skill subdirs for %s: %w", name, err)
 			}
+			skillDirs = append(skillDirs, dstPath)
 			continue
 		}
 
@@ -293,8 +298,16 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	if err := r.postProcessWorkflow(wf, destBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow post-process %q: %w", wf.Metadata.Name, err)
 	}
+	for _, sd := range skillDirs {
+		if err := r.postProcessWorkflow(wf, sd, replacements); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow skill post-process %q: %w", sd, err)
+		}
+	}
 
-	return matypes.WorkflowInstallResult{ManagedPaths: []string{destBase}}, nil
+	managedPaths := make([]string, 0, 1+len(skillDirs))
+	managedPaths = append(managedPaths, destBase)
+	managedPaths = append(managedPaths, skillDirs...)
+	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil
 }
 
 // postProcessWorkflow runs post-installation processing on a workflow's rendered files.
