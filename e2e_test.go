@@ -339,7 +339,7 @@ Create a detailed implementation plan.
 		t.Errorf("sdd workflow dir not created: %v", err)
 	}
 
-	sddExploreInstalled := filepath.Join(sddSkillsDir, "sdd-explore", "SKILL.md")
+	sddExploreInstalled := filepath.Join(skillsDir, "sdd-explore", "SKILL.md")
 	if _, err := os.Stat(sddExploreInstalled); err != nil {
 		t.Errorf("sdd-explore/SKILL.md not installed: %v", err)
 	}
