@@ -100,11 +100,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	var manifest model.UserManifest
+	var installedTools []string
 
 	if !nonInteractive && !hasFlags {
 		// Interactive TUI wizard path.
-		var tuiErr error
-		manifest, tuiErr = tui.Run()
+		result, tuiErr := tui.Run()
 		if tuiErr != nil {
 			if errors.Is(tuiErr, huh.ErrUserAborted) {
 				_, _ = fmt.Fprintln(out, "Aborted.")
@@ -112,6 +112,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 			}
 			return fmt.Errorf("tui wizard: %w", tuiErr)
 		}
+		manifest = result.Manifest
+		installedTools = result.InstalledTools
 	} else {
 		// Non-interactive / flag-based path.
 		agentRefs := make([]model.AgentRef, 0, len(agentNames))
@@ -202,12 +204,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// --- Interactive completion screen ---
 	if !nonInteractive && !hasFlags {
 		info := tui.CompletionInfo{
-			Agents:    agentSummary,
-			Packages:  len(manifest.Packages),
-			MCPs:      len(manifest.MCPs),
-			Workflows: len(manifest.Workflows),
-			Manifest:  destPath,
-			Lockfile:  filepath.Join(wd, "devrune.lock"),
+			Agents:         agentSummary,
+			Packages:       len(manifest.Packages),
+			MCPs:           len(manifest.MCPs),
+			Workflows:      len(manifest.Workflows),
+			Manifest:       destPath,
+			Lockfile:       filepath.Join(wd, "devrune.lock"),
+			InstalledTools: installedTools,
 		}
 		return tui.RunCompletion(info)
 	}

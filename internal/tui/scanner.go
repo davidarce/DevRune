@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/davidarce/devrune/internal/cache"
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/resolve"
@@ -22,6 +24,7 @@ type ScannedRepo struct {
 	Rules     []string          // discovered rule names
 	MCPs      []string          // discovered MCP names (files in mcps/ dir)
 	Workflows []string          // discovered workflow names (dirs with workflow.yaml)
+	Tools     []model.ToolDef   // discovered tool definitions (files in tools/ dir)
 	Descs     map[string]string // item name → description (for skills, workflows, MCPs)
 	MCPFiles  map[string]string // MCP name → filename with extension (e.g. "engram" → "engram.yaml")
 	Error     error             // scan error (nil if ok)
@@ -89,6 +92,9 @@ func ScanRepositories(ctx context.Context, sources []string, cp string) ([]Scann
 
 		// Discover workflows: subdirectories containing workflow.yaml.
 		repo.Workflows = discoverWorkflows(dir)
+
+		// Discover tools: YAML files in tools/ directory.
+		repo.Tools = discoverTools(dir)
 
 		// Read workflow descriptions from workflow.yaml metadata.
 		for _, wf := range repo.Workflows {
@@ -217,4 +223,40 @@ func discoverWorkflows(extractedDir string) []string {
 		}
 	}
 	return names
+}
+
+// discoverTools returns the ToolDef slice from YAML files found in extractedDir/tools/.
+// Each *.yaml or *.yml file is parsed as a ToolDef. Files that cannot be parsed are skipped.
+func discoverTools(extractedDir string) []model.ToolDef {
+	toolsDir := filepath.Join(extractedDir, "tools")
+	entries, err := os.ReadDir(toolsDir)
+	if err != nil {
+		return nil
+	}
+	var tools []model.ToolDef
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		fname := e.Name()
+		if strings.HasPrefix(fname, ".") {
+			continue
+		}
+		if !strings.HasSuffix(fname, ".yaml") && !strings.HasSuffix(fname, ".yml") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(toolsDir, fname))
+		if err != nil {
+			continue
+		}
+		var td model.ToolDef
+		if err := yaml.Unmarshal(data, &td); err != nil {
+			continue
+		}
+		if td.Name == "" {
+			continue
+		}
+		tools = append(tools, td)
+	}
+	return tools
 }

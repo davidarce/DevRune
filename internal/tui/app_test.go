@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/davidarce/devrune/internal/model"
+	"github.com/davidarce/devrune/internal/tui/steps"
 )
 
 // TestLoadExistingManifest_NoFile verifies loadExistingManifest returns nil
@@ -164,5 +165,166 @@ func TestManifestRoundTrip_WithWorkflowModels(t *testing.T) {
 				t.Errorf("WorkflowModels[%s][%s]: got %q, want %q", agentName, roleName, got, modelVal)
 			}
 		}
+	}
+}
+
+// toolNames extracts tool names from a slice of ToolDef for assertion helpers.
+func toolNames(tools []model.ToolDef) []string {
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Name
+	}
+	return names
+}
+
+// containsName returns true if the name is present in the slice.
+func containsName(names []string, name string) bool {
+	for _, n := range names {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// selectionWith builds a SelectionResult with a single repo entry.
+func selectionWith(selectedTools, selectedMCPs, selectedWorkflows []string) steps.SelectionResult {
+	return steps.SelectionResult{
+		Repos: []steps.RepoSelectionResult{
+			{
+				Source:            "test/repo",
+				SelectedTools:     selectedTools,
+				SelectedMCPs:      selectedMCPs,
+				SelectedWorkflows: selectedWorkflows,
+			},
+		},
+	}
+}
+
+// TestFilterToolsBySelection covers the filtering logic with table-driven tests.
+func TestFilterToolsBySelection(t *testing.T) {
+	// Fixture tools used across test cases.
+	toolNoDeps := model.ToolDef{Name: "nodeps", Command: "brew install nodeps"}
+	toolMCPDep := model.ToolDef{
+		Name:      "mcp-tool",
+		Command:   "brew install mcp-tool",
+		DependsOn: &model.ToolDeps{MCP: "engram"},
+	}
+	toolWorkflowDep := model.ToolDef{
+		Name:      "wf-tool",
+		Command:   "brew install wf-tool",
+		DependsOn: &model.ToolDeps{Workflow: "sdd"},
+	}
+	toolBothDeps := model.ToolDef{
+		Name:      "both-tool",
+		Command:   "brew install both-tool",
+		DependsOn: &model.ToolDeps{MCP: "engram", Workflow: "sdd"},
+	}
+
+	tests := []struct {
+		name         string
+		tools        []model.ToolDef
+		selection    steps.SelectionResult
+		wantNames    []string
+		wantExcluded []string
+	}{
+		{
+			name:      "no_deps_tool_selected",
+			tools:     []model.ToolDef{toolNoDeps},
+			selection: selectionWith([]string{"nodeps"}, nil, nil),
+			wantNames: []string{"nodeps"},
+		},
+		{
+			name:  "mcp_dep_matches_selected_mcp",
+			tools: []model.ToolDef{toolMCPDep},
+			selection: selectionWith(
+				[]string{"mcp-tool"},
+				[]string{"engram"},
+				nil,
+			),
+			wantNames: []string{"mcp-tool"},
+		},
+		{
+			name:  "workflow_dep_matches_selected_workflow",
+			tools: []model.ToolDef{toolWorkflowDep},
+			selection: selectionWith(
+				[]string{"wf-tool"},
+				nil,
+				[]string{"sdd"},
+			),
+			wantNames: []string{"wf-tool"},
+		},
+		{
+			name: "both_conditions_or_logic_mcp_match",
+			// Tool has both MCP and workflow dep; only MCP is selected → still included (OR).
+			tools: []model.ToolDef{toolBothDeps},
+			selection: selectionWith(
+				[]string{"both-tool"},
+				[]string{"engram"},
+				nil,
+			),
+			wantNames: []string{"both-tool"},
+		},
+		{
+			name: "both_conditions_or_logic_workflow_match",
+			// Tool has both MCP and workflow dep; only workflow is selected → still included (OR).
+			tools: []model.ToolDef{toolBothDeps},
+			selection: selectionWith(
+				[]string{"both-tool"},
+				nil,
+				[]string{"sdd"},
+			),
+			wantNames: []string{"both-tool"},
+		},
+		{
+			name: "dep_not_met_excluded",
+			// Tool requires MCP "engram" but user selected MCP "other" → excluded.
+			tools: []model.ToolDef{toolMCPDep},
+			selection: selectionWith(
+				[]string{"mcp-tool"},
+				[]string{"other"},
+				nil,
+			),
+			wantNames:    []string{},
+			wantExcluded: []string{"mcp-tool"},
+		},
+		{
+			name: "user_deselected_tool_excluded",
+			// Tool has no deps but user did not select it in the Tools category.
+			tools:        []model.ToolDef{toolNoDeps},
+			selection:    selectionWith(nil, nil, nil),
+			wantNames:    []string{},
+			wantExcluded: []string{"nodeps"},
+		},
+		{
+			name:      "empty_tools_list",
+			tools:     nil,
+			selection: selectionWith([]string{"anything"}, nil, nil),
+			wantNames: []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := filterToolsBySelection(tc.tools, tc.selection)
+
+			for _, want := range tc.wantNames {
+				names := toolNames(got)
+				if !containsName(names, want) {
+					t.Errorf("expected %q to be included, got: %v", want, names)
+				}
+			}
+
+			for _, excluded := range tc.wantExcluded {
+				names := toolNames(got)
+				if containsName(names, excluded) {
+					t.Errorf("expected %q to be excluded, got: %v", excluded, names)
+				}
+			}
+
+			if len(tc.wantNames) == 0 && len(got) != 0 {
+				t.Errorf("expected empty result, got: %v", toolNames(got))
+			}
+		})
 	}
 }
