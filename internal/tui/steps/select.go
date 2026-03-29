@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
@@ -18,6 +19,7 @@ type ScannedRepoInput struct {
 	Rules     []string
 	MCPs      []string
 	Workflows []string
+	Tools     []model.ToolDef   // available tool definitions
 	Descs     map[string]string // item name → description
 	MCPFiles  map[string]string // MCP name → filename (e.g. "engram" → "engram.yaml")
 }
@@ -34,6 +36,7 @@ type RepoSelectionResult struct {
 	SelectedRules     []string
 	SelectedMCPs      []string
 	SelectedWorkflows []string
+	SelectedTools     []string          // selected tool names
 	MCPFiles          map[string]string // MCP name → filename (passed through for manifest building)
 }
 
@@ -63,7 +66,7 @@ func (c *CategorySelection) selectedCount() int {
 // RepoSelection holds the selection state for one repository.
 type RepoSelection struct {
 	Source     string
-	Categories [4]CategorySelection // Skills, Rules, MCPs, Workflows
+	Categories [5]CategorySelection // Skills, Rules, MCPs, Workflows, Tools
 	MCPFiles   map[string]string    // MCP name → filename
 }
 
@@ -79,7 +82,7 @@ type ExpandedView struct {
 // SelectModel is the Bubbletea model for the category selection step.
 type SelectModel struct {
 	repos    []RepoSelection
-	cursor   int // flat index: repoIdx*4 + catIdx
+	cursor   int // flat index: repoIdx*5 + catIdx
 	expanded *ExpandedView
 	done     bool
 	aborted  bool
@@ -88,17 +91,17 @@ type SelectModel struct {
 
 // flatLen returns the total number of navigable rows (categories + confirm button).
 func (m *SelectModel) flatLen() int {
-	return len(m.repos)*4 + 1 // +1 for the confirm button
+	return len(m.repos)*5 + 1 // +1 for the confirm button
 }
 
 // isConfirmRow reports whether the given flat cursor index is the confirm button.
 func (m *SelectModel) isConfirmRow(cursor int) bool {
-	return cursor == len(m.repos)*4
+	return cursor == len(m.repos)*5
 }
 
 // repoAndCat converts a flat cursor index to (repoIdx, catIdx).
 func repoAndCat(cursor int) (int, int) {
-	return cursor / 4, cursor % 4
+	return cursor / 5, cursor % 5
 }
 
 // NewSelectModel creates a SelectModel from scanned repositories.
@@ -110,11 +113,20 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 		if descs == nil {
 			descs = map[string]string{}
 		}
-		categories := [4]CategorySelection{
+		// Build tool name list and descs from ToolDef slice.
+		toolNames := make([]string, 0, len(r.Tools))
+		for _, td := range r.Tools {
+			toolNames = append(toolNames, td.Name)
+			if descs[td.Name] == "" && td.Description != "" {
+				descs[td.Name] = td.Description
+			}
+		}
+		categories := [5]CategorySelection{
 			buildCategoryWithDescs("Skills", r.Skills, descs),
 			buildCategoryWithDescs("Rules", r.Rules, descs),
 			buildCategoryWithDescs("MCPs", r.MCPs, descs),
 			buildCategoryWithDescs("Workflows", r.Workflows, descs),
+			buildCategoryWithDescs("Tools", toolNames, descs),
 		}
 		selections[i] = RepoSelection{
 			Source:     r.Source,
@@ -195,6 +207,15 @@ func (m *SelectModel) Result() SelectionResult {
 			}
 		}
 
+		tools := repo.Categories[4]
+		if tools.IsOn {
+			for _, item := range tools.Items {
+				if tools.Selected[item] {
+					rr.SelectedTools = append(rr.SelectedTools, item)
+				}
+			}
+		}
+
 		result.Repos[i] = rr
 	}
 	return result
@@ -212,7 +233,10 @@ func (m SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		return m, nil
 
-	case tea.KeyMsg:
+	// Only react to key presses, not releases. In Bubbletea v2, tea.KeyMsg
+	// matches both KeyPressMsg and KeyReleaseMsg — handling both causes
+	// toggles to fire twice per keystroke, cancelling themselves out.
+	case tea.KeyPressMsg:
 		if m.expanded != nil {
 			return m.updateExpanded(msg)
 		}
@@ -222,7 +246,7 @@ func (m SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateCollapsed handles key events in collapsed (category list) mode.
-func (m SelectModel) updateCollapsed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m SelectModel) updateCollapsed(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		m.aborted = true
@@ -239,7 +263,7 @@ func (m SelectModel) updateCollapsed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 
-	case " ":
+	case " ", "space":
 		// Toggle category on/off (not on confirm row).
 		if !m.isConfirmRow(m.cursor) {
 			ri, ci := repoAndCat(m.cursor)
@@ -272,7 +296,7 @@ func (m SelectModel) updateCollapsed(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateExpanded handles key events in expanded (item list) mode.
-func (m SelectModel) updateExpanded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m SelectModel) updateExpanded(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	exp := m.expanded
 	ri, ci := exp.repoIdx, exp.catIdx
 	cat := &m.repos[ri].Categories[ci]
@@ -290,6 +314,9 @@ func (m SelectModel) updateExpanded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(exp.filter) > 0 {
 				exp.filter = exp.filter[:len(exp.filter)-1]
 			}
+		case "space":
+			exp.filter += " "
+			exp.cursor = 0
 		default:
 			if len(msg.String()) == 1 {
 				exp.filter += msg.String()
@@ -328,7 +355,7 @@ func (m SelectModel) updateExpanded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			exp.cursor++
 		}
 
-	case " ":
+	case " ", "space":
 		if exp.cursor == 0 {
 			// Toggle "select all".
 			allOn := true
@@ -386,7 +413,7 @@ func (m *SelectModel) renderCollapsed() string {
 	sb.WriteString(responsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
-	sb.WriteString(tuistyles.StyleStepIndicator.Render("Step 3/4: Select content"))
+	sb.WriteString(tuistyles.StyleStepIndicator.Render(fmt.Sprintf("Step 3/%d: Select content", TotalSteps)))
 	sb.WriteString("\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleInfo.Render("↑/↓ navigate  Space toggle  Enter expand/confirm"))
@@ -397,7 +424,7 @@ func (m *SelectModel) renderCollapsed() string {
 		sb.WriteString("\n")
 
 		for ci, cat := range repo.Categories {
-			flatIdx := ri*4 + ci
+			flatIdx := ri*5 + ci
 			isFocused := m.cursor == flatIdx
 
 			cursor := "  "
@@ -435,7 +462,7 @@ func (m *SelectModel) renderCollapsed() string {
 	}
 
 	// Confirm button.
-	confirmIdx := len(m.repos) * 4
+	confirmIdx := len(m.repos) * 5
 	isFocused := m.cursor == confirmIdx
 	if isFocused {
 		sb.WriteString(tuistyles.StyleSuccess.Render("  ► ✓ Confirm selection"))

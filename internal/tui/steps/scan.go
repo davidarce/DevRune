@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
@@ -26,6 +27,7 @@ type ScanResult struct {
 	Rules     []string
 	MCPs      []string
 	Workflows []string
+	Tools     []model.ToolDef
 	Descs     map[string]string
 	MCPFiles  map[string]string
 	Error     error
@@ -79,7 +81,7 @@ func (m scanModel) doScan() tea.Cmd {
 
 func (m scanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			m.done = true
 			m.err = fmt.Errorf("user aborted")
@@ -120,7 +122,7 @@ func (m scanModel) View() tea.View {
 	sb.WriteString(responsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
-	sb.WriteString(tuistyles.StyleStepIndicator.Render("Step 3/4: Select content"))
+	sb.WriteString(tuistyles.StyleStepIndicator.Render(fmt.Sprintf("Step 3/%d: Select content", TotalSteps)))
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(m.spinner.View())

@@ -14,14 +14,15 @@ import (
 
 // CompletionInfo holds the data to display on the completion screen.
 type CompletionInfo struct {
-	Agents    []string
-	Packages  int
-	MCPs      int
-	Workflows int
-	Skills    int
-	Rules     int
-	Manifest  string
-	Lockfile  string
+	Agents         []string
+	Packages       int
+	MCPs           int
+	Workflows      int
+	Skills         int
+	Rules          int
+	Manifest       string
+	Lockfile       string
+	InstalledTools []string
 }
 
 // completionModel is a Bubbletea model that renders the completion screen
@@ -36,7 +37,7 @@ func (m completionModel) Init() tea.Cmd {
 
 func (m completionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "Q", "ctrl+c", "esc":
 			return m, tea.Quit
@@ -84,6 +85,9 @@ func (m completionModel) View() tea.View {
 	}
 	if m.info.Rules > 0 {
 		lines = append(lines, fmtLine("Rules", fmt.Sprintf("%d", m.info.Rules)))
+	}
+	if len(m.info.InstalledTools) > 0 {
+		lines = append(lines, fmtLine("Tools", strings.Join(m.info.InstalledTools, ", ")))
 	}
 	lines = append(lines, "")
 	lines = append(lines, fmtLine("Manifest", m.info.Manifest))
