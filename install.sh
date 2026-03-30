@@ -13,11 +13,11 @@
 # Environment variables:
 #   VERSION       — release tag to install (default: latest)
 #   INSTALL_DIR   — where to place the binary (default: ~/.local/bin)
-#   GITHUB_TOKEN  — personal access token for private repo access (optional if gh is authenticated)
+#   GITHUB_TOKEN  — personal access token for private repo/fork access (optional)
 #
 # Requirements:
 #   - curl
-#   - gh CLI (recommended for private repos) OR GITHUB_TOKEN env var
+#   - tar
 
 set -euo pipefail
 
@@ -72,31 +72,29 @@ resolve_version() {
     if [[ "$VERSION" == "latest" ]]; then
         info "Resolving latest release..."
 
-        # Strategy 1: gh CLI (handles auth automatically for private repos)
-        if command -v gh &>/dev/null && gh auth status &>/dev/null; then
-            VERSION=$(gh release list --repo "$REPO" --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName' 2>/dev/null || true)
-        fi
+        # Strategy 1: curl without auth (public repo — preferred)
+        VERSION=$(curl -sSf \
+            "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+            | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)
 
-        # Strategy 2: curl with GITHUB_TOKEN
-        if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
-            if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-                VERSION=$(curl -sSf \
-                    -H "Authorization: token ${GITHUB_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
-                    "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-                    | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)
-            fi
-        fi
-
-        # Strategy 3: curl without auth (works for public repos)
-        if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
+        # Strategy 2: curl with GITHUB_TOKEN (if rate-limited or private fork)
+        if [[ -z "$VERSION" || "$VERSION" == "null" ]] && [[ -n "${GITHUB_TOKEN:-}" ]]; then
             VERSION=$(curl -sSf \
+                -H "Authorization: token ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
                 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
                 | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)
         fi
 
+        # Strategy 3: gh CLI (only if authenticated — never prompts user)
         if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
-            error "Could not resolve latest version. For private repos, authenticate with 'gh auth login' or set GITHUB_TOKEN."
+            if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+                VERSION=$(gh release list --repo "$REPO" --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+            fi
+        fi
+
+        if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
+            error "Could not resolve latest version. GitHub API may be rate-limited — try setting GITHUB_TOKEN or wait a few minutes."
         fi
     fi
     ok "Version: ${VERSION}"
@@ -113,21 +111,15 @@ download_binary() {
 
     info "Downloading ${asset_name}..."
 
-    # Strategy 1: gh CLI (handles auth automatically for private repos)
-    if command -v gh &>/dev/null && gh auth status &>/dev/null; then
-        if gh release download "$VERSION" \
-            --repo "$REPO" \
-            --pattern "$asset_name" \
-            --dir "$TMP_DIR" \
-            --clobber 2>/dev/null; then
-            info "Extracting..."
-            tar -xzf "${TMP_DIR}/${asset_name}" -C "$TMP_DIR"
-            _find_binary
-            return 0
-        fi
+    # Strategy 1: direct curl (public repo — preferred, no auth needed)
+    if curl -fsSL --progress-bar --retry 3 --retry-delay 2 "$download_url" -o "${TMP_DIR}/${asset_name}" 2>/dev/null; then
+        info "Extracting..."
+        tar -xzf "${TMP_DIR}/${asset_name}" -C "$TMP_DIR"
+        _find_binary
+        return 0
     fi
 
-    # Strategy 2: curl with GITHUB_TOKEN (for private repos)
+    # Strategy 2: curl with GITHUB_TOKEN (if rate-limited or private fork)
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         local asset_url
         asset_url=$(curl -sSf \
@@ -151,15 +143,21 @@ download_binary() {
         fi
     fi
 
-    # Strategy 3: direct curl (works for public repos)
-    if curl -fsSL --progress-bar --retry 3 --retry-delay 2 "$download_url" -o "${TMP_DIR}/${asset_name}" 2>/dev/null; then
-        info "Extracting..."
-        tar -xzf "${TMP_DIR}/${asset_name}" -C "$TMP_DIR"
-        _find_binary
-        return 0
+    # Strategy 3: gh CLI (only if authenticated — never prompts user)
+    if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+        if gh release download "$VERSION" \
+            --repo "$REPO" \
+            --pattern "$asset_name" \
+            --dir "$TMP_DIR" \
+            --clobber 2>/dev/null; then
+            info "Extracting..."
+            tar -xzf "${TMP_DIR}/${asset_name}" -C "$TMP_DIR"
+            _find_binary
+            return 0
+        fi
     fi
 
-    error "Download failed. For private repos, authenticate with 'gh auth login' or set GITHUB_TOKEN."
+    error "Download failed. Check your internet connection or try again (GitHub may be rate-limiting unauthenticated requests)."
 }
 
 # --- Locate binary inside extracted archive ---
