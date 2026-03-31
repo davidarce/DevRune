@@ -12,7 +12,7 @@ import (
 )
 
 // knownAgents lists the agents that DevRune can configure.
-var knownAgents = []string{"claude", "opencode", "copilot", "factory"}
+var knownAgents = []string{"claude", "codex", "opencode", "copilot", "factory"}
 
 // SelectAgents presents a multi-select form for agent selection and returns
 // the chosen agent names. At least one agent must be selected.

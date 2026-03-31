@@ -17,12 +17,13 @@ import (
 // factoryAgentDef returns a default Factory agent definition for tests.
 // Includes the MCP config matching agents/factory.yaml so tests reflect
 // the config-driven renderer behavior (mcp.json at workspaceRoot, mcpServers root key).
+// SkillDir matches the real factory.yaml: "../.agents/skills" (shared with OpenCode/Codex).
 func factoryAgentDef() model.AgentDefinition {
 	return model.AgentDefinition{
 		Name:        "factory",
 		Type:        "factory",
 		Workspace:   ".factory",
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
@@ -324,15 +325,20 @@ func sddWorkflowManifest() model.WorkflowManifest {
 }
 
 // TestFactoryRenderer_InstallWorkflow_SkillsInCorrectLocation verifies that workflow
-// skills are placed at .factory/skills/<skill-name>/SKILL.md (flat, not nested under
-// the workflow name), and the orchestrator is at .factory/skills/sdd-orchestrator/ORCHESTRATOR.md.
+// skills are placed at .agents/skills/<skill-name>/SKILL.md (flat, not nested under
+// the workflow name), and the orchestrator is at .agents/skills/sdd-orchestrator/ORCHESTRATOR.md.
 func TestFactoryRenderer_InstallWorkflow_SkillsInCorrectLocation(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".factory")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	agentsSkillsDir := filepath.Join(projectRoot, ".agents", "skills")
 	def := model.AgentDefinition{
 		Name:        "factory",
 		Type:        "factory",
-		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
@@ -347,27 +353,27 @@ func TestFactoryRenderer_InstallWorkflow_SkillsInCorrectLocation(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
 	// Positive: skill installed at flat location (not under workflow name dir).
-	sddPlanSkill := filepath.Join(workspaceRoot, "skills", "sdd-plan", "SKILL.md")
+	sddPlanSkill := filepath.Join(agentsSkillsDir, "sdd-plan", "SKILL.md")
 	if _, err := os.Stat(sddPlanSkill); err != nil {
 		t.Errorf("expected sdd-plan/SKILL.md at flat location but got: %v", err)
 	}
 
 	// Positive: orchestrator installed with <wf-name>-orchestrator naming convention.
-	orchestratorFile := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "ORCHESTRATOR.md")
+	orchestratorFile := filepath.Join(agentsSkillsDir, "sdd-orchestrator", "ORCHESTRATOR.md")
 	if _, err := os.Stat(orchestratorFile); err != nil {
 		t.Errorf("expected sdd-orchestrator/ORCHESTRATOR.md but got: %v", err)
 	}
 
 	// Positive: _shared directory copied under skillsBase.
-	sharedDir := filepath.Join(workspaceRoot, "skills", "_shared")
+	sharedDir := filepath.Join(agentsSkillsDir, "_shared")
 	if _, err := os.Stat(sharedDir); err != nil {
-		t.Errorf("expected _shared/ directory under skills but got: %v", err)
+		t.Errorf("expected _shared/ directory under .agents/skills but got: %v", err)
 	}
 
 	// Positive: ManagedPaths is non-empty.
@@ -376,27 +382,31 @@ func TestFactoryRenderer_InstallWorkflow_SkillsInCorrectLocation(t *testing.T) {
 	}
 
 	// Negative: old buggy path — droids directory must NOT exist.
-	droidsOrchestratorFile := filepath.Join(workspaceRoot, "droids", "sdd-orchestrator.md")
+	droidsOrchestratorFile := filepath.Join(workspaceDir, "droids", "sdd-orchestrator.md")
 	if _, err := os.Stat(droidsOrchestratorFile); !os.IsNotExist(err) {
 		t.Errorf("droids/sdd-orchestrator.md must NOT exist (old buggy path), but found it")
 	}
 
 	// Negative: REGISTRY.md must NOT be copied as a loose file.
-	registryLoose := filepath.Join(workspaceRoot, "skills", "REGISTRY.md")
+	registryLoose := filepath.Join(agentsSkillsDir, "REGISTRY.md")
 	if _, err := os.Stat(registryLoose); !os.IsNotExist(err) {
-		t.Errorf("skills/REGISTRY.md must NOT exist as a loose file, but found it")
+		t.Errorf(".agents/skills/REGISTRY.md must NOT exist as a loose file, but found it")
 	}
 }
 
 // TestFactoryRenderer_InstallWorkflow_ManagedPathsNonEmpty verifies that
 // InstallWorkflow returns a non-empty ManagedPaths slice.
 func TestFactoryRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".factory")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	def := model.AgentDefinition{
 		Name:        "factory",
 		Type:        "factory",
-		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
@@ -411,7 +421,7 @@ func TestFactoryRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -424,12 +434,16 @@ func TestFactoryRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
 // TestFactoryRenderer_InstallWorkflow_NoDroidsDir verifies that InstallWorkflow does
 // NOT create a droids/ directory (old layout that must not exist).
 func TestFactoryRenderer_InstallWorkflow_NoDroidsDir(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".factory")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	def := model.AgentDefinition{
 		Name:        "factory",
 		Type:        "factory",
-		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
@@ -444,11 +458,11 @@ func TestFactoryRenderer_InstallWorkflow_NoDroidsDir(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	droidsDir := filepath.Join(workspaceRoot, "droids")
+	droidsDir := filepath.Join(workspaceDir, "droids")
 	if _, err := os.Stat(droidsDir); !os.IsNotExist(err) {
 		t.Errorf("droids/ directory must NOT exist after InstallWorkflow, but found it")
 	}
@@ -458,12 +472,17 @@ func TestFactoryRenderer_InstallWorkflow_NoDroidsDir(t *testing.T) {
 // REGISTRY.md content is captured and injected into the catalog by RenderCatalog,
 // and that no loose REGISTRY.md file exists in the workspace.
 func TestFactoryRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".factory")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	agentsSkillsDir := filepath.Join(projectRoot, ".agents", "skills")
 	def := model.AgentDefinition{
 		Name:        "factory",
 		Type:        "factory",
-		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
@@ -478,7 +497,7 @@ func TestFactoryRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -503,23 +522,28 @@ func TestFactoryRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 		t.Errorf("registry content missing table row; content:\n%s", registryContent)
 	}
 
-	// REGISTRY.md must NOT exist as a loose file anywhere under skills/.
-	registryLoose := filepath.Join(workspaceRoot, "skills", "REGISTRY.md")
+	// REGISTRY.md must NOT exist as a loose file anywhere under .agents/skills/.
+	registryLoose := filepath.Join(agentsSkillsDir, "REGISTRY.md")
 	if _, err := os.Stat(registryLoose); !os.IsNotExist(err) {
-		t.Errorf("REGISTRY.md must NOT exist as a loose file under skills/, but found it")
+		t.Errorf(".agents/skills/REGISTRY.md must NOT exist as a loose file, but found it")
 	}
 }
 
 // TestFactoryRenderer_InstallWorkflow_SkillsAreFlat verifies that workflow skills
-// are installed under skills/<skillname>/SKILL.md (flat layout) and NOT under
-// skills/sdd/<skillname>/SKILL.md (that would be the Claude nested layout).
+// are installed under .agents/skills/<skillname>/SKILL.md (flat layout) and NOT under
+// .agents/skills/sdd/<skillname>/SKILL.md (that would be the Claude nested layout).
 func TestFactoryRenderer_InstallWorkflow_SkillsAreFlat(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".factory")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	agentsSkillsDir := filepath.Join(projectRoot, ".agents", "skills")
 	def := model.AgentDefinition{
 		Name:        "factory",
 		Type:        "factory",
-		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
@@ -534,20 +558,20 @@ func TestFactoryRenderer_InstallWorkflow_SkillsAreFlat(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
 	// Flat location must exist.
-	flatSkillPath := filepath.Join(workspaceRoot, "skills", "sdd-plan", "SKILL.md")
+	flatSkillPath := filepath.Join(agentsSkillsDir, "sdd-plan", "SKILL.md")
 	if _, err := os.Stat(flatSkillPath); err != nil {
-		t.Errorf("skills/sdd-plan/SKILL.md should exist (flat layout) but got: %v", err)
+		t.Errorf(".agents/skills/sdd-plan/SKILL.md should exist (flat layout) but got: %v", err)
 	}
 
 	// Nested location (Claude-style) must NOT exist.
-	nestedSkillDir := filepath.Join(workspaceRoot, "skills", "sdd")
+	nestedSkillDir := filepath.Join(agentsSkillsDir, "sdd")
 	if _, err := os.Stat(nestedSkillDir); !os.IsNotExist(err) {
-		t.Errorf("skills/sdd/ directory must NOT exist (that would be the Claude nested layout), but found it")
+		t.Errorf(".agents/skills/sdd/ directory must NOT exist (that would be the Claude nested layout), but found it")
 	}
 }
 

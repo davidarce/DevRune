@@ -8,7 +8,7 @@ import (
 	"github.com/davidarce/devrune/internal/materialize"
 )
 
-// TestLoadBuiltinAgents_AllAgentsLoad verifies that all four built-in agent YAML
+// TestLoadBuiltinAgents_AllAgentsLoad verifies that all five built-in agent YAML
 // files can be loaded, parsed, and pass validation without error.
 func TestLoadBuiltinAgents_AllAgentsLoad(t *testing.T) {
 	agents, err := materialize.LoadBuiltinAgents()
@@ -20,9 +20,9 @@ func TestLoadBuiltinAgents_AllAgentsLoad(t *testing.T) {
 		t.Fatal("LoadBuiltinAgents() returned no agents")
 	}
 
-	// We expect exactly 4 built-in agents.
-	if len(agents) != 4 {
-		t.Errorf("LoadBuiltinAgents() returned %d agents, want 4", len(agents))
+	// We expect exactly 5 built-in agents (claude, factory, opencode, copilot, codex).
+	if len(agents) != 5 {
+		t.Errorf("LoadBuiltinAgents() returned %d agents, want 5", len(agents))
 	}
 }
 
@@ -38,7 +38,7 @@ func TestLoadBuiltinAgents_AgentsByName(t *testing.T) {
 		byName[a.Name] = true
 	}
 
-	for _, want := range []string{"claude", "factory", "opencode", "copilot"} {
+	for _, want := range []string{"claude", "factory", "opencode", "copilot", "codex"} {
 		if !byName[want] {
 			t.Errorf("built-in agent %q not found after load", want)
 		}
@@ -208,7 +208,7 @@ func TestLoadBuiltinAgents_ValidationPasses(t *testing.T) {
 	}
 }
 
-// TestLoadDefaultRegistry_AllAgentsRegistered verifies that all four built-in
+// TestLoadDefaultRegistry_AllAgentsRegistered verifies that all five built-in
 // agent renderers are registered and accessible via the default registry.
 func TestLoadDefaultRegistry_AllAgentsRegistered(t *testing.T) {
 	registry, err := materialize.LoadDefaultRegistry()
@@ -216,7 +216,7 @@ func TestLoadDefaultRegistry_AllAgentsRegistered(t *testing.T) {
 		t.Fatalf("LoadDefaultRegistry() failed: %v", err)
 	}
 
-	for _, name := range []string{"claude", "factory", "opencode", "copilot"} {
+	for _, name := range []string{"claude", "factory", "opencode", "copilot", "codex"} {
 		if _, ok := registry[name]; !ok {
 			t.Errorf("registry missing agent %q", name)
 		}

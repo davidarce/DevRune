@@ -15,13 +15,13 @@ import (
 )
 
 // openCodeAgentDef returns a default OpenCode agent definition for tests.
-// Matches the real agents/opencode.yaml configuration (skillDir: "skills", no commandDir, no agentDir).
+// Matches the real agents/opencode.yaml configuration (skillDir: "../.agents/skills", shared with Factory/Codex).
 func openCodeAgentDef() model.AgentDefinition {
 	return model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   ".opencode",
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
 	}
@@ -423,15 +423,20 @@ func sddParityManifest() model.WorkflowManifest {
 }
 
 // TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir verifies that workflow
-// skills are installed under {workspaceRoot}/skills/, _shared/ is also copied there,
+// skills are installed under .agents/skills/, _shared/ is also copied there,
 // and the old buggy agents/ path is never created.
 func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	agentsSkillsDir := filepath.Join(projectRoot, ".agents", "skills")
 	def := model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
-		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
 		CommandDir:  "commands",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
@@ -441,19 +446,19 @@ func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 	wfCacheDir := buildSddWorkflowCache(t, "# SDD Orchestrator\n\nCoordinates SDD.\n")
 	wf := sddParityManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// POSITIVE: skill file installed under skills/
-	skillMD := filepath.Join(workspaceRoot, "skills", "sdd-plan", "SKILL.md")
+	// POSITIVE: skill file installed under .agents/skills/
+	skillMD := filepath.Join(agentsSkillsDir, "sdd-plan", "SKILL.md")
 	if _, err := os.Stat(skillMD); err != nil {
 		t.Errorf("expected %s to exist: %v", skillMD, err)
 	}
 
-	// POSITIVE: _shared/ directory installed under skills/
-	sharedDir := filepath.Join(workspaceRoot, "skills", "_shared")
+	// POSITIVE: _shared/ directory installed under .agents/skills/
+	sharedDir := filepath.Join(agentsSkillsDir, "_shared")
 	info, err := os.Stat(sharedDir)
 	if err != nil {
 		t.Errorf("expected %s to exist: %v", sharedDir, err)
@@ -462,7 +467,7 @@ func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 	}
 
 	// POSITIVE: opencode.json synthesized (from roles)
-	opencodeJSON := filepath.Join(workspaceRoot, "opencode.json")
+	opencodeJSON := filepath.Join(workspaceDir, "opencode.json")
 	if _, err := os.Stat(opencodeJSON); err != nil {
 		t.Errorf("expected opencode.json to exist: %v", err)
 	}
@@ -472,16 +477,16 @@ func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		t.Error("ManagedPaths should be non-empty after install")
 	}
 
-	// NEGATIVE: agents/ directory must NOT exist
-	agentsDir := filepath.Join(workspaceRoot, "agents")
+	// NEGATIVE: agents/ directory must NOT exist directly under workspace
+	agentsDir := filepath.Join(workspaceDir, "agents")
 	if _, err := os.Stat(agentsDir); err == nil {
 		t.Errorf("agents/ directory should NOT exist, but it does: %s", agentsDir)
 	}
 
-	// NEGATIVE: REGISTRY.md must NOT be copied loose under skills/
-	registryFile := filepath.Join(workspaceRoot, "skills", "REGISTRY.md")
+	// NEGATIVE: REGISTRY.md must NOT be copied loose under .agents/skills/
+	registryFile := filepath.Join(agentsSkillsDir, "REGISTRY.md")
 	if _, err := os.Stat(registryFile); err == nil {
-		t.Errorf("REGISTRY.md should NOT be copied loose to skills/, but it exists: %s", registryFile)
+		t.Errorf("REGISTRY.md should NOT be copied loose to .agents/skills/, but it exists: %s", registryFile)
 	}
 }
 
@@ -489,12 +494,16 @@ func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 // opencode.json contains an "agent" section with entries for every declared role,
 // with correct mode values.
 func TestOpenCodeRenderer_InstallWorkflow_AgentEntriesInOpencodeJSON(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	def := model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CommandDir:  "commands",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
@@ -558,12 +567,16 @@ func TestOpenCodeRenderer_InstallWorkflow_AgentEntriesInOpencodeJSON(t *testing.
 // TestOpenCodeRenderer_InstallWorkflow_ModelResolvedInAgentEntry verifies that
 // a role with Model: "sonnet" resolves to the full anthropic model ID in opencode.json.
 func TestOpenCodeRenderer_InstallWorkflow_ModelResolvedInAgentEntry(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	def := model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CommandDir:  "commands",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
@@ -599,12 +612,16 @@ func TestOpenCodeRenderer_InstallWorkflow_ModelResolvedInAgentEntry(t *testing.T
 // TestOpenCodeRenderer_InstallWorkflow_NoAgentsDirCreated verifies that the old
 // buggy agents/ path is never created during workflow installation.
 func TestOpenCodeRenderer_InstallWorkflow_NoAgentsDirCreated(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	def := model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CommandDir:  "commands",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
@@ -629,12 +646,17 @@ func TestOpenCodeRenderer_InstallWorkflow_NoAgentsDirCreated(t *testing.T) {
 // content is also NOT injected verbatim into the catalog — a minimal orchestrator
 // pointer is emitted instead.
 func TestOpenCodeRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	agentsSkillsDir := filepath.Join(projectRoot, ".agents", "skills")
 	def := model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CommandDir:  "commands",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
@@ -697,22 +719,26 @@ components:
 		}())
 	}
 
-	// NEGATIVE: REGISTRY.md must NOT exist in the workspace.
-	registryInWorkspace := filepath.Join(workspaceRoot, "skills", "REGISTRY.md")
+	// NEGATIVE: REGISTRY.md must NOT exist in .agents/skills/.
+	registryInWorkspace := filepath.Join(agentsSkillsDir, "REGISTRY.md")
 	if _, err := os.Stat(registryInWorkspace); err == nil {
-		t.Errorf("REGISTRY.md should NOT be copied to workspace, but it exists: %s", registryInWorkspace)
+		t.Errorf("REGISTRY.md should NOT be copied to .agents/skills/, but it exists: %s", registryInWorkspace)
 	}
 }
 
 // TestOpenCodeRenderer_InstallWorkflow_ManagedPathsNonEmpty verifies that
 // WorkflowInstallResult.ManagedPaths is non-empty after a successful install.
 func TestOpenCodeRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	def := model.AgentDefinition{
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CommandDir:  "commands",
 		RulesDir:    "rules",
 		CatalogFile: "AGENTS.md",
@@ -740,7 +766,7 @@ func TestOpenCodeRenderer_RenderMCPs_EnvVarFormat(t *testing.T) {
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
 			FilePath:    "opencode.json",
@@ -823,7 +849,7 @@ func TestOpenCodeRenderer_ManagedConfigPaths(t *testing.T) {
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
 			FilePath:    "opencode.json",
@@ -866,7 +892,7 @@ func newOpenCodeRendererForMCPTest(workspaceRoot string) *renderers.OpenCodeRend
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CatalogFile: "AGENTS.md",
 		MCP: &model.MCPConfig{
 			FilePath:    "opencode.json",
@@ -1039,7 +1065,7 @@ func openCodeDefWithSettings(workspaceRoot string) model.AgentDefinition {
 		Name:        "opencode",
 		Type:        "opencode",
 		Workspace:   workspaceRoot,
-		SkillDir:    "skills",
+		SkillDir:    "../.agents/skills",
 		CatalogFile: "AGENTS.md",
 		Settings:    &model.SettingsConfig{Permissions: []string{}},
 		MCP: &model.MCPConfig{

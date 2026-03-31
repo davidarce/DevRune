@@ -1,7 +1,7 @@
 name: opencode
 type: opencode
 workspace: ".opencode"
-skillDir: "skills"
+skillDir: "../.agents/skills"
 rulesDir: "rules"
 catalogFile: "AGENTS.md"
 defaultRulesMode: "individual"

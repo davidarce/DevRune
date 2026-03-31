@@ -1,13 +1,13 @@
-name: factory
-type: factory
-workspace: ".factory"
+name: codex
+type: codex
+workspace: ".codex"
 skillDir: "../.agents/skills"
 rulesDir: "rules"
 catalogFile: "AGENTS.md"
 defaultRulesMode: "individual"
 mcp:
-  filePath: "mcp.json"
-  rootKey: "mcpServers"
+  filePath: "config.toml"
+  rootKey: "mcp_servers"
   envKey: "env"
   envVarStyle: "${VAR}"
 settings:

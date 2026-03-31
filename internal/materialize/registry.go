@@ -57,7 +57,7 @@ func LoadBuiltinAgents() ([]model.AgentDefinition, error) {
 // NewRendererRegistry constructs a map[agentName]AgentRenderer from a slice of
 // AgentDefinition values. The renderer type is selected by AgentDefinition.Type.
 //
-// Supported types: "claude", "opencode", "copilot", "factory".
+// Supported types: "claude", "opencode", "copilot", "factory", "codex".
 // Returns an error if an unknown type is encountered.
 func NewRendererRegistry(agents []model.AgentDefinition) (map[string]AgentRenderer, error) {
 	registry := make(map[string]AgentRenderer, len(agents))
@@ -82,6 +82,8 @@ func newRenderer(def model.AgentDefinition) (AgentRenderer, error) {
 		return renderers.NewCopilotRenderer(def), nil
 	case "factory":
 		return renderers.NewFactoryRenderer(def), nil
+	case "codex":
+		return renderers.NewCodexRenderer(def), nil
 	default:
 		return nil, fmt.Errorf("unknown agent type %q for agent %q", def.Type, def.Name)
 	}

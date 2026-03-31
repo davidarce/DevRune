@@ -33,3 +33,7 @@ var ResolveModel = resolveModel
 
 // ResolveOpenCodeModel re-exports resolveOpenCodeModel for use by external test packages.
 var ResolveOpenCodeModel = resolveOpenCodeModel
+
+// CodexTransformFrontmatter re-exports the CodexRenderer.transformFrontmatter method
+// for use by external test packages (package renderers_test).
+var CodexTransformFrontmatter = (*CodexRenderer).transformFrontmatter
