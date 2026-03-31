@@ -35,11 +35,14 @@ Think of it as **npm for AI agent instructions** — you declare what you need, 
 | Agent | Workspace | Format |
 |-------|-----------|--------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `.claude/` | Skills as markdown, `CLAUDE.md` catalog, `settings.json`, `.mcp.json` |
-| [OpenCode](https://opencode.ai) | `.opencode/` | Skills with YAML frontmatter, `AGENTS.md` catalog, `config.toml` MCP |
+| [Codex (OpenAI)](https://developers.openai.com/codex) | `.agents/` + `.codex/` | Skills in `.agents/skills/`, `AGENTS.md` catalog, `config.toml` (TOML) MCP |
+| [OpenCode](https://opencode.ai) | `.agents/` + `.opencode/` | Skills in `.agents/skills/`, `AGENTS.md` catalog, `opencode.json` MCP |
 | [GitHub Copilot](https://github.com/features/copilot) | `.github/` | Skills + native agents (`.agent.md`), `copilot-instructions.md`, `.mcp.json` |
-| [Factory Droid](https://docs.factory.ai) | `.factory/` | Skills with camelCase frontmatter, `AGENTS.md` catalog, `mcp.json` |
+| [Factory Droid](https://docs.factory.ai) | `.agents/` + `.factory/` | Skills in `.agents/skills/`, `AGENTS.md` catalog, `mcp.json` |
 
 Each renderer transforms the canonical format (Claude-style markdown with YAML frontmatter) into the agent's native format — handling model name mapping, tool aliases, frontmatter conversion, and MCP config generation automatically.
+
+> **Shared `.agents/` directory**: Codex, OpenCode, and Factory all read skills from `.agents/skills/`. DevRune generates skills there once and deduplicates automatically when multiple agents share the same directory.
 
 ## Install
 
@@ -106,6 +109,7 @@ mcps:
 
 agents:
   - name: claude
+  - name: codex
   - name: opencode
   - name: copilot
 
@@ -119,7 +123,7 @@ workflows:
 devrune sync   # Fetch packages, update lockfile, materialize workspace
 ```
 
-That's it. Your workspace now has correctly formatted skills, rules, MCP configs, and workflows for Claude, OpenCode, and Copilot. If the catalog includes developer tools (e.g. Crit, Engram), `devrune init` will also offer to install them via Homebrew.
+That's it. Your workspace now has correctly formatted skills, rules, MCP configs, and workflows for Claude, Codex, OpenCode, and Copilot. If the catalog includes developer tools (e.g. Crit, Engram), `devrune init` will also offer to install them via Homebrew.
 
 > You can also run `devrune resolve` and `devrune install` separately for advanced workflows (CI/CD, offline installs).
 
@@ -129,7 +133,7 @@ DevRune follows a **three-stage pipeline**:
 
 ```
 devrune.yaml  →  resolve  →  devrune.lock  →  install  →  workspace files
-  (manifest)      (fetch)      (lockfile)     (render)    (.claude/, .opencode/, etc.)
+  (manifest)      (fetch)      (lockfile)     (render)    (.claude/, .agents/, .codex/, etc.)
 ```
 
 1. **Resolve** — Reads `devrune.yaml`, fetches packages from their sources (GitHub, GitLab, local), computes content hashes, and writes `devrune.lock`. This is the only stage that touches the network.
@@ -180,7 +184,7 @@ devrune init --non-interactive \
 
 | Flag | Description |
 |------|-------------|
-| `--agents` | Agent names to configure (e.g. `claude,opencode,copilot,factory`) |
+| `--agents` | Agent names to configure (e.g. `claude,codex,opencode,copilot,factory`) |
 | `--source` | Package source refs (repeatable) |
 | `--mcp` | MCP server source refs (repeatable) |
 | `--workflow` | Workflow source refs (repeatable) |
@@ -254,6 +258,7 @@ agents:
   - name: claude
   - name: opencode
   - name: copilot
+  - name: codex
   - name: factory
 
 # Workflows (e.g. SDD — Spec-Driven Development)
@@ -388,7 +393,7 @@ DevRune/
 │   ├── cache/             # Package fetchers (GitHub, GitLab, local)
 │   ├── resolve/           # Dependency resolver → devrune.lock
 │   ├── materialize/       # Workspace materializer
-│   │   └── renderers/     # Agent-specific renderers (Claude, Copilot, OpenCode, Factory)
+│   │   └── renderers/     # Agent-specific renderers (Claude, Codex, Copilot, OpenCode, Factory)
 │   ├── model/             # Domain types (manifest, lockfile, source refs, agents)
 │   ├── parse/             # YAML/frontmatter parsing
 │   ├── state/             # Installation state tracking (.devrune/state.yaml)
