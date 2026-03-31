@@ -70,11 +70,8 @@ func TestLoadExistingManifest_WithWorkflowModels(t *testing.T) {
 	}
 
 	result := loadExistingManifest()
-	if result == nil {
-		t.Fatal("expected non-nil manifest when devrune.yaml exists")
-	}
-	if result.WorkflowModels == nil {
-		t.Fatal("expected WorkflowModels to be populated")
+	if result == nil || result.WorkflowModels == nil {
+		t.Fatal("expected non-nil manifest with WorkflowModels when devrune.yaml exists")
 	}
 	if got := result.WorkflowModels["claude"]["sdd-explorer"]; got != "sonnet" {
 		t.Errorf("WorkflowModels[claude][sdd-explorer]: got %q, want %q", got, "sonnet")
