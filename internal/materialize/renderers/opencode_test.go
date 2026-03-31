@@ -1029,3 +1029,182 @@ env:
 		t.Errorf("exa entry should not have 'env' key after transformation")
 	}
 }
+
+// --- T021: RenderSettings with MCP permissions ---
+
+// openCodeDefWithSettings returns an OpenCode agent definition with Settings
+// and the opencode.json MCP config path, suitable for RenderSettings tests.
+func openCodeDefWithSettings(workspaceRoot string) model.AgentDefinition {
+	return model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   workspaceRoot,
+		SkillDir:    "skills",
+		CatalogFile: "AGENTS.md",
+		Settings:    &model.SettingsConfig{Permissions: []string{}},
+		MCP: &model.MCPConfig{
+			FilePath:    "opencode.json",
+			RootKey:     "mcp",
+			EnvKey:      "environment",
+			EnvVarStyle: "{env:VAR}",
+		},
+	}
+}
+
+// TestOpenCodeRenderer_RenderSettings_MCPAllowPermission verifies that an MCP
+// with permissions.level="allow" produces "name_*": "allow" in the permission section.
+func TestOpenCodeRenderer_RenderSettings_MCPAllowPermission(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := openCodeDefWithSettings(workspaceRoot)
+	r := renderers.NewOpenCodeRenderer(def)
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-atlassian-oc")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: atlassian
+command: npx
+args: ["-y", "mcp-remote"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "atlassian.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-atlassian-oc": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "atlassian", Hash: "hash-atlassian-oc"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workspaceRoot, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
+	}
+	permSection, ok := parsed["permission"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("opencode.json missing 'permission' section; content:\n%s", string(content))
+	}
+	if got := permSection["atlassian_*"]; got != "allow" {
+		t.Errorf("permission[\"atlassian_*\"] = %v, want %q", got, "allow")
+	}
+}
+
+// TestOpenCodeRenderer_RenderSettings_MCPDenyPermission verifies that an MCP
+// with permissions.level="deny" produces "name_*": "deny" in the permission section.
+func TestOpenCodeRenderer_RenderSettings_MCPDenyPermission(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := openCodeDefWithSettings(workspaceRoot)
+	r := renderers.NewOpenCodeRenderer(def)
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-deny-oc")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: risky
+command: node
+args: ["server.js"]
+permissions:
+  level: deny
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "risky.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-deny-oc": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "risky", Hash: "hash-deny-oc"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workspaceRoot, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
+	}
+	permSection, ok := parsed["permission"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("opencode.json missing 'permission' section; content:\n%s", string(content))
+	}
+	if got := permSection["risky_*"]; got != "deny" {
+		t.Errorf("permission[\"risky_*\"] = %v, want %q", got, "deny")
+	}
+}
+
+// TestOpenCodeRenderer_RenderSettings_ExistingContentPreserved verifies that
+// existing opencode.json content is preserved and the permission section is merged.
+func TestOpenCodeRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := openCodeDefWithSettings(workspaceRoot)
+	r := renderers.NewOpenCodeRenderer(def)
+
+	// Pre-write an opencode.json with existing content.
+	existingContent := `{"model": "claude-sonnet-4-20250514", "mcp": {}}` + "\n"
+	if err := os.WriteFile(filepath.Join(workspaceRoot, "opencode.json"), []byte(existingContent), 0o644); err != nil {
+		t.Fatalf("write existing opencode.json: %v", err)
+	}
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-ctx7")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: context7
+command: npx
+args: ["-y", "context7"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "context7.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-ctx7": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "context7", Hash: "hash-ctx7"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workspaceRoot, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
+	}
+
+	// "permission" section must contain the new entry.
+	permSection, ok := parsed["permission"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("opencode.json missing 'permission' section; content:\n%s", string(content))
+	}
+	if got := permSection["context7_*"]; got != "allow" {
+		t.Errorf("permission[\"context7_*\"] = %v, want %q", got, "allow")
+	}
+}

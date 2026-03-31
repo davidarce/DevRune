@@ -10,3 +10,5 @@ mcp:
   rootKey: "mcp"
   envKey: "environment"
   envVarStyle: "{env:VAR}"
+settings:
+  permissions: []

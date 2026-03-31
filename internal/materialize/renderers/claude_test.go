@@ -303,6 +303,128 @@ func TestClaudeRenderer_RenderSettings_WorkflowPermissionsMerged(t *testing.T) {
 	}
 }
 
+// --- T020: RenderSettings with MCP permissions ---
+
+// TestClaudeRenderer_RenderSettings_MCPAllowPermission verifies that an MCP
+// with permissions.level="allow" produces "mcp__<name>__*" in permissions.allow[].
+func TestClaudeRenderer_RenderSettings_MCPAllowPermission(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{Permissions: []string{}}
+	r := renderers.NewClaudeRenderer(def)
+
+	// Seed normalizedMCPs via RenderMCPs with a fake YAML cache.
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-atlassian")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: atlassian
+command: npx
+args: ["-y", "mcp-remote"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "atlassian.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-atlassian": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "atlassian", Hash: "hash-atlassian"}}
+	workspaceDir := t.TempDir()
+	if err := r.RenderMCPs(mcps, cache, workspaceDir); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceDir, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	if !strings.Contains(content, `"mcp__atlassian__*"`) {
+		t.Errorf("settings.json missing mcp__atlassian__* permission; content:\n%s", content)
+	}
+}
+
+// TestClaudeRenderer_RenderSettings_MCPNoPermissions verifies that an MCP
+// without a permissions block does not add extra entries.
+func TestClaudeRenderer_RenderSettings_MCPNoPermissions(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{Permissions: []string{}}
+	r := renderers.NewClaudeRenderer(def)
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-noperms")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: noperms
+command: node
+args: ["server.js"]
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "noperms.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-noperms": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "noperms", Hash: "hash-noperms"}}
+	workspaceDir := t.TempDir()
+	if err := r.RenderMCPs(mcps, cache, workspaceDir); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceDir, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	if strings.Contains(content, "mcp__noperms__*") {
+		t.Errorf("settings.json must not contain mcp__noperms__* (no permissions declared); content:\n%s", content)
+	}
+}
+
+// TestClaudeRenderer_RenderSettings_MCPDeduplication verifies that MCP permissions
+// are deduplicated if the same pattern would be added twice.
+func TestClaudeRenderer_RenderSettings_MCPDeduplication(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{Permissions: []string{"mcp__atlassian__*"}}
+	r := renderers.NewClaudeRenderer(def)
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-atlassian2")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: atlassian
+command: npx
+args: ["-y", "mcp-remote"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "atlassian.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-atlassian2": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "atlassian", Hash: "hash-atlassian2"}}
+	workspaceDir := t.TempDir()
+	if err := r.RenderMCPs(mcps, cache, workspaceDir); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceDir, nil, nil); err != nil {
+		t.Fatalf("RenderSettings dedup: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	count := strings.Count(content, `"mcp__atlassian__*"`)
+	if count != 1 {
+		t.Errorf("expected exactly 1 occurrence of mcp__atlassian__*, got %d; content:\n%s", count, content)
+	}
+}
+
 // TestClaudeRenderer_RenderSettings_DeduplicatesPermissions verifies that
 // duplicate permissions are not included in settings.json.
 func TestClaudeRenderer_RenderSettings_DeduplicatesPermissions(t *testing.T) {

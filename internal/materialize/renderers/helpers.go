@@ -423,6 +423,10 @@ type normalizedMCP struct {
 	// AgentInstructions is the extracted agentInstructions value from the MCP definition.
 	// It is catalog-only and must never be written into MCP server config JSON.
 	AgentInstructions string
+	// Permissions holds the parsed permissions block from the MCP YAML definition.
+	// Keys are permission property names (e.g. "level") and values are their string values
+	// (e.g. "allow", "ask", "deny"). Empty map when no permissions block is declared.
+	Permissions map[string]string
 }
 
 // mcpAllowedKeys is the set of runtime/transport keys that may appear in a
@@ -440,18 +444,39 @@ var mcpAllowedKeys = map[string]bool{
 
 // sanitizeMCPDefinition strips renderer-external metadata fields from an MCP
 // definition map and returns the clean runtime config alongside the extracted
-// agentInstructions string.
+// agentInstructions string and permissions map.
 //
 // Fields removed:
 //   - agentInstructions (returned separately as the second return value)
+//   - permissions (returned separately as the third return value)
 //   - name (MCP logical name is always stored in the lockfile, not the config)
 //   - any other key not in mcpAllowedKeys
 //
 // The original map is NOT modified; a new map is returned.
-func sanitizeMCPDefinition(def map[string]interface{}) (serverConfig map[string]interface{}, agentInstructions string) {
+func sanitizeMCPDefinition(def map[string]interface{}) (serverConfig map[string]interface{}, agentInstructions string, permissions map[string]string) {
 	if instructions, ok := def["agentInstructions"]; ok {
 		if s, ok := instructions.(string); ok {
 			agentInstructions = s
+		}
+	}
+
+	permissions = make(map[string]string)
+	if permsRaw, ok := def["permissions"]; ok {
+		switch p := permsRaw.(type) {
+		case map[string]interface{}:
+			for k, v := range p {
+				if s, ok := v.(string); ok {
+					permissions[k] = s
+				}
+			}
+		case map[interface{}]interface{}:
+			for k, v := range p {
+				if ks, ok := k.(string); ok {
+					if vs, ok := v.(string); ok {
+						permissions[ks] = vs
+					}
+				}
+			}
 		}
 	}
 
@@ -461,7 +486,7 @@ func sanitizeMCPDefinition(def map[string]interface{}) (serverConfig map[string]
 			serverConfig[k] = v
 		}
 	}
-	return serverConfig, agentInstructions
+	return serverConfig, agentInstructions, permissions
 }
 
 // normalizeMCPDefinitions reads each locked MCP from cacheStore, strips metadata
@@ -490,11 +515,12 @@ func normalizeMCPDefinitions(mcps []model.LockedMCP, cacheStore matypes.CacheSto
 			return nil, fmt.Errorf("normalizeMCPDefinitions: read MCP definition %q: %w", mcp.Name, err)
 		}
 
-		serverConfig, agentInstructions := sanitizeMCPDefinition(rawDef)
+		serverConfig, agentInstructions, permissions := sanitizeMCPDefinition(rawDef)
 		result = append(result, normalizedMCP{
 			Name:              mcp.Name,
 			ServerConfig:      serverConfig,
 			AgentInstructions: agentInstructions,
+			Permissions:       permissions,
 		})
 	}
 	return result, nil

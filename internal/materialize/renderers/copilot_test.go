@@ -776,3 +776,186 @@ func mapCopilotKeys(m map[string]interface{}) []string {
 	}
 	return keys
 }
+
+// --- T022: RenderSettings with MCP permissions ---
+
+// copilotDefWithSettings returns a Copilot agent definition with Settings
+// configured using an absolute workspace path, suitable for RenderSettings tests.
+func copilotDefWithSettings(workspaceRoot string) model.AgentDefinition {
+	return model.AgentDefinition{
+		Name:        "copilot",
+		Type:        "copilot",
+		Workspace:   filepath.Join(workspaceRoot, ".github"),
+		SkillDir:    "agents",
+		RulesDir:    "rules",
+		CatalogFile: "copilot-instructions.md",
+		Settings:    &model.SettingsConfig{Permissions: []string{}},
+	}
+}
+
+// TestCopilotRenderer_RenderSettings_MCPAllowPermission verifies that an MCP
+// with permissions.level="allow" is added to the autoApprove array.
+func TestCopilotRenderer_RenderSettings_MCPAllowPermission(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".github")
+	def := copilotDefWithSettings(projectRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-atlassian-cp")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: atlassian
+command: npx
+args: ["-y", "mcp-remote"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "atlassian.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-atlassian-cp": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "atlassian", Hash: "hash-atlassian-cp"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	settingsPath := filepath.Join(workspaceRoot, ".vscode", "settings.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read .vscode/settings.json: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse settings.json: %v", err)
+	}
+	const autoApproveKey = "github.copilot.chat.tools.autoApprove"
+	raw, ok := parsed[autoApproveKey]
+	if !ok {
+		t.Fatalf("settings.json missing %q; content:\n%s", autoApproveKey, string(content))
+	}
+	arr, ok := raw.([]interface{})
+	if !ok {
+		t.Fatalf("%q is not an array, got %T", autoApproveKey, raw)
+	}
+	found := false
+	for _, v := range arr {
+		if v == "mcp__atlassian__*" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("autoApprove must contain mcp__atlassian__*; got %v", arr)
+	}
+}
+
+// TestCopilotRenderer_RenderSettings_MCPDenyNoEntry verifies that an MCP
+// with permissions.level="deny" does NOT add any entry (Copilot only supports allow).
+func TestCopilotRenderer_RenderSettings_MCPDenyNoEntry(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".github")
+	def := copilotDefWithSettings(projectRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-deny-cp")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: risky
+command: node
+args: ["server.js"]
+permissions:
+  level: deny
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "risky.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-deny-cp": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "risky", Hash: "hash-deny-cp"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	settingsPath := filepath.Join(workspaceRoot, ".vscode", "settings.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read .vscode/settings.json: %v", err)
+	}
+
+	if strings.Contains(string(content), "mcp__risky__*") {
+		t.Errorf("autoApprove must NOT contain mcp__risky__* for deny-level MCP; content:\n%s", string(content))
+	}
+}
+
+// TestCopilotRenderer_RenderSettings_ExistingContentPreserved verifies that
+// existing .vscode/settings.json content is preserved when merging.
+func TestCopilotRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".github")
+	def := copilotDefWithSettings(projectRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	// Pre-write a .vscode/settings.json with other VS Code settings.
+	vscodeDir := filepath.Join(workspaceRoot, ".vscode")
+	if err := os.MkdirAll(vscodeDir, 0o755); err != nil {
+		t.Fatalf("mkdir .vscode: %v", err)
+	}
+	existing := `{"editor.tabSize": 2, "editor.formatOnSave": true}` + "\n"
+	if err := os.WriteFile(filepath.Join(vscodeDir, "settings.json"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("write existing settings.json: %v", err)
+	}
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-ctx7-cp")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: context7
+command: npx
+args: ["-y", "context7"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "context7.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-ctx7-cp": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "context7", Hash: "hash-ctx7-cp"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(vscodeDir, "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	contentStr := string(content)
+
+	// Existing settings must be preserved.
+	if !strings.Contains(contentStr, `"editor.tabSize"`) {
+		t.Errorf("existing editor.tabSize setting must be preserved; content:\n%s", contentStr)
+	}
+	// New MCP entry must be present.
+	if !strings.Contains(contentStr, "mcp__context7__*") {
+		t.Errorf("settings.json must contain mcp__context7__*; content:\n%s", contentStr)
+	}
+}

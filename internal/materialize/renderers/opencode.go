@@ -526,9 +526,53 @@ func (r *OpenCodeRenderer) ManagedConfigPaths(workspaceRoot string) []string {
 	return []string{ResolveMCPOutputPath(workspaceRoot, mcpConfig)}
 }
 
-// RenderSettings is a no-op for OpenCode (no settings file concept separate from opencode.json).
+// RenderSettings writes MCP permission entries into the opencode.json "permission" section.
+// Returns nil early if no settings block is configured on the agent definition.
 func (r *OpenCodeRenderer) RenderSettings(workspaceRoot string, skills []model.ContentItem, workflows []model.WorkflowManifest) error {
-	return nil
+	if r.agentDef.Settings == nil {
+		return nil
+	}
+
+	mcpConfig := EffectiveMCPConfig(r.agentDef.MCP)
+	opencodeJSON := ResolveMCPOutputPath(workspaceRoot, mcpConfig)
+
+	// Load existing opencode.json (already written by RenderMCPs/synthesizeAgents).
+	existing := make(map[string]interface{})
+	if data, err := os.ReadFile(opencodeJSON); err == nil {
+		_ = json.Unmarshal(data, &existing)
+	}
+
+	// Get or create the "permission" section.
+	permSection, _ := existing["permission"].(map[string]interface{})
+	if permSection == nil {
+		permSection = make(map[string]interface{})
+	}
+
+	// Add MCP permissions: "<name>_*": "<level>" for each MCP that declares a level.
+	for _, mcp := range r.normalizedMCPs {
+		if level, ok := mcp.Permissions["level"]; ok && level != "" {
+			key := fmt.Sprintf("%s_*", mcp.Name)
+			permSection[key] = level
+		}
+	}
+
+	// Only write back if there are permission entries to record.
+	if len(permSection) == 0 {
+		return nil
+	}
+
+	existing["permission"] = permSection
+
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("opencode: marshal opencode.json for settings: %w", err)
+	}
+	data = append(data, '\n')
+
+	if err := os.MkdirAll(filepath.Dir(opencodeJSON), 0o755); err != nil {
+		return fmt.Errorf("opencode: mkdir for settings %q: %w", filepath.Dir(opencodeJSON), err)
+	}
+	return os.WriteFile(opencodeJSON, data, 0o644)
 }
 
 // Finalize is a no-op for OpenCode.

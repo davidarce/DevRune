@@ -626,6 +626,99 @@ func TestApplyMCPEnvTransform_HeadersClaudeStyle(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// T019: Tests for SanitizeMCPDefinition permission extraction
+// ---------------------------------------------------------------------------
+
+// TestSanitizeMCPDefinition_WithPermissions verifies that a permissions block
+// is extracted into the returned permissions map and NOT included in serverConfig.
+func TestSanitizeMCPDefinition_WithPermissions(t *testing.T) {
+	def := map[string]interface{}{
+		"command": "npx",
+		"args":    []interface{}{"-y", "@modelcontextprotocol/server-exa"},
+		"env": map[string]interface{}{
+			"EXA_API_KEY": "${EXA_API_KEY}",
+		},
+		"permissions": map[string]interface{}{
+			"level": "allow",
+		},
+	}
+
+	serverConfig, _, permissions := renderers.SanitizeMCPDefinition(def)
+
+	// permissions map must contain "level": "allow"
+	if permissions["level"] != "allow" {
+		t.Errorf("permissions[\"level\"] = %q, want %q", permissions["level"], "allow")
+	}
+
+	// "permissions" must NOT appear in serverConfig
+	if _, ok := serverConfig["permissions"]; ok {
+		t.Error("serverConfig must not contain \"permissions\" key")
+	}
+
+	// runtime fields must be preserved in serverConfig
+	if serverConfig["command"] != "npx" {
+		t.Errorf("serverConfig[\"command\"] = %v, want %q", serverConfig["command"], "npx")
+	}
+}
+
+// TestSanitizeMCPDefinition_WithoutPermissions verifies that when no permissions
+// block is present, an empty (non-nil) map is returned.
+func TestSanitizeMCPDefinition_WithoutPermissions(t *testing.T) {
+	def := map[string]interface{}{
+		"command": "node",
+		"args":    []interface{}{"server.js"},
+	}
+
+	_, _, permissions := renderers.SanitizeMCPDefinition(def)
+
+	if permissions == nil {
+		t.Error("permissions map must not be nil when no permissions block is present")
+	}
+	if len(permissions) != 0 {
+		t.Errorf("permissions map must be empty when no permissions block is present, got %v", permissions)
+	}
+}
+
+// TestSanitizeMCPDefinition_PermissionsNotInServerConfig verifies the "permissions"
+// key is stripped from serverConfig even when it is the only extra field.
+func TestSanitizeMCPDefinition_PermissionsNotInServerConfig(t *testing.T) {
+	def := map[string]interface{}{
+		"command": "npx",
+		"permissions": map[string]interface{}{
+			"level": "deny",
+		},
+	}
+
+	serverConfig, _, permissions := renderers.SanitizeMCPDefinition(def)
+
+	if _, ok := serverConfig["permissions"]; ok {
+		t.Error("serverConfig must not contain \"permissions\" key after sanitization")
+	}
+	if permissions["level"] != "deny" {
+		t.Errorf("permissions[\"level\"] = %q, want %q", permissions["level"], "deny")
+	}
+}
+
+// TestSanitizeMCPDefinition_AllPermissionLevels verifies that all three semantic
+// levels (allow, ask, deny) are correctly extracted.
+func TestSanitizeMCPDefinition_AllPermissionLevels(t *testing.T) {
+	for _, level := range []string{"allow", "ask", "deny"} {
+		t.Run("level="+level, func(t *testing.T) {
+			def := map[string]interface{}{
+				"command": "npx",
+				"permissions": map[string]interface{}{
+					"level": level,
+				},
+			}
+			_, _, permissions := renderers.SanitizeMCPDefinition(def)
+			if permissions["level"] != level {
+				t.Errorf("permissions[\"level\"] = %q, want %q", permissions["level"], level)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Tests for BuildWorkflowPlaceholderReplacements (model override behaviour)
 // ---------------------------------------------------------------------------
 

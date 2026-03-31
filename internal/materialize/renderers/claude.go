@@ -36,6 +36,7 @@ type ClaudeRenderer struct {
 	installedSkills      []model.ContentItem
 	registryContents     map[string]string // keyed by workflow name
 	mcpAgentInstructions map[string]string // keyed by MCP name
+	normalizedMCPs       []normalizedMCP   // MCP entries with permissions for settings injection
 	modelOverrides       map[string]string // role-name → model-value from TUI SDD model selection
 }
 
@@ -150,39 +151,20 @@ func (r *ClaudeRenderer) RenderCommand(cmd model.WorkflowCommand, destDir string
 // RenderMCPs writes a .mcp.json file at the project root (one level above workspace).
 // Format: { "mcpServers": { "<name>": { "command": "...", "args": [...] } } }
 func (r *ClaudeRenderer) RenderMCPs(mcps []model.LockedMCP, cacheStore matypes.CacheStore, workspaceRoot string) error {
+	normalized, err := normalizeMCPDefinitions(mcps, cacheStore)
+	if err != nil {
+		return fmt.Errorf("claude: normalize MCPs: %w", err)
+	}
+	// Store normalized MCPs for RenderSettings permission injection.
+	r.normalizedMCPs = normalized
+
+	// Populate agentInstructions map and build server configs.
 	servers := make(map[string]interface{})
-
-	for _, mcp := range mcps {
-		if !cacheStore.Has(mcp.Hash) {
-			return fmt.Errorf("claude: MCP %q not in cache", mcp.Name)
+	for _, mcp := range normalized {
+		if mcp.AgentInstructions != "" {
+			r.mcpAgentInstructions[mcp.Name] = mcp.AgentInstructions
 		}
-		cacheDir, ok := cacheStore.Get(mcp.Hash)
-		if !ok {
-			return fmt.Errorf("claude: get MCP %q: not in cache", mcp.Name)
-		}
-
-		// Resolve the effective path for the MCP definition.
-		// mcp.Dir holds the Subpath from the source ref (e.g. "mcps/atlassian").
-		// resolveMCPDefDir handles both single-file catalog MCPs and standalone repos.
-		mcpDefDir := resolveMCPDefDir(cacheDir, mcp.Dir)
-
-		// The MCP definition is a YAML file; read and parse it.
-		mcpData, err := readMCPDefinition(mcpDefDir)
-		if err != nil {
-			return fmt.Errorf("claude: read MCP definition %q: %w", mcp.Name, err)
-		}
-
-		// Extract agentInstructions before writing to .mcp.json.
-		if instructions, ok := mcpData["agentInstructions"]; ok {
-			if s, ok := instructions.(string); ok && s != "" {
-				r.mcpAgentInstructions[mcp.Name] = s
-			}
-			delete(mcpData, "agentInstructions")
-		}
-		// Also strip the "name" field — it's metadata, not part of the MCP server config.
-		delete(mcpData, "name")
-
-		servers[mcp.Name] = mcpData
+		servers[mcp.Name] = mcp.ServerConfig
 	}
 
 	mcpJSON := map[string]interface{}{
@@ -408,6 +390,17 @@ func (r *ClaudeRenderer) RenderSettings(workspaceRoot string, skills []model.Con
 	}
 	for _, wf := range workflows {
 		for _, p := range wf.Components.Permissions {
+			if !seen[p] {
+				seen[p] = true
+				permissions = append(permissions, p)
+			}
+		}
+	}
+
+	// Merge MCP permissions: for each MCP with level "allow", add "mcp__<name>__*".
+	for _, mcp := range r.normalizedMCPs {
+		if mcp.Permissions["level"] == "allow" {
+			p := fmt.Sprintf("mcp__%s__*", mcp.Name)
 			if !seen[p] {
 				seen[p] = true
 				permissions = append(permissions, p)

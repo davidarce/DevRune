@@ -580,10 +580,75 @@ func skillDescriptionForRole(skill string) string {
 	}
 }
 
-// Finalize is a no-op for Copilot.
-// RenderSettings is a no-op for Copilot (no settings file concept).
+// RenderSettings writes .vscode/settings.json with Copilot MCP tool auto-approve entries.
+// Only MCPs with permission level "allow" are added; "ask" and "deny" are no-ops for Copilot.
+// Existing VS Code settings are preserved (read-merge-write).
 func (r *CopilotRenderer) RenderSettings(workspaceRoot string, skills []model.ContentItem, workflows []model.WorkflowManifest) error {
-	return nil
+	if r.agentDef.Settings == nil {
+		return nil
+	}
+
+	// .vscode/settings.json lives next to the workspace root (one level up from .github).
+	vscodeDir := filepath.Join(workspaceRoot, ".vscode")
+	settingsPath := filepath.Join(vscodeDir, "settings.json")
+
+	// Read existing settings if present (preserve other VS Code settings).
+	existing := make(map[string]interface{})
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		if err := json.Unmarshal(data, &existing); err != nil {
+			return fmt.Errorf("copilot: parse .vscode/settings.json: %w", err)
+		}
+	}
+
+	// Get or create the autoApprove array.
+	const autoApproveKey = "github.copilot.chat.tools.autoApprove"
+	var autoApprove []string
+	if raw, ok := existing[autoApproveKey]; ok {
+		if arr, ok := raw.([]interface{}); ok {
+			for _, v := range arr {
+				if s, ok := v.(string); ok {
+					autoApprove = append(autoApprove, s)
+				}
+			}
+		}
+	}
+
+	// Add MCP allow-level permissions.
+	for _, mcp := range r.normalizedMCPs {
+		level, ok := mcp.Permissions["level"]
+		if !ok {
+			continue
+		}
+		if level != "allow" {
+			// ask/deny are no-ops for Copilot.
+			continue
+		}
+		pattern := fmt.Sprintf("mcp__%s__*", mcp.Name)
+		autoApprove = append(autoApprove, pattern)
+	}
+
+	// Deduplicate while preserving order.
+	seen := make(map[string]bool, len(autoApprove))
+	deduped := autoApprove[:0]
+	for _, p := range autoApprove {
+		if !seen[p] {
+			seen[p] = true
+			deduped = append(deduped, p)
+		}
+	}
+
+	existing[autoApproveKey] = deduped
+
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("copilot: marshal .vscode/settings.json: %w", err)
+	}
+	data = append(data, '\n')
+
+	if err := os.MkdirAll(vscodeDir, 0o755); err != nil {
+		return fmt.Errorf("copilot: mkdir .vscode: %w", err)
+	}
+	return os.WriteFile(settingsPath, data, 0o644)
 }
 
 func (r *CopilotRenderer) Finalize(workspaceRoot string) error { return nil }

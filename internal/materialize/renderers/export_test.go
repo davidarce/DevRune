@@ -4,6 +4,9 @@ package renderers
 
 import "github.com/davidarce/devrune/internal/model"
 
+// SanitizeMCPDefinition re-exports sanitizeMCPDefinition for use by external test packages.
+var SanitizeMCPDefinition = sanitizeMCPDefinition
+
 // BuildWorkflowPlaceholderReplacements re-exports buildWorkflowPlaceholderReplacements
 // for use by external test packages (package renderers_test).
 // This is the standard Go pattern for test-only access to unexported symbols.

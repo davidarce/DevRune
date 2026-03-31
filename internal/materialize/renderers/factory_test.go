@@ -621,3 +621,198 @@ func TestFactoryRenderer_ManagedConfigPaths(t *testing.T) {
 		t.Errorf("ManagedConfigPaths()[0] = %q, want %q", paths[0], wantPath)
 	}
 }
+
+// --- T023: RenderSettings with MCP permissions ---
+
+// factoryDefWithSettings returns a Factory agent definition with Settings configured.
+func factoryDefWithSettings() model.AgentDefinition {
+	def := factoryAgentDef()
+	def.Settings = &model.SettingsConfig{Permissions: []string{}}
+	return def
+}
+
+// TestFactoryRenderer_RenderSettings_MCPAllowPermission verifies that an MCP
+// with permissions.level="allow" is added to commandAllowlist.
+func TestFactoryRenderer_RenderSettings_MCPAllowPermission(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewFactoryRenderer(factoryDefWithSettings())
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-atlassian-ft")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: atlassian
+command: npx
+args: ["-y", "mcp-remote"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "atlassian.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-atlassian-ft": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "atlassian", Hash: "hash-atlassian-ft"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	settingsPath := filepath.Join(workspaceRoot, "settings.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse settings.json: %v", err)
+	}
+	allowlist := toStringSliceFromInterface(parsed["commandAllowlist"])
+	found := false
+	for _, v := range allowlist {
+		if v == "mcp__atlassian__*" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("commandAllowlist must contain mcp__atlassian__*; got %v", allowlist)
+	}
+}
+
+// TestFactoryRenderer_RenderSettings_MCPDenyPermission verifies that an MCP
+// with permissions.level="deny" is added to commandDenylist.
+func TestFactoryRenderer_RenderSettings_MCPDenyPermission(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewFactoryRenderer(factoryDefWithSettings())
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-risky-ft")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: risky
+command: node
+args: ["server.js"]
+permissions:
+  level: deny
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "risky.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-risky-ft": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "risky", Hash: "hash-risky-ft"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	settingsPath := filepath.Join(workspaceRoot, "settings.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parse settings.json: %v", err)
+	}
+	denylist := toStringSliceFromInterface(parsed["commandDenylist"])
+	found := false
+	for _, v := range denylist {
+		if v == "mcp__risky__*" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("commandDenylist must contain mcp__risky__*; got %v", denylist)
+	}
+	// Must NOT be in allowlist.
+	allowlist := toStringSliceFromInterface(parsed["commandAllowlist"])
+	for _, v := range allowlist {
+		if v == "mcp__risky__*" {
+			t.Errorf("commandAllowlist must NOT contain mcp__risky__* (deny-level MCP)")
+		}
+	}
+}
+
+// TestFactoryRenderer_RenderSettings_ExistingContentPreserved verifies that
+// existing settings.json content is preserved when merging.
+func TestFactoryRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewFactoryRenderer(factoryDefWithSettings())
+
+	// Pre-write a settings.json with existing content.
+	existingContent := `{"otherKey": "someValue"}` + "\n"
+	if err := os.WriteFile(filepath.Join(workspaceRoot, "settings.json"), []byte(existingContent), 0o644); err != nil {
+		t.Fatalf("write existing settings.json: %v", err)
+	}
+
+	cacheDir := t.TempDir()
+	mcpDir := filepath.Join(cacheDir, "hash-ctx7-ft")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mcpYAML := `name: context7
+command: npx
+args: ["-y", "context7"]
+permissions:
+  level: allow
+`
+	if err := os.WriteFile(filepath.Join(mcpDir, "context7.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatalf("write mcp yaml: %v", err)
+	}
+	cache := &fakeCacheStore{dirs: map[string]string{"hash-ctx7-ft": mcpDir}}
+	mcps := []model.LockedMCP{{Name: "context7", Hash: "hash-ctx7-ft"}}
+
+	if err := r.RenderMCPs(mcps, cache, workspaceRoot); err != nil {
+		t.Fatalf("RenderMCPs: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceRoot, nil, nil); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workspaceRoot, "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	contentStr := string(content)
+
+	// Existing content must be preserved.
+	if !strings.Contains(contentStr, `"otherKey"`) {
+		t.Errorf("existing otherKey setting must be preserved; content:\n%s", contentStr)
+	}
+	// New MCP allowlist entry must be present.
+	if !strings.Contains(contentStr, "mcp__context7__*") {
+		t.Errorf("settings.json must contain mcp__context7__*; content:\n%s", contentStr)
+	}
+}
+
+// toStringSliceFromInterface converts []interface{} or []string to []string.
+func toStringSliceFromInterface(v interface{}) []string {
+	if v == nil {
+		return nil
+	}
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}

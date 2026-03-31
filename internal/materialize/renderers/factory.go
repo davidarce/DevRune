@@ -331,8 +331,105 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil
 }
 
-// RenderSettings is a no-op for Factory (no settings file concept).
+// RenderSettings generates .factory/settings.json with commandAllowlist and commandDenylist
+// derived from MCP permissions and workflow permissions.
+// If agentDef.Settings is nil, settings generation is skipped (returns nil).
 func (r *FactoryRenderer) RenderSettings(workspaceRoot string, skills []model.ContentItem, workflows []model.WorkflowManifest) error {
+	if r.agentDef.Settings == nil {
+		return nil
+	}
+
+	settingsPath := filepath.Join(workspaceRoot, "settings.json")
+
+	// Read existing settings.json to merge (read-merge-write pattern).
+	existing := make(map[string]interface{})
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		_ = json.Unmarshal(data, &existing)
+	}
+
+	// Get or create commandAllowlist and commandDenylist.
+	allowlist := toStringSlice(existing["commandAllowlist"])
+	denylist := toStringSlice(existing["commandDenylist"])
+
+	seenAllow := make(map[string]bool)
+	seenDeny := make(map[string]bool)
+	for _, v := range allowlist {
+		seenAllow[v] = true
+	}
+	for _, v := range denylist {
+		seenDeny[v] = true
+	}
+
+	// Add base permissions from agent definition to allowlist.
+	for _, p := range r.agentDef.Settings.Permissions {
+		if !seenAllow[p] {
+			seenAllow[p] = true
+			allowlist = append(allowlist, p)
+		}
+	}
+
+	// Iterate normalizedMCPs: allow → commandAllowlist, deny → commandDenylist, ask is no-op.
+	for _, mcp := range r.normalizedMCPs {
+		level := mcp.Permissions["level"]
+		pattern := fmt.Sprintf("mcp__%s__*", mcp.Name)
+		switch level {
+		case "allow":
+			if !seenAllow[pattern] {
+				seenAllow[pattern] = true
+				allowlist = append(allowlist, pattern)
+			}
+		case "deny":
+			if !seenDeny[pattern] {
+				seenDeny[pattern] = true
+				denylist = append(denylist, pattern)
+			}
+		}
+	}
+
+	// Iterate workflow permissions and add to allowlist.
+	for _, wf := range workflows {
+		for _, p := range wf.Components.Permissions {
+			if !seenAllow[p] {
+				seenAllow[p] = true
+				allowlist = append(allowlist, p)
+			}
+		}
+	}
+
+	// Merge into existing settings map.
+	existing["commandAllowlist"] = allowlist
+	existing["commandDenylist"] = denylist
+
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("factory: marshal settings.json: %w", err)
+	}
+	data = append(data, '\n')
+
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		return fmt.Errorf("factory: mkdir for settings: %w", err)
+	}
+	return os.WriteFile(settingsPath, data, 0o644)
+}
+
+// toStringSlice converts an interface{} value to []string.
+// Accepts []interface{} (from JSON unmarshal) or []string directly.
+func toStringSlice(v interface{}) []string {
+	if v == nil {
+		return nil
+	}
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []interface{}:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
 	return nil
 }
 
