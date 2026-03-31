@@ -185,21 +185,50 @@ func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 
 // TestRenderRootCatalog_WithMCPInstructions verifies MCP sections are rendered.
 func TestRenderRootCatalog_WithMCPInstructions(t *testing.T) {
-	mcpInstructions := map[string]string{
-		"engram": "## Memory\n\nYou have access to persistent memory.\n",
-	}
+	t.Run("instructions with own header", func(t *testing.T) {
+		mcpInstructions := map[string]string{
+			"my-mcp": "## My Custom Header\n\nSome instructions.\n",
+		}
+		out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
+		if err != nil {
+			t.Fatalf("RenderRootCatalog: %v", err)
+		}
+		if strings.Contains(out, "## My-mcp") {
+			t.Errorf("should NOT add duplicate header when instructions already start with ##")
+		}
+		if !strings.Contains(out, "## My Custom Header") {
+			t.Errorf("should preserve the header from instructions")
+		}
+		if !strings.Contains(out, "Some instructions.") {
+			t.Errorf("should include instruction content")
+		}
+	})
 
-	out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
-	if err != nil {
-		t.Fatalf("RenderRootCatalog: %v", err)
-	}
+	t.Run("instructions without header", func(t *testing.T) {
+		mcpInstructions := map[string]string{
+			"my-mcp": "Use this tool for searching.\n",
+		}
+		out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
+		if err != nil {
+			t.Fatalf("RenderRootCatalog: %v", err)
+		}
+		if !strings.Contains(out, "## My-mcp") {
+			t.Errorf("should generate header when instructions don't start with ##")
+		}
+	})
 
-	if !strings.Contains(out, "## Engram") {
-		t.Errorf("output missing ## Engram MCP section heading")
-	}
-	if !strings.Contains(out, "persistent memory") {
-		t.Errorf("output missing MCP instructions content")
-	}
+	t.Run("empty instructions skipped", func(t *testing.T) {
+		mcpInstructions := map[string]string{
+			"my-mcp": "   ",
+		}
+		out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
+		if err != nil {
+			t.Fatalf("RenderRootCatalog: %v", err)
+		}
+		if strings.Contains(out, "my-mcp") {
+			t.Errorf("should skip MCP section when instructions are empty/whitespace")
+		}
+	})
 }
 
 // TestRenderRootCatalog_WithRegistryContents verifies registry content is injected.
