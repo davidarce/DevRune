@@ -10,6 +10,7 @@ var reservedAgentTypes = map[string]bool{
 	"opencode": true,
 	"copilot":  true,
 	"factory":  true,
+	"codex":    true,
 }
 
 // SettingsConfig holds agent-level configuration for generated settings files.
@@ -57,7 +58,7 @@ func (a AgentDefinition) Validate() error {
 		return fmt.Errorf("agent %q: type is required", a.Name)
 	}
 	if !reservedAgentTypes[a.Type] {
-		return fmt.Errorf("agent %q: unknown type %q (supported: claude, opencode, copilot, factory)", a.Name, a.Type)
+		return fmt.Errorf("agent %q: unknown type %q (supported: claude, opencode, copilot, factory, codex)", a.Name, a.Type)
 	}
 	if a.Workspace == "" {
 		return fmt.Errorf("agent %q: workspace is required", a.Name)

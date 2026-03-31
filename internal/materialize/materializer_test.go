@@ -1363,3 +1363,223 @@ func TestMaterializer_Install_CLAUDEmd_NotRemovedIfUserOwned(t *testing.T) {
 		t.Errorf("AGENTS.md should still be created at project root: %v", err)
 	}
 }
+
+// --- T023: Shared-directory skill deduplication integration tests ---
+
+// TestMaterializer_Install_SkillDeduplication_SharedDirRenderedOnce verifies that
+// when multiple agents share the same resolved skill directory (e.g. .agents/skills/),
+// RenderSkill is called exactly ONCE per skill — not once per agent.
+//
+// Scenario: 3 agents (codex, factory, opencode) share .agents/skills/. 1 agent (claude)
+// uses .claude/skills/ exclusively. A lockfile contains 1 skill package.
+//
+// Expected: RenderSkill invoked 1 time total for the .agents/skills/ group,
+// and 1 time for .claude/skills/ — so 2 total invocations, not 4.
+func TestMaterializer_Install_SkillDeduplication_SharedDirRenderedOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create the shared .agents/skills workspace root so path resolution works.
+	agentsSkillsDir := filepath.Join(tmpDir, ".agents", "skills")
+	if err := os.MkdirAll(agentsSkillsDir, 0o755); err != nil {
+		t.Fatalf("mkdir .agents/skills: %v", err)
+	}
+
+	// Build agent definitions — all three share .agents/skills via the "../.agents/skills"
+	// SkillDir pattern that resolves through filepath.Join(workspace, skillDir).
+	codexWorkspace := filepath.Join(tmpDir, ".codex")
+	factoryWorkspace := filepath.Join(tmpDir, ".factory")
+	opencodeWorkspace := filepath.Join(tmpDir, ".opencode")
+	claudeWorkspace := filepath.Join(tmpDir, ".claude")
+
+	codexDef := model.AgentDefinition{
+		Name:        "codex",
+		Type:        "codex",
+		Workspace:   codexWorkspace,
+		SkillDir:    "../.agents/skills",
+		CatalogFile: "AGENTS.md",
+	}
+	factoryDef := model.AgentDefinition{
+		Name:        "factory",
+		Type:        "factory",
+		Workspace:   factoryWorkspace,
+		SkillDir:    "../.agents/skills",
+		CatalogFile: "AGENTS.md",
+	}
+	opencodeDef := model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   opencodeWorkspace,
+		SkillDir:    "../.agents/skills",
+		CatalogFile: "AGENTS.md",
+	}
+	claudeDef := model.AgentDefinition{
+		Name:        "claude",
+		Type:        "claude",
+		Workspace:   claudeWorkspace,
+		SkillDir:    "skills",
+		CatalogFile: "CLAUDE.md",
+	}
+
+	codexRenderer := newStubRenderer("codex", "codex", codexDef)
+	factoryRenderer := newStubRenderer("factory", "factory", factoryDef)
+	opencodeRenderer := newStubRenderer("opencode", "opencode", opencodeDef)
+	claudeRenderer := newStubRenderer("claude", "claude", claudeDef)
+
+	// Create a fake skill package in the cache.
+	pkgDir := t.TempDir()
+	skillSubDir := filepath.Join(pkgDir, "skills", "unit-test-adviser")
+	if err := os.MkdirAll(skillSubDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillSubDir, "SKILL.md"),
+		[]byte("---\nname: unit-test-adviser\ndescription: Domain unit tests\n---\nBody.\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	cache := newStubCache()
+	pkgHash := "sha256:dedup-test"
+	cache.entries[pkgHash] = pkgDir
+
+	stateMgr := &stubStateManager{}
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{
+		"codex":    codexRenderer,
+		"factory":  factoryRenderer,
+		"opencode": opencodeRenderer,
+		"claude":   claudeRenderer,
+	})
+
+	lock := model.Lockfile{
+		SchemaVersion: "v1",
+		ManifestHash:  "sha256:dedup-manifest",
+		Packages: []model.LockedPackage{
+			{
+				Hash: pkgHash,
+				Contents: []model.ContentItem{
+					{Kind: model.KindSkill, Name: "unit-test-adviser", Path: "skills/unit-test-adviser"},
+				},
+			},
+		},
+	}
+
+	agents := []model.AgentRef{
+		{Name: "codex"},
+		{Name: "factory"},
+		{Name: "opencode"},
+		{Name: "claude"},
+	}
+
+	if err := m.Install(context.Background(), lock, agents, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// The .agents/skills group (codex, factory, opencode) must collectively render
+	// the skill exactly ONCE. Count invocations across all three renderers.
+	sharedRenderCount := len(codexRenderer.renderedSkills) +
+		len(factoryRenderer.renderedSkills) +
+		len(opencodeRenderer.renderedSkills)
+
+	if sharedRenderCount != 1 {
+		t.Errorf("skills in .agents/skills/ should be rendered exactly once across shared agents, got %d invocations (codex=%d, factory=%d, opencode=%d)",
+			sharedRenderCount,
+			len(codexRenderer.renderedSkills),
+			len(factoryRenderer.renderedSkills),
+			len(opencodeRenderer.renderedSkills))
+	}
+
+	// Claude has a unique skill directory — must render the skill independently.
+	if len(claudeRenderer.renderedSkills) != 1 {
+		t.Errorf("claude should render skills independently (unique dir .claude/skills/), got %d invocations",
+			len(claudeRenderer.renderedSkills))
+	}
+
+	// The skill file must exist in .agents/skills/ (written by whichever renderer won).
+	skillPath := filepath.Join(agentsSkillsDir, "unit-test-adviser", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Errorf("skill file should exist in .agents/skills/unit-test-adviser/SKILL.md: %v", err)
+	}
+
+	// The skill file must also exist in .claude/skills/.
+	claudeSkillPath := filepath.Join(claudeWorkspace, "skills", "unit-test-adviser", "SKILL.md")
+	if _, err := os.Stat(claudeSkillPath); err != nil {
+		t.Errorf("skill file should exist in .claude/skills/unit-test-adviser/SKILL.md: %v", err)
+	}
+}
+
+// TestMaterializer_Install_SkillDeduplication_TwoAgentsSameDir verifies the minimal
+// case: two agents sharing the same skill directory render each skill only once.
+func TestMaterializer_Install_SkillDeduplication_TwoAgentsSameDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Two agents with the same resolved skill dir: .agents/skills/.
+	agent1Workspace := filepath.Join(tmpDir, ".agent1")
+	agent2Workspace := filepath.Join(tmpDir, ".agent2")
+
+	agent1Def := model.AgentDefinition{
+		Name:        "agent1",
+		Type:        "factory",
+		Workspace:   agent1Workspace,
+		SkillDir:    "../.agents/skills",
+		CatalogFile: "AGENTS.md",
+	}
+	agent2Def := model.AgentDefinition{
+		Name:        "agent2",
+		Type:        "opencode",
+		Workspace:   agent2Workspace,
+		SkillDir:    "../.agents/skills",
+		CatalogFile: "AGENTS.md",
+	}
+
+	renderer1 := newStubRenderer("agent1", "factory", agent1Def)
+	renderer2 := newStubRenderer("agent2", "opencode", agent2Def)
+
+	// Skill package with two skills.
+	pkgDir := t.TempDir()
+	for _, name := range []string{"skill-a", "skill-b"} {
+		skillSubDir := filepath.Join(pkgDir, "skills", name)
+		if err := os.MkdirAll(skillSubDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(skillSubDir, "SKILL.md"),
+			[]byte("---\nname: "+name+"\ndescription: "+name+"\n---\nBody.\n"), 0o644); err != nil {
+			t.Fatalf("write %s/SKILL.md: %v", name, err)
+		}
+	}
+
+	cache := newStubCache()
+	pkgHash := "sha256:two-agent-dedup"
+	cache.entries[pkgHash] = pkgDir
+
+	stateMgr := &stubStateManager{}
+	linker, _ := materialize.NewLinker("copy")
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{
+		"agent1": renderer1,
+		"agent2": renderer2,
+	})
+
+	lock := model.Lockfile{
+		SchemaVersion: "v1",
+		ManifestHash:  "sha256:two-agent-dedup-manifest",
+		Packages: []model.LockedPackage{
+			{
+				Hash: pkgHash,
+				Contents: []model.ContentItem{
+					{Kind: model.KindSkill, Name: "skill-a", Path: "skills/skill-a"},
+					{Kind: model.KindSkill, Name: "skill-b", Path: "skills/skill-b"},
+				},
+			},
+		},
+	}
+
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "agent1"}, {Name: "agent2"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// Total renders across both agents must be 2 (one per skill), not 4.
+	totalRenders := len(renderer1.renderedSkills) + len(renderer2.renderedSkills)
+	if totalRenders != 2 {
+		t.Errorf("two skills in shared dir should be rendered 2 times total, got %d (agent1=%d, agent2=%d)",
+			totalRenders, len(renderer1.renderedSkills), len(renderer2.renderedSkills))
+	}
+}

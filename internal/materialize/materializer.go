@@ -116,6 +116,10 @@ func (m *Materializer) Install(
 	var allWorkflowNames []string // tracks names to avoid duplicates
 	var allWorkflows []model.WorkflowManifest
 
+	// Track resolved skill directories to avoid rendering the same skills
+	// multiple times when agents share a directory (e.g. .agents/skills/).
+	renderedSkillDirs := make(map[string]bool)
+
 	for _, agentRef := range agents {
 		renderer, ok := m.renderers[agentRef.Name]
 		if !ok {
@@ -124,6 +128,9 @@ func (m *Materializer) Install(
 
 		def := renderer.Definition()
 		agentWorkspace := def.Workspace
+
+		resolvedSkillDir := filepath.Clean(filepath.Join(agentWorkspace, def.SkillDir))
+		skillAlreadyRendered := renderedSkillDirs[resolvedSkillDir]
 
 		// Step 3: Create workspace directories.
 		dirs := []string{
@@ -156,27 +163,38 @@ func (m *Materializer) Install(
 			}
 
 			// Step 4: Skills.
-			for _, item := range pkg.Contents {
-				if item.Kind != model.KindSkill {
-					continue
-				}
-				srcPath := filepath.Join(pkgDir, item.Path)
-				destDir := filepath.Join(agentWorkspace, def.SkillDir, item.Name)
+			if !skillAlreadyRendered {
+				for _, item := range pkg.Contents {
+					if item.Kind != model.KindSkill {
+						continue
+					}
+					srcPath := filepath.Join(pkgDir, item.Path)
+					destDir := filepath.Join(agentWorkspace, def.SkillDir, item.Name)
 
-				if err := renderer.RenderSkill(srcPath, destDir); err != nil {
-					return fmt.Errorf("materializer: render skill %q for agent %q: %w",
-						item.Name, agentRef.Name, err)
+					if err := renderer.RenderSkill(srcPath, destDir); err != nil {
+						return fmt.Errorf("materializer: render skill %q for agent %q: %w",
+							item.Name, agentRef.Name, err)
+					}
+					// Copy extra files and subdirectories (gotchas.md, references/, etc.)
+					// that live alongside SKILL.md. RenderSkill only handles SKILL.md itself.
+					if err := renderers.CopySkillExtras(srcPath, destDir); err != nil {
+						return fmt.Errorf("materializer: copy skill extras %q for agent %q: %w",
+							item.Name, agentRef.Name, err)
+					}
+					managedPaths = append(managedPaths, destDir)
+					installedSkills = append(installedSkills, item)
+					// Accumulate for cross-agent root catalog (deduplicated by name).
+					allSkills = appendIfNotPresent(allSkills, item)
 				}
-				// Copy extra files and subdirectories (gotchas.md, references/, etc.)
-				// that live alongside SKILL.md. RenderSkill only handles SKILL.md itself.
-				if err := renderers.CopySkillExtras(srcPath, destDir); err != nil {
-					return fmt.Errorf("materializer: copy skill extras %q for agent %q: %w",
-						item.Name, agentRef.Name, err)
+			} else {
+				// Skill directory already rendered by a prior agent — accumulate catalog
+				// entries without re-rendering to disk.
+				for _, item := range pkg.Contents {
+					if item.Kind == model.KindSkill {
+						installedSkills = append(installedSkills, item)
+						allSkills = appendIfNotPresent(allSkills, item)
+					}
 				}
-				managedPaths = append(managedPaths, destDir)
-				installedSkills = append(installedSkills, item)
-				// Accumulate for cross-agent root catalog (deduplicated by name).
-				allSkills = appendIfNotPresent(allSkills, item)
 			}
 
 			// Step 5: Rules.
@@ -199,6 +217,12 @@ func (m *Materializer) Install(
 				// Accumulate for cross-agent root catalog (deduplicated by name).
 				allRules = appendIfNotPresent(allRules, item)
 			}
+		}
+
+		// Mark the resolved skill directory as rendered so subsequent agents that
+		// share the same directory (e.g. .agents/skills/) skip redundant I/O.
+		if !skillAlreadyRendered {
+			renderedSkillDirs[resolvedSkillDir] = true
 		}
 
 		// Step 6: RenderMCPs().
@@ -260,17 +284,21 @@ func (m *Materializer) Install(
 				return fmt.Errorf("materializer: load workflow manifest %q: %w", wf.Name, err)
 			}
 
-			wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, agentWorkspace)
-			if err != nil {
-				return fmt.Errorf("materializer: install workflow %q for agent %q: %w",
-					wf.Name, agentRef.Name, err)
+			// Skip workflow skill installation for this agent if its skill directory
+			// was already populated by a prior agent in the loop.
+			if !skillAlreadyRendered {
+				wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, agentWorkspace)
+				if err != nil {
+					return fmt.Errorf("materializer: install workflow %q for agent %q: %w",
+						wf.Name, agentRef.Name, err)
+				}
+				// Use renderer-reported managed paths exclusively. All built-in renderers
+				// (Claude, Factory, OpenCode, Copilot) return the actual installed paths
+				// via WorkflowInstallResult.ManagedPaths. Custom renderers that have not
+				// yet implemented the contract will simply add no workflow paths here,
+				// which is safe — they opt in by returning ManagedPaths.
+				managedPaths = append(managedPaths, wfResult.ManagedPaths...)
 			}
-			// Use renderer-reported managed paths exclusively. All built-in renderers
-			// (Claude, Factory, OpenCode, Copilot) return the actual installed paths
-			// via WorkflowInstallResult.ManagedPaths. Custom renderers that have not
-			// yet implemented the contract will simply add no workflow paths here,
-			// which is safe — they opt in by returning ManagedPaths.
-			managedPaths = append(managedPaths, wfResult.ManagedPaths...)
 			installedWorkflows = append(installedWorkflows, wfManifest)
 			// Accumulate for cross-agent root catalog (deduplicated by name).
 			if !containsString(allWorkflowNames, wfManifest.Metadata.Name) {
@@ -613,6 +641,20 @@ func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer
 	}
 	if hasMCPs {
 		entries = append(entries, ".mcp.json")
+	}
+
+	// Add .agents/ if any agent shares skills there.
+	for _, a := range agents {
+		r, ok := renderers[a.Name]
+		if !ok {
+			continue
+		}
+		def := r.Definition()
+		resolved := filepath.Clean(filepath.Join(def.Workspace, def.SkillDir))
+		if strings.HasPrefix(resolved, ".agents") {
+			entries = append(entries, ".agents/")
+			break
+		}
 	}
 
 	// Build the managed block.
