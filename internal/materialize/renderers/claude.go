@@ -427,6 +427,15 @@ func (r *ClaudeRenderer) RenderSettings(workspaceRoot string, skills []model.Con
 	return os.WriteFile(settingsPath, data, 0o644)
 }
 
+// SettingsManagedPaths returns the settings file path that RenderSettings writes for Claude.
+// Used by the materializer to track the file for cleanup on reinstall.
+func (r *ClaudeRenderer) SettingsManagedPaths(workspaceRoot string) []string {
+	if r.agentDef.Settings == nil {
+		return nil
+	}
+	return []string{filepath.Join(workspaceRoot, "settings.json")}
+}
+
 // Finalize is a no-op for Claude.
 func (r *ClaudeRenderer) Finalize(workspaceRoot string) error { return nil }
 

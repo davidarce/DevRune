@@ -433,6 +433,15 @@ func toStringSlice(v interface{}) []string {
 	return nil
 }
 
+// SettingsManagedPaths returns the settings file path that RenderSettings writes for Factory.
+// Used by the materializer to track the file for cleanup on reinstall.
+func (r *FactoryRenderer) SettingsManagedPaths(workspaceRoot string) []string {
+	if r.agentDef.Settings == nil {
+		return nil
+	}
+	return []string{filepath.Join(workspaceRoot, "settings.json")}
+}
+
 // ManagedConfigPaths returns the workspace-level config file paths that the Factory
 // renderer owns and that the materializer should track for cleanup purposes.
 // Uses the same config-derived path as RenderMCPs to prevent drift.

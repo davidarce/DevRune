@@ -18,6 +18,12 @@ definitions, and workflows into developer workspaces.`,
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isNonInteractive(cmd) {
+				return cmd.Help()
+			}
+			return RunMenu(cmd)
+		},
 	}
 
 	// Global flags
@@ -33,6 +39,8 @@ definitions, and workflows into developer workspaces.`,
 		newSyncCmd(),
 		newStatusCmd(),
 		newVersionCmd(version, commit),
+		newUninstallCmd(),
+		newUpgradeCmd(),
 	)
 
 	return rootCmd

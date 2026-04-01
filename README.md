@@ -76,13 +76,34 @@ Installs to `~/.local/bin` by default. Override with `INSTALL_DIR=/usr/local/bin
 
 ## Quick Start
 
-### Interactive (TUI wizard)
+### Interactive Menu
 
 ```bash
-devrune init
+devrune
 ```
 
-The wizard walks you through selecting agents and package sources, then resolves and installs everything automatically. If the catalog includes developer tools, the wizard will also offer to install them via Homebrew.
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│  ██████╗ ███████╗██╗   ██╗██████╗ ██╗   ██╗███╗   ██╗  │
+│  ██╔══██╗██╔════╝██║   ██║██╔══██╗██║   ██║████╗  ██║  │
+│  ██║  ██║█████╗  ██║   ██║██████╔╝██║   ██║██╔██╗ ██║  │
+│  ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║  │
+│  ██████╔╝███████╗ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║  │
+│  ╚═════╝ ╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝│
+│  Package manager for AI agent instructions               │
+│                                                          │
+│  What would you like to do?                              │
+│  > Setup              Configure agents from scratch      │
+│    Sync project       Resolve + install changes          │
+│    Status             View workspace state               │
+│    Upgrade DevRune    Download latest version             │
+│    Uninstall          Remove all managed files            │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+The interactive menu gives you quick access to all DevRune operations. Select **Setup** to configure agents and install packages from your catalogs — the wizard walks you through agent selection, package sources, and developer tools.
 
 ### Manual
 

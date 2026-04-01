@@ -3,7 +3,6 @@
 package materialize
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -219,6 +218,12 @@ func (m *Materializer) Install(
 			}
 		}
 
+		// Track the rules directory if any rules were materialized for this agent.
+		if def.RulesDir != "" {
+			rulesPath := filepath.Join(agentWorkspace, def.RulesDir)
+			managedPaths = append(managedPaths, rulesPath)
+		}
+
 		// Mark the resolved skill directory as rendered so subsequent agents that
 		// share the same directory (e.g. .agents/skills/) skip redundant I/O.
 		if !skillAlreadyRendered {
@@ -306,19 +311,20 @@ func (m *Materializer) Install(
 				allWorkflows = append(allWorkflows, wfManifest)
 			}
 
-			// Step 9: Update .gitignore for this workflow.
-			if err := addGitignoreEntry(wfManifest.Metadata.Name, projectRoot); err != nil {
-				// Non-fatal: gitignore update failure should not block installation.
-				_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: gitignore update for %q: %v\n",
-					wfManifest.Metadata.Name, err)
 			}
-		}
 
 		// Step 8: RenderCatalog removed — root catalog is generated after the per-agent loop (T021).
 
 		// Step 8.5: RenderSettings() — generate agent settings file (e.g. .claude/settings.json).
 		if err := renderer.RenderSettings(agentWorkspace, installedSkills, installedWorkflows); err != nil {
 			return fmt.Errorf("materializer: render settings for agent %q: %w", agentRef.Name, err)
+		}
+		// Track renderer-managed settings file paths written during RenderSettings
+		// (e.g. .claude/settings.json, .factory/settings.json, .vscode/settings.json).
+		if sp, ok := renderer.(interface {
+			SettingsManagedPaths(workspaceRoot string) []string
+		}); ok {
+			managedPaths = append(managedPaths, sp.SettingsManagedPaths(agentWorkspace)...)
 		}
 
 		// Step 10: Finalize().
@@ -405,7 +411,7 @@ func (m *Materializer) Install(
 	// Step 12.5: Ensure .gitignore protects generated workspace directories and
 	// MCP config files (which may contain resolved secrets for Factory).
 	hasMCPs := len(lock.MCPs) > 0
-	if err := ensureGitignore(agents, m.renderers, hasMCPs, projectRoot); err != nil {
+	if err := ensureGitignore(agents, m.renderers, hasMCPs, allWorkflows, projectRoot); err != nil {
 		// Non-fatal: warn but don't fail the install.
 		_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: update .gitignore: %v\n", err)
 	}
@@ -480,32 +486,6 @@ func loadWorkflowManifest(wfDir string) (model.WorkflowManifest, error) {
 		return model.WorkflowManifest{}, fmt.Errorf("parse workflow.yaml: %w", err)
 	}
 	return wf, nil
-}
-
-// addGitignoreEntry appends ".{workflowName}/" to the project's .gitignore if not already present.
-func addGitignoreEntry(workflowName, projectRoot string) error {
-	entry := fmt.Sprintf(".%s/", workflowName)
-	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-
-	// Check if already present.
-	data, err := os.ReadFile(gitignorePath)
-	if err == nil {
-		scanner := bufio.NewScanner(strings.NewReader(string(data)))
-		for scanner.Scan() {
-			if strings.TrimSpace(scanner.Text()) == entry {
-				return nil // Already present.
-			}
-		}
-	}
-
-	// Append the entry.
-	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open .gitignore: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	_, err = fmt.Fprintf(f, "%s\n", entry)
-	return err
 }
 
 // ensureRootMCPJSON creates or merges the project-root .mcp.json file for any
@@ -619,7 +599,7 @@ const (
 // generated workspace directories and MCP config files from being committed.
 // The block is delimited by markers so it can be idempotently replaced on
 // subsequent installs without touching user-authored entries.
-func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer, hasMCPs bool, projectRoot string) error {
+func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer, hasMCPs bool, workflows []model.WorkflowManifest, projectRoot string) error {
 	// Collect entries that must be ignored.
 	entries := []string{".devrune/"}
 	for _, a := range agents {
@@ -655,6 +635,11 @@ func ensureGitignore(agents []model.AgentRef, renderers map[string]AgentRenderer
 			entries = append(entries, ".agents/")
 			break
 		}
+	}
+
+	// Add workflow-declared gitignore entries (e.g. ".sdd/" for artifact directories).
+	for _, wf := range workflows {
+		entries = append(entries, wf.Components.Gitignore...)
 	}
 
 	// Build the managed block.
