@@ -143,6 +143,57 @@ func TestParseManifest_MalformedYAML(t *testing.T) {
 	}
 }
 
+func TestParseManifest_ValidFull_CatalogsField(t *testing.T) {
+	data := mustReadFixture(t, "manifests", "valid-full.yaml")
+
+	m, err := parse.ParseManifest(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(m.Catalogs) == 0 {
+		t.Fatal("expected Catalogs to be populated from valid-full.yaml, got empty slice")
+	}
+	if m.Catalogs[0] != "github:davidarce/devrune-starter-catalog" {
+		t.Errorf("Catalogs[0] = %q, want %q", m.Catalogs[0], "github:davidarce/devrune-starter-catalog")
+	}
+}
+
+func TestSerializeManifest_CatalogsRoundTrip(t *testing.T) {
+	original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
+agents:
+  - name: claude
+packages:
+  - source: github:owner/repo@v1.0.0
+catalogs:
+  - github:org/catalog-a
+  - github:org/catalog-b
+`))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+
+	serialized, err := parse.SerializeManifest(original)
+	if err != nil {
+		t.Fatalf("SerializeManifest: %v", err)
+	}
+
+	reparsed, err := parse.ParseManifest(serialized)
+	if err != nil {
+		t.Fatalf("ParseManifest (reparsed): %v", err)
+	}
+
+	if len(reparsed.Catalogs) != 2 {
+		t.Fatalf("Catalogs length after round-trip = %d, want 2", len(reparsed.Catalogs))
+	}
+	if reparsed.Catalogs[0] != "github:org/catalog-a" {
+		t.Errorf("Catalogs[0] = %q, want %q", reparsed.Catalogs[0], "github:org/catalog-a")
+	}
+	if reparsed.Catalogs[1] != "github:org/catalog-b" {
+		t.Errorf("Catalogs[1] = %q, want %q", reparsed.Catalogs[1], "github:org/catalog-b")
+	}
+}
+
 func TestSerializeManifest_RoundTrip(t *testing.T) {
 	data := mustReadFixture(t, "manifests", "valid-full.yaml")
 

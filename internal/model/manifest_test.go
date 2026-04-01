@@ -380,6 +380,109 @@ agents:
 	}
 }
 
+// TestUserManifest_Catalogs_Serialization tests that Catalogs serializes to YAML with the correct key.
+func TestUserManifest_Catalogs_Serialization(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		Catalogs:      []string{"github:org/catalog-a", "github:org/catalog-b"},
+	}
+
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	yamlStr := string(data)
+	if !strings.Contains(yamlStr, "catalogs:") {
+		t.Errorf("serialized YAML does not contain 'catalogs:' key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "catalog-a") {
+		t.Errorf("serialized YAML does not contain 'catalog-a':\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "catalog-b") {
+		t.Errorf("serialized YAML does not contain 'catalog-b':\n%s", yamlStr)
+	}
+}
+
+// TestUserManifest_Catalogs_OmitWhenNil tests that nil Catalogs omits the key.
+func TestUserManifest_Catalogs_OmitWhenNil(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		Catalogs:      nil,
+	}
+
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	yamlStr := string(data)
+	if strings.Contains(yamlStr, "catalogs") {
+		t.Errorf("serialized YAML contains 'catalogs' for nil value (omitempty violation):\n%s", yamlStr)
+	}
+}
+
+// TestUserManifest_Catalogs_Unmarshal tests that YAML with catalogs: key populates the Catalogs field.
+func TestUserManifest_Catalogs_Unmarshal(t *testing.T) {
+	yamlData := []byte(`
+schemaVersion: devrune/v1
+agents:
+  - name: claude
+catalogs:
+  - github:org/catalog-a
+  - github:org/catalog-b
+`)
+
+	var manifest UserManifest
+	if err := yaml.Unmarshal(yamlData, &manifest); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	if len(manifest.Catalogs) != 2 {
+		t.Fatalf("Catalogs length = %d, want 2", len(manifest.Catalogs))
+	}
+	if manifest.Catalogs[0] != "github:org/catalog-a" {
+		t.Errorf("Catalogs[0] = %q, want %q", manifest.Catalogs[0], "github:org/catalog-a")
+	}
+	if manifest.Catalogs[1] != "github:org/catalog-b" {
+		t.Errorf("Catalogs[1] = %q, want %q", manifest.Catalogs[1], "github:org/catalog-b")
+	}
+}
+
+// TestUserManifest_Catalogs_AbsentKeyIsNil tests that a manifest without catalogs: key has nil Catalogs.
+func TestUserManifest_Catalogs_AbsentKeyIsNil(t *testing.T) {
+	yamlData := []byte(`
+schemaVersion: devrune/v1
+agents:
+  - name: claude
+`)
+
+	var manifest UserManifest
+	if err := yaml.Unmarshal(yamlData, &manifest); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	if manifest.Catalogs != nil {
+		t.Errorf("Catalogs = %v, want nil when key is absent", manifest.Catalogs)
+	}
+}
+
+// TestUserManifest_Catalogs_ValidatePassesWithCatalogs tests that Validate() succeeds
+// when Catalogs is populated.
+func TestUserManifest_Catalogs_ValidatePassesWithCatalogs(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		Catalogs:      []string{"github:org/catalog"},
+	}
+
+	if err := manifest.Validate(); err != nil {
+		t.Errorf("Validate() with Catalogs populated returned error = %v, want nil", err)
+	}
+}
+
 // TestUserManifest_WorkflowModels_Serialization tests that WorkflowModels serializes to YAML correctly.
 func TestUserManifest_WorkflowModels_Serialization(t *testing.T) {
 	manifest := UserManifest{

@@ -16,6 +16,7 @@ type UserManifest struct {
 	MCPs          []MCPRef      `yaml:"mcps,omitempty"`
 	Agents        []AgentRef    `yaml:"agents"`
 	Workflows     []string      `yaml:"workflows,omitempty"` // source ref strings
+	Catalogs      []string      `yaml:"catalogs,omitempty"`  // catalog source refs
 	Install       InstallConfig                `yaml:"install,omitempty"`
 	// WorkflowModels holds per-agent, per-workflow role model selections.
 	// Structure: WorkflowModels[agentName][roleName] = modelValue

@@ -25,8 +25,8 @@ var knownSources = []knownSource{
 
 // EnterRepositories presents predefined repository catalog sources for selection,
 // then optionally allows adding custom source refs via free-form input.
-// extraSources contains additional catalog-detected source ref strings (e.g. from
-// devrune.catalog.yaml) that are injected alongside knownSources as pre-selected
+// extraSources contains additional source ref strings (from catalogs: in devrune.yaml
+// or --catalog flags) that are injected alongside knownSources as pre-selected
 // options, deduplicated by value. The source ref string is used as the display label.
 // Returns the combined list of selected predefined and custom sources, deduplicated.
 // An empty result is valid (no repositories required).

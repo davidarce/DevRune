@@ -31,8 +31,8 @@ type RunResult struct {
 //	Step 3: Scan + category/item selection
 //	Step 4: Summary + confirmation
 //
-// catalogSources contains source ref strings pre-loaded from a devrune.catalog.yaml
-// (auto-detected or from --import-catalog). They appear as pre-selected options
+// catalogSources contains source ref strings from the catalogs: key in devrune.yaml
+// or from --catalog CLI flags. They appear as pre-selected options
 // alongside the built-in known sources in Step 2. Pass nil or an empty slice when
 // no catalog config was detected.
 //
@@ -194,7 +194,7 @@ func Run(catalogSources []string) (RunResult, error) {
 	installedTools := toolResult.Installed
 
 	// Final step — summary & confirm (alt screen, step indicator inside form)
-	manifest, err := steps.ConfirmSummary(agents, selection, workflowModels)
+	manifest, err := steps.ConfirmSummary(agents, selection, workflowModels, catalogSources)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}

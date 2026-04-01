@@ -20,8 +20,8 @@ import (
 //
 // workflowModels is the optional map of agent→role→model from the workflow model selection step.
 // May be nil if the step was skipped or no models were selected.
-func ConfirmSummary(agents []string, selection SelectionResult, workflowModels map[string]map[string]string) (model.UserManifest, error) {
-	description := buildSelectionSummary(agents, selection, workflowModels)
+func ConfirmSummary(agents []string, selection SelectionResult, workflowModels map[string]map[string]string, catalogSources []string) (model.UserManifest, error) {
+	description := buildSelectionSummary(agents, selection, workflowModels, catalogSources)
 
 	confirmed := true
 
@@ -51,11 +51,11 @@ func ConfirmSummary(agents []string, selection SelectionResult, workflowModels m
 		return model.UserManifest{}, huh.ErrUserAborted
 	}
 
-	return buildManifestFromSelection(agents, selection, workflowModels), nil
+	return buildManifestFromSelection(agents, selection, workflowModels, catalogSources), nil
 }
 
 // buildSelectionSummary produces a human-readable description of the selections.
-func buildSelectionSummary(agents []string, selection SelectionResult, workflowModels map[string]map[string]string) string {
+func buildSelectionSummary(agents []string, selection SelectionResult, workflowModels map[string]map[string]string, catalogSources []string) string {
 	var b strings.Builder
 
 	_, _ = fmt.Fprintf(&b, "Agents: %s\n\n", formatList(agents, "(none)"))
@@ -109,6 +109,11 @@ func buildSelectionSummary(agents []string, selection SelectionResult, workflowM
 		b.WriteString("\n")
 	}
 
+	// Append catalog sources when configured.
+	if len(catalogSources) > 0 {
+		_, _ = fmt.Fprintf(&b, "Catalogs: %s\n\n", strings.Join(catalogSources, ", "))
+	}
+
 	return b.String()
 }
 
@@ -128,7 +133,7 @@ func formatList(items []string, fallback string) string {
 }
 
 // buildManifestFromSelection constructs a UserManifest from the wizard selections.
-func buildManifestFromSelection(agents []string, selection SelectionResult, workflowModels map[string]map[string]string) model.UserManifest {
+func buildManifestFromSelection(agents []string, selection SelectionResult, workflowModels map[string]map[string]string, catalogSources []string) model.UserManifest {
 	agentRefs := make([]model.AgentRef, 0, len(agents))
 	for _, a := range agents {
 		agentRefs = append(agentRefs, model.AgentRef{Name: a})
@@ -174,11 +179,12 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 	}
 
 	return model.UserManifest{
-		SchemaVersion: "devrune/v1",
-		Agents:        agentRefs,
-		Packages:      pkgRefs,
-		MCPs:          mcpRefs,
-		Workflows:     workflowSources,
+		SchemaVersion:  "devrune/v1",
+		Agents:         agentRefs,
+		Packages:       pkgRefs,
+		MCPs:           mcpRefs,
+		Workflows:      workflowSources,
+		Catalogs:       catalogSources,
 		WorkflowModels: workflowModels,
 	}
 }

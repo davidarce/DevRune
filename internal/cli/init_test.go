@@ -31,64 +31,19 @@ func runInitCmd(t *testing.T, dir string, args ...string) (string, error) {
 	return buf.String(), err
 }
 
-// runSyncCmd is a helper that executes the devrune sync command against dir.
-func runSyncCmd(t *testing.T, dir string, args ...string) (string, error) {
-	t.Helper()
-
-	root := cli.NewRootCmd("test", "abc123")
-	buf := &bytes.Buffer{}
-	root.SetOut(buf)
-	root.SetErr(buf)
-
-	fullArgs := append([]string{"--dir", dir, "sync"}, args...)
-	root.SetArgs(fullArgs)
-
-	err := root.ExecuteContext(context.Background())
-	return buf.String(), err
-}
-
-// writeCatalogConfig writes a valid devrune.catalog.yaml to dir with the given sources.
-func writeCatalogConfig(t *testing.T, dir string, sources []string) string {
-	t.Helper()
-	content := "schemaVersion: devrune-catalog/v1\nsources:\n"
-	for _, s := range sources {
-		content += "  - " + s + "\n"
-	}
-	path := filepath.Join(dir, "devrune.catalog.yaml")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to write devrune.catalog.yaml: %v", err)
-	}
-	return path
-}
-
-// TestInit_ImportCatalogFlag_ReadsSpecifiedFile verifies that --import-catalog
-// reads the specified catalog config file and includes its sources in the manifest.
-// The manifest is written before the resolve step, so we check it even if resolve
-// fails (resolve would fail on a fake source ref in tests without network mocking).
-func TestInit_ImportCatalogFlag_ReadsSpecifiedFile(t *testing.T) {
+// TestInit_CatalogFlag_WritesManifestWithCatalogs verifies that --catalog writes
+// the manifest with the catalogs: key populated.
+func TestInit_CatalogFlag_WritesManifestWithCatalogs(t *testing.T) {
 	dir := t.TempDir()
-	// Write the catalog config to a sub-directory (not the project root) to
-	// ensure auto-detection is bypassed and only the flag path is used.
-	catalogDir := filepath.Join(dir, "catalogs")
-	if err := os.MkdirAll(catalogDir, 0o755); err != nil {
-		t.Fatalf("failed to create catalogs dir: %v", err)
-	}
-	catalogPath := filepath.Join(catalogDir, "devrune.catalog.yaml")
-	content := "schemaVersion: devrune-catalog/v1\nsources:\n  - github:myorg/my-catalog\n"
-	if err := os.WriteFile(catalogPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to write catalog config: %v", err)
-	}
 
-	// Run init with --agents and --import-catalog. We don't check the top-level
-	// error here: the manifest is written before resolve/install, so we can verify
-	// the manifest content even if the resolve step fails (e.g. network not available
-	// in tests). We only fail if the manifest itself was not written at all.
+	// We don't check the top-level error: the manifest is written before
+	// resolve/install, so we verify manifest content even if resolve fails
+	// (no network in tests).
 	runInitCmd(t, dir, //nolint:errcheck
 		"--agents", "claude",
-		"--import-catalog", catalogPath,
+		"--catalog", "github:myorg/my-catalog",
 	)
 
-	// The manifest must have been written (before resolve failure).
 	manifestPath := filepath.Join(dir, "devrune.yaml")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -98,19 +53,21 @@ func TestInit_ImportCatalogFlag_ReadsSpecifiedFile(t *testing.T) {
 	if !strings.Contains(manifestContent, "myorg/my-catalog") {
 		t.Errorf("manifest does not contain catalog source; got:\n%s", manifestContent)
 	}
+	if !strings.Contains(manifestContent, "catalogs:") {
+		t.Errorf("manifest does not contain 'catalogs:' key; got:\n%s", manifestContent)
+	}
 }
 
-// TestInit_AutoDetect_CatalogConfigInWorkingDir verifies that when
-// devrune.catalog.yaml is in the working directory, its sources are
-// automatically included in the manifest.
-func TestInit_AutoDetect_CatalogConfigInWorkingDir(t *testing.T) {
+// TestInit_CatalogFlag_MultipleSources verifies that multiple --catalog flags
+// each appear in the manifest catalogs: list.
+func TestInit_CatalogFlag_MultipleSources(t *testing.T) {
 	dir := t.TempDir()
-	writeCatalogConfig(t, dir, []string{"github:davidarce/devrune-starter-catalog"})
 
-	_, err := runInitCmd(t, dir, "--agents", "claude")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	runInitCmd(t, dir, //nolint:errcheck
+		"--agents", "claude",
+		"--catalog", "github:org/catalog-a",
+		"--catalog", "github:org/catalog-b",
+	)
 
 	manifestPath := filepath.Join(dir, "devrune.yaml")
 	data, err := os.ReadFile(manifestPath)
@@ -118,74 +75,62 @@ func TestInit_AutoDetect_CatalogConfigInWorkingDir(t *testing.T) {
 		t.Fatalf("manifest not written: %v", err)
 	}
 	manifestContent := string(data)
-	if !strings.Contains(manifestContent, "devrune-starter-catalog") {
-		t.Errorf("manifest does not contain auto-detected catalog source; got:\n%s", manifestContent)
+	if !strings.Contains(manifestContent, "catalog-a") {
+		t.Errorf("manifest does not contain catalog-a; got:\n%s", manifestContent)
+	}
+	if !strings.Contains(manifestContent, "catalog-b") {
+		t.Errorf("manifest does not contain catalog-b; got:\n%s", manifestContent)
 	}
 }
 
-// TestInit_MalformedCatalogConfig_WarnsAndContinues verifies that when the
-// auto-detected devrune.catalog.yaml is malformed, init warns but does not fail.
-func TestInit_MalformedCatalogConfig_WarnsAndContinues(t *testing.T) {
-	dir := t.TempDir()
-	// Write a catalog config with an unsupported schema version (malformed).
-	malformed := "schemaVersion: devrune-catalog/v99\nsources:\n  - github:myorg/repo\n"
-	if err := os.WriteFile(filepath.Join(dir, "devrune.catalog.yaml"), []byte(malformed), 0o644); err != nil {
-		t.Fatalf("failed to write catalog config: %v", err)
-	}
-
-	out, err := runInitCmd(t, dir, "--agents", "claude")
-	if err != nil {
-		t.Fatalf("expected init to succeed despite malformed catalog config, got error: %v", err)
-	}
-	if !strings.Contains(out, "warning") {
-		t.Errorf("expected a warning in output for malformed catalog config; got:\n%s", out)
-	}
-}
-
-// TestInit_ImportCatalogFlag_MalformedFile_ReturnsError verifies that when
-// --import-catalog points to a malformed file, init returns an error.
-func TestInit_ImportCatalogFlag_MalformedFile_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	catalogPath := filepath.Join(dir, "bad.catalog.yaml")
-	malformed := "schemaVersion: devrune-catalog/v99\nsources:\n  - github:myorg/repo\n"
-	if err := os.WriteFile(catalogPath, []byte(malformed), 0o644); err != nil {
-		t.Fatalf("failed to write catalog config: %v", err)
-	}
-
-	_, err := runInitCmd(t, dir, "--agents", "claude", "--import-catalog", catalogPath)
-	if err == nil {
-		t.Fatal("expected error for malformed --import-catalog file, got none")
-	}
-	if !strings.Contains(err.Error(), "unsupported schemaVersion") {
-		t.Errorf("error %q does not contain 'unsupported schemaVersion'", err.Error())
-	}
-}
-
-// TestInit_ImportCatalogFlag_NotFound_ReturnsError verifies that --import-catalog
-// with a path that doesn't exist returns an error.
-func TestInit_ImportCatalogFlag_NotFound_ReturnsError(t *testing.T) {
+// TestInit_CatalogFlag_MergesWithExistingManifest verifies that when devrune.yaml
+// already exists with catalogs:, running init with --catalog merges both lists.
+func TestInit_CatalogFlag_MergesWithExistingManifest(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := runInitCmd(t, dir, "--agents", "claude", "--import-catalog", filepath.Join(dir, "nonexistent.yaml"))
-	if err == nil {
-		t.Fatal("expected error for missing --import-catalog file, got none")
+	// Pre-write a manifest with an existing catalog entry.
+	existing := "schemaVersion: devrune/v1\nagents:\n  - name: claude\ncatalogs:\n  - github:org/existing-catalog\n"
+	if err := os.WriteFile(filepath.Join(dir, "devrune.yaml"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("failed to write existing manifest: %v", err)
 	}
-}
 
-// TestInit_CatalogSourcesMerged_WithExplicitSources verifies that catalog sources
-// are merged with --source flag values without duplicates.
-// The manifest is written before resolve, so we verify content even if resolve fails.
-func TestInit_CatalogSourcesMerged_WithExplicitSources(t *testing.T) {
-	dir := t.TempDir()
-	// Catalog has one source; --source flag provides the same source plus another.
-	writeCatalogConfig(t, dir, []string{"github:myorg/catalog-repo"})
-
-	// Ignore top-level error — the manifest is written before the resolve step
-	// which will fail for fake source refs in a unit test environment.
+	// Run init with --catalog adding a new entry. --force to overwrite.
 	runInitCmd(t, dir, //nolint:errcheck
 		"--agents", "claude",
-		"--source", "github:myorg/catalog-repo",
-		"--source", "github:myorg/extra-repo",
+		"--catalog", "github:org/new-catalog",
+		"--force",
+	)
+
+	manifestPath := filepath.Join(dir, "devrune.yaml")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("manifest not written: %v", err)
+	}
+	manifestContent := string(data)
+	if !strings.Contains(manifestContent, "existing-catalog") {
+		t.Errorf("manifest does not contain existing catalog; got:\n%s", manifestContent)
+	}
+	if !strings.Contains(manifestContent, "new-catalog") {
+		t.Errorf("manifest does not contain new catalog; got:\n%s", manifestContent)
+	}
+}
+
+// TestInit_CatalogFlag_Deduplicates verifies that if --catalog supplies a source
+// already in the existing manifest catalogs:, it appears only once.
+func TestInit_CatalogFlag_Deduplicates(t *testing.T) {
+	dir := t.TempDir()
+
+	// Pre-write a manifest with a catalog entry.
+	existing := "schemaVersion: devrune/v1\nagents:\n  - name: claude\ncatalogs:\n  - github:org/shared-catalog\n"
+	if err := os.WriteFile(filepath.Join(dir, "devrune.yaml"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("failed to write existing manifest: %v", err)
+	}
+
+	// Run init with --catalog supplying the same source. --force to overwrite.
+	runInitCmd(t, dir, //nolint:errcheck
+		"--agents", "claude",
+		"--catalog", "github:org/shared-catalog",
+		"--force",
 	)
 
 	manifestPath := filepath.Join(dir, "devrune.yaml")
@@ -195,66 +140,37 @@ func TestInit_CatalogSourcesMerged_WithExplicitSources(t *testing.T) {
 	}
 	manifestContent := string(data)
 
-	// Both repos should appear, but catalog-repo should appear only once.
-	catalogCount := strings.Count(manifestContent, "catalog-repo")
-	if catalogCount != 1 {
-		t.Errorf("expected catalog-repo to appear exactly once in manifest (deduplication), got %d occurrences; manifest:\n%s",
-			catalogCount, manifestContent)
+	// The shared-catalog source should appear in the catalogs: section only once.
+	// (It may also appear in packages: because catalog sources are merged into packages.)
+	// Count occurrences within the catalogs: block specifically.
+	catalogsIdx := strings.Index(manifestContent, "catalogs:")
+	if catalogsIdx == -1 {
+		t.Fatalf("manifest does not contain 'catalogs:' key; got:\n%s", manifestContent)
 	}
-	if !strings.Contains(manifestContent, "extra-repo") {
-		t.Errorf("manifest does not contain explicit --source entry; got:\n%s", manifestContent)
-	}
-}
-
-// TestSync_SuggestionMessage_WhenCatalogExistsWithoutManifest verifies that
-// sync prints a helpful message when devrune.catalog.yaml exists but no
-// devrune.yaml is present.
-func TestSync_SuggestionMessage_WhenCatalogExistsWithoutManifest(t *testing.T) {
-	dir := t.TempDir()
-	writeCatalogConfig(t, dir, []string{"github:myorg/catalog-repo"})
-	// No devrune.yaml written — sync should print the suggestion.
-
-	out, _ := runSyncCmd(t, dir)
-	// Sync will fail (no manifest), but the suggestion must appear in output before the error.
-	if !strings.Contains(out, "devrune.catalog.yaml") {
-		t.Errorf("expected suggestion message mentioning devrune.catalog.yaml in output; got:\n%s", out)
-	}
-	if !strings.Contains(out, "devrune init") {
-		t.Errorf("expected suggestion message to mention `devrune init`; got:\n%s", out)
+	catalogsSection := manifestContent[catalogsIdx:]
+	count := strings.Count(catalogsSection, "shared-catalog")
+	if count != 1 {
+		t.Errorf("expected shared-catalog to appear exactly once in catalogs: section (deduplication), got %d; catalogs section:\n%s",
+			count, catalogsSection)
 	}
 }
 
-// TestSync_NoSuggestion_WhenManifestExists verifies that sync does NOT print the
-// catalog suggestion when devrune.yaml already exists.
-func TestSync_NoSuggestion_WhenManifestExists(t *testing.T) {
-	dir := t.TempDir()
-	writeCatalogConfig(t, dir, []string{"github:myorg/catalog-repo"})
-	// Write a minimal (but real) devrune.yaml so sync finds it.
-	manifest := "schemaVersion: devrune/v1\nagents: []\npackages: []\nmcps: []\nworkflows: []\n"
-	if err := os.WriteFile(filepath.Join(dir, "devrune.yaml"), []byte(manifest), 0o644); err != nil {
-		t.Fatalf("failed to write manifest: %v", err)
-	}
-
-	out, _ := runSyncCmd(t, dir)
-	// The suggestion should NOT be printed since the manifest exists.
-	if strings.Contains(out, "Found devrune.catalog.yaml but no devrune.yaml") {
-		t.Errorf("unexpected suggestion message when manifest exists; got:\n%s", out)
-	}
-}
-
-// TestInit_FlagRegistered_ImportCatalog verifies the --import-catalog flag is
-// registered on the init command.
-func TestInit_FlagRegistered_ImportCatalog(t *testing.T) {
+// TestInit_FlagRegistered_Catalog verifies that --catalog flag is registered on
+// the init command and --import-catalog is not.
+func TestInit_FlagRegistered_Catalog(t *testing.T) {
 	root := cli.NewRootCmd("test", "abc123")
 	initCmd, _, err := root.Find([]string{"init"})
 	if err != nil {
 		t.Fatalf("init command not found: %v", err)
 	}
-	flag := initCmd.Flags().Lookup("import-catalog")
-	if flag == nil {
-		t.Fatal("--import-catalog flag not registered on init command")
+
+	catalogFlag := initCmd.Flags().Lookup("catalog")
+	if catalogFlag == nil {
+		t.Fatal("--catalog flag not registered on init command")
 	}
-	if flag.DefValue != "" {
-		t.Errorf("--import-catalog default value = %q, want empty string", flag.DefValue)
+
+	importCatalogFlag := initCmd.Flags().Lookup("import-catalog")
+	if importCatalogFlag != nil {
+		t.Error("--import-catalog flag must not be registered on init command (removed)")
 	}
 }
