@@ -91,30 +91,59 @@ The wizard walks you through selecting agents and package sources, then resolves
 ```yaml
 schemaVersion: devrune/v1
 
+# Packages: skills and rules from one or more catalogs.
+# Use select: to pick specific items, or omit for all.
 packages:
   - source: github:davidarce/devrune-starter-catalog@main
     select:
       skills:
-        - architect-adviser
-        - git-commit
-        - unit-test-adviser
+        - architect-adviser       # Clean architecture patterns
+        - git-commit              # Conventional Commits automation
+        - git-pull-request        # PR creation (GitHub + GitLab)
+        - review-pr               # AI-powered PR code review
+        - unit-test-adviser       # Domain unit test patterns
+        - api-first-adviser       # OpenAPI / REST design
+        - component-adviser       # React component patterns
       rules:
         - architecture/clean-architecture-rules
+        - tech/java-spring-rules
         - tech/react-rules
         - testing/mother-pattern-rules
+        - testing/adapter-it-patterns-rules
 
+# MCP servers: tool integrations (Jira, memory, docs, search).
 mcps:
+  - source: github:davidarce/devrune-starter-catalog@main//mcps/atlassian.yaml
   - source: github:davidarce/devrune-starter-catalog@main//mcps/engram.yaml
   - source: github:davidarce/devrune-starter-catalog@main//mcps/context7.yaml
+  - source: github:davidarce/devrune-starter-catalog@main//mcps/exa.yaml
+  - source: github:davidarce/devrune-starter-catalog@main//mcps/ref.yaml
 
+# Agents: which AI agents to configure. DevRune generates the correct
+# files for each one (skills, settings, MCP config, catalog).
 agents:
-  - name: claude
-  - name: codex
-  - name: opencode
-  - name: copilot
+  - name: claude    # .claude/ + CLAUDE.md
+  - name: codex     # .agents/ + .codex/ + AGENTS.md
+  - name: opencode  # .agents/ + .opencode/ + AGENTS.md
+  - name: copilot   # .github/ + copilot-instructions.md
+  - name: factory   # .agents/ + .factory/ + AGENTS.md
 
+# Workflows: multi-phase development flows.
 workflows:
   - github:davidarce/devrune-starter-catalog@main//workflows/sdd
+
+# Catalogs: source refs auto-derived from your packages/mcps/workflows.
+# Used by `devrune init` to pre-load sources in the wizard on re-run.
+# Managed automatically by sync — you don't need to edit this manually.
+catalogs:
+  - github:davidarce/devrune-starter-catalog
+
+# Install preferences (optional).
+install:
+  linkMode: copy              # copy | symlink | hardlink
+  rulesMode:
+    claude: concat            # concat | individual | both
+    opencode: individual
 ```
 
 **2. Sync (resolve + install):**
@@ -123,7 +152,7 @@ workflows:
 devrune sync   # Fetch packages, update lockfile, materialize workspace
 ```
 
-That's it. Your workspace now has correctly formatted skills, rules, MCP configs, and workflows for Claude, Codex, OpenCode, and Copilot. If the catalog includes developer tools (e.g. Crit, Engram), `devrune init` will also offer to install them via Homebrew.
+That's it. Your workspace now has correctly formatted skills, rules, MCP configs, settings, and workflows for all configured agents. If the catalog includes developer tools (e.g. Crit, Engram), `devrune init` will also offer to install them via Homebrew.
 
 > You can also run `devrune resolve` and `devrune install` separately for advanced workflows (CI/CD, offline installs).
 
@@ -239,37 +268,52 @@ The `devrune.yaml` manifest declares everything DevRune needs:
 ```yaml
 schemaVersion: devrune/v1
 
-# Packages contain skills and rules
+# ─── Packages ────────────────────────────────────────────────
+# Skills and rules from one or more catalogs.
+# Supports GitHub, GitLab (with custom host), and local sources.
 packages:
-  - source: github:owner/repo@ref
-  - source: github:owner/repo@ref//subpath
-    select:                          # Optional: pick specific items
+  - source: github:owner/repo@ref                      # All skills + rules
+  - source: github:owner/repo@ref//subpath              # Subdirectory within repo
+    select:                                              # Pick specific items
       skills: [skill-a, skill-b]
       rules: [category/rule-name]
-  - source: gitlab:owner/repo@ref?host=gitlab.example.com
-  - source: local:./path/to/catalog
+  - source: gitlab:owner/repo@ref?host=gitlab.example.com  # Self-hosted GitLab
+  - source: local:./path/to/catalog                     # Local directory
 
-# MCP server definitions
+# ─── MCP Servers ─────────────────────────────────────────────
+# Tool integrations. Each MCP YAML can declare permissions: { level: allow }
+# for automatic settings generation across all agents.
 mcps:
-  - source: github:owner/repo@ref//mcps/server.yaml
+  - source: github:owner/repo@ref//mcps/atlassian.yaml  # Jira + Confluence
+  - source: github:owner/repo@ref//mcps/engram.yaml     # Persistent memory
+  - source: github:owner/repo@ref//mcps/context7.yaml   # Library docs
 
-# Target agents
+# ─── Agents ──────────────────────────────────────────────────
+# Which AI agents to configure. Each gets its own renderer.
 agents:
-  - name: claude
-  - name: opencode
-  - name: copilot
-  - name: codex
-  - name: factory
+  - name: claude    # .claude/skills/, CLAUDE.md, settings.json, .mcp.json
+  - name: codex     # .agents/skills/, AGENTS.md, .codex/config.toml (TOML)
+  - name: opencode  # .agents/skills/, AGENTS.md, opencode.json
+  - name: copilot   # .github/, copilot-instructions.md, .vscode/settings.json
+  - name: factory   # .agents/skills/, AGENTS.md, .factory/mcp.json
 
-# Workflows (e.g. SDD — Spec-Driven Development)
+# ─── Workflows ───────────────────────────────────────────────
+# Multi-phase development workflows with orchestrators and phase skills.
 workflows:
-  - github:owner/repo@ref//workflows/sdd
+  - github:owner/repo@ref//workflows/sdd               # Spec-Driven Development
 
-# Optional install preferences
+# ─── Catalogs ────────────────────────────────────────────────
+# Auto-derived from your sources by sync/init. Pre-loads these catalogs
+# in the TUI wizard when re-running `devrune init`. Managed automatically.
+catalogs:
+  - github:owner/repo
+  - gitlab:org/custom-catalog?host=gitlab.example.com
+
+# ─── Install Preferences (optional) ─────────────────────────
 install:
-  linkMode: copy          # copy | symlink | hardlink
+  linkMode: copy              # copy | symlink | hardlink
   rulesMode:
-    claude: concat        # concat | individual | both
+    claude: concat            # concat | individual | both
     opencode: individual
 ```
 
@@ -316,7 +360,7 @@ When `devrune init` finds an existing `devrune.yaml`, it reads the `catalogs:` k
 
 **Sync behavior:**
 
-`devrune sync` reads `catalogs:` from the manifest but does not use it — catalog sources are init-only metadata. The `packages:` list is the operative field for sync and install.
+`devrune sync` automatically derives catalog roots from your `packages:`, `mcps:`, and `workflows:` sources and writes them to `catalogs:`. This keeps the field up to date without manual editing.
 
 ### Source Ref Formats
 
