@@ -1,5 +1,0 @@
-schemaVersion: devrune-catalog/v1
-sources:
-  - github:davidarce/devrune-starter-catalog
-  - github:myorg/custom-catalog@v2
-  - gitlab:anotherorg/catalog-repo@main

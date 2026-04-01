@@ -18,6 +18,9 @@ agents:
 workflows:
   - github:davidarce/devrune-starter@v0.1.0//workflows/sdd
 
+catalogs:
+  - github:davidarce/devrune-starter-catalog
+
 install:
   linkMode: copy
   rulesMode:

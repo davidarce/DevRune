@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
@@ -40,7 +41,7 @@ sources. In non-interactive mode, use flags to specify all options.`,
 	cmd.Flags().StringArray("mcp", nil, "MCP server source refs (repeatable)")
 	cmd.Flags().StringArray("workflow", nil, "Workflow source refs (repeatable)")
 	cmd.Flags().Bool("force", false, "Overwrite existing devrune.yaml without prompting")
-	cmd.Flags().String("import-catalog", "", "Path to a devrune.catalog.yaml file to pre-load catalog sources")
+	cmd.Flags().StringArray("catalog", nil, "Catalog source refs (repeatable, e.g. github:org/catalog)")
 
 	return cmd
 }
@@ -56,39 +57,41 @@ func runInit(cmd *cobra.Command, args []string) error {
 	sources, _ := cmd.Flags().GetStringArray("source")
 	mcps, _ := cmd.Flags().GetStringArray("mcp")
 	workflows, _ := cmd.Flags().GetStringArray("workflow")
-	importCatalogPath, _ := cmd.Flags().GetString("import-catalog")
+	catalogFlags, _ := cmd.Flags().GetStringArray("catalog")
 
 	// Determine whether any flags were explicitly provided.
 	hasFlags := cmd.Flags().Changed("agents") ||
 		cmd.Flags().Changed("source") ||
 		cmd.Flags().Changed("mcp") ||
-		cmd.Flags().Changed("workflow")
+		cmd.Flags().Changed("workflow") ||
+		cmd.Flags().Changed("catalog")
 
 	out := cmd.OutOrStdout()
 	destPath := filepath.Join(wd, "devrune.yaml")
 
-	// Resolve catalog sources: --import-catalog takes precedence over auto-detection.
+	// Resolve catalog sources: merge --catalog flag values with catalogs from
+	// the existing manifest (if devrune.yaml already exists). CLI flags take
+	// precedence; existing manifest catalogs are appended if not already present.
 	var catalogSources []string
-	if importCatalogPath != "" {
-		data, err := os.ReadFile(importCatalogPath)
-		if err != nil {
-			printError(out, fmt.Sprintf("--import-catalog: failed to read %s: %v", importCatalogPath, err))
-			return err
+	{
+		seen := make(map[string]bool)
+		for _, src := range catalogFlags {
+			if src != "" && !seen[src] {
+				seen[src] = true
+				catalogSources = append(catalogSources, src)
+			}
 		}
-		cfg, err := parse.ParseCatalogConfig(data)
-		if err != nil {
-			printError(out, fmt.Sprintf("--import-catalog: %v", err))
-			return err
-		}
-		catalogSources = cfg.Sources
-	} else {
-		// Auto-detect devrune.catalog.yaml in the working directory.
-		cfg, err := parse.DetectCatalogConfig(wd)
-		if err != nil {
-			// Warn and continue with no extra sources (per Q2 decision).
-			_, _ = fmt.Fprintf(out, "  warning: catalog config detected but could not be parsed: %v\n", err)
-		} else if cfg != nil {
-			catalogSources = cfg.Sources
+		// Read catalogs from existing manifest if present.
+		if existingData, err := os.ReadFile(destPath); err == nil {
+			var existing model.UserManifest
+			if err := yaml.Unmarshal(existingData, &existing); err == nil {
+				for _, src := range existing.Catalogs {
+					if src != "" && !seen[src] {
+						seen[src] = true
+						catalogSources = append(catalogSources, src)
+					}
+				}
+			}
 		}
 	}
 
@@ -187,6 +190,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			Packages:      pkgRefs,
 			MCPs:          mcpRefs,
 			Workflows:     workflows,
+			Catalogs:      catalogSources,
 		}
 	}
 
