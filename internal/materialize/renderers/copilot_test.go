@@ -826,7 +826,8 @@ permissions:
 		t.Fatalf("RenderSettings: %v", err)
 	}
 
-	settingsPath := filepath.Join(workspaceRoot, ".vscode", "settings.json")
+	// Settings must be written at project root (one level up from .github).
+	settingsPath := filepath.Join(projectRoot, ".vscode", "settings.json")
 	content, err := os.ReadFile(settingsPath)
 	if err != nil {
 		t.Fatalf("read .vscode/settings.json: %v", err)
@@ -890,7 +891,8 @@ permissions:
 		t.Fatalf("RenderSettings: %v", err)
 	}
 
-	settingsPath := filepath.Join(workspaceRoot, ".vscode", "settings.json")
+	// Settings must be written at project root (one level up from .github).
+	settingsPath := filepath.Join(projectRoot, ".vscode", "settings.json")
 	content, err := os.ReadFile(settingsPath)
 	if err != nil {
 		t.Fatalf("read .vscode/settings.json: %v", err)
@@ -909,8 +911,8 @@ func TestCopilotRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {
 	def := copilotDefWithSettings(projectRoot)
 	r := renderers.NewCopilotRenderer(def)
 
-	// Pre-write a .vscode/settings.json with other VS Code settings.
-	vscodeDir := filepath.Join(workspaceRoot, ".vscode")
+	// Pre-write a .vscode/settings.json at the project root (one level up from .github).
+	vscodeDir := filepath.Join(projectRoot, ".vscode")
 	if err := os.MkdirAll(vscodeDir, 0o755); err != nil {
 		t.Fatalf("mkdir .vscode: %v", err)
 	}
@@ -944,7 +946,8 @@ permissions:
 		t.Fatalf("RenderSettings: %v", err)
 	}
 
-	content, err := os.ReadFile(filepath.Join(vscodeDir, "settings.json"))
+	// Settings are at the project root, not inside .github.
+	content, err := os.ReadFile(filepath.Join(projectRoot, ".vscode", "settings.json"))
 	if err != nil {
 		t.Fatalf("read settings.json: %v", err)
 	}

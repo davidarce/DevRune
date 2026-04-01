@@ -117,6 +117,11 @@ type WorkflowComponents struct {
 	// Permissions lists permission patterns to include in the agent's settings file
 	// (e.g. ".claude/settings.json"). Additive with base agent permissions.
 	Permissions []string `yaml:"permissions,omitempty"`
+
+	// Gitignore lists patterns to add to .gitignore for this workflow's working
+	// directories and artifacts (e.g. ".sdd/" for the SDD workflow). Optional —
+	// workflows that don't produce on-disk artifacts can omit this.
+	Gitignore []string `yaml:"gitignore,omitempty"`
 }
 
 // WorkflowCommand represents a slash command exposed by the workflow in the agent's catalog.

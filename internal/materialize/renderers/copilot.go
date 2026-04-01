@@ -588,8 +588,8 @@ func (r *CopilotRenderer) RenderSettings(workspaceRoot string, skills []model.Co
 		return nil
 	}
 
-	// .vscode/settings.json lives next to the workspace root (one level up from .github).
-	vscodeDir := filepath.Join(workspaceRoot, ".vscode")
+	// .vscode/settings.json lives at the project root (one level up from .github).
+	vscodeDir := filepath.Join(workspaceRoot, "..", ".vscode")
 	settingsPath := filepath.Join(vscodeDir, "settings.json")
 
 	// Read existing settings if present (preserve other VS Code settings).
@@ -652,6 +652,16 @@ func (r *CopilotRenderer) RenderSettings(workspaceRoot string, skills []model.Co
 }
 
 func (r *CopilotRenderer) Finalize(workspaceRoot string) error { return nil }
+
+// SettingsManagedPaths returns the settings file path that RenderSettings writes for Copilot.
+// Copilot writes .vscode/settings.json at the project root (one level up from .github).
+// Used by the materializer to track the file for cleanup on reinstall.
+func (r *CopilotRenderer) SettingsManagedPaths(workspaceRoot string) []string {
+	if r.agentDef.Settings == nil {
+		return nil
+	}
+	return []string{filepath.Join(workspaceRoot, "..", ".vscode", "settings.json")}
+}
 
 // ManagedConfigPaths returns the workspace-level config file paths that the Copilot
 // renderer owns and that the materializer should track for cleanup purposes.

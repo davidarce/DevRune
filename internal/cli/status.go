@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/davidarce/devrune/internal/parse"
 	"github.com/davidarce/devrune/internal/state"
 )
 
@@ -64,25 +65,38 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	_, _ = fmt.Fprintf(out, "Managed paths:   %d\n", len(s.ManagedPaths))
 
-	// Check lockfile staleness.
-	lockPath := filepath.Join(wd, "devrune.lock")
-	lockData, err := os.ReadFile(lockPath)
+	// Check staleness by comparing the stored manifest hash with the current manifest.
+	// The stored LockHash is actually a hash of the manifest YAML at install time.
+	manifestPath := filepath.Join(wd, "devrune.yaml")
+	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			_, _ = fmt.Fprintf(out, "Lockfile status: missing (devrune.lock not found)\n")
+			_, _ = fmt.Fprintf(out, "Status: missing (devrune.yaml not found)\n")
 		} else {
-			_, _ = fmt.Fprintf(out, "Lockfile status: error reading lockfile\n")
+			_, _ = fmt.Fprintf(out, "Status: error reading manifest\n")
 		}
 		return nil
 	}
 
-	// Compute SHA256 of the lockfile content and compare with the stored LockHash.
-	sum := sha256.Sum256(lockData)
-	lockfileHash := fmt.Sprintf("sha256:%x", sum)
-	if lockfileHash == s.LockHash {
+	manifest, err := parse.ParseManifest(manifestData)
+	if err != nil {
+		_, _ = fmt.Fprintf(out, "Status: error parsing manifest\n")
+		return nil
+	}
+
+	// Compute manifest hash the same way the resolver does.
+	serialized, err := parse.SerializeManifest(manifest)
+	if err != nil {
+		_, _ = fmt.Fprintf(out, "Status: error serializing manifest\n")
+		return nil
+	}
+	sum := sha256.Sum256(serialized)
+	currentHash := fmt.Sprintf("sha256:%x", sum)
+
+	if currentHash == s.LockHash {
 		_, _ = fmt.Fprintf(out, "Status: fresh\n")
 	} else {
-		_, _ = fmt.Fprintf(out, "Status: stale (lockfile changed since last install)\n")
+		_, _ = fmt.Fprintf(out, "Status: stale (manifest changed since last install)\n")
 	}
 
 	return nil

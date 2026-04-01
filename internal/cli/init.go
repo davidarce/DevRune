@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
-	"github.com/davidarce/devrune/internal/tui"
 	"github.com/davidarce/devrune/internal/tui/steps"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
@@ -130,21 +128,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	var manifest model.UserManifest
-	var installedTools []string
 
-	if !nonInteractive && !hasFlags {
-		// Interactive TUI wizard path.
-		result, tuiErr := tui.Run(catalogSources)
-		if tuiErr != nil {
-			if errors.Is(tuiErr, huh.ErrUserAborted) {
-				_, _ = fmt.Fprintln(out, "Aborted.")
-				return nil
-			}
-			return fmt.Errorf("tui wizard: %w", tuiErr)
-		}
-		manifest = result.Manifest
-		installedTools = result.InstalledTools
-	} else {
+	{
 		// Non-interactive / flag-based path.
 		// Merge catalog sources into --source flag values. Explicit --source flags are
 		// added first; catalog sources are appended if not already present.
@@ -224,6 +209,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Resolve + install if there are packages to fetch.
 	if len(manifest.Packages) > 0 || len(manifest.MCPs) > 0 || len(manifest.Workflows) > 0 {
+		// Derive catalogs from sources and update manifest before resolving.
+		// This must happen before RunResolve so the lock hash matches the installed state.
+		_ = syncCatalogs(manifest, destPath)
+
 		// Resolve.
 		printProgress(out, "Resolving packages...")
 		lockfile, err := RunResolve(ctx, wd, destPath, verbose, nopWriter{})
@@ -244,29 +233,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 		printDone(out, fmt.Sprintf("Installed for agents: %s", strings.Join(agentSummary, ", ")))
 
-		// Derive catalogs from sources and update manifest.
-		_ = syncCatalogs(manifest, destPath)
-
 		_ = lockfile
 	} else {
 		_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  No packages to resolve."))
 	}
 
-	// --- Interactive completion screen ---
-	if !nonInteractive && !hasFlags {
-		info := tui.CompletionInfo{
-			Agents:         agentSummary,
-			Packages:       len(manifest.Packages),
-			MCPs:           len(manifest.MCPs),
-			Workflows:      len(manifest.Workflows),
-			Manifest:       destPath,
-			Lockfile:       filepath.Join(wd, "devrune.lock"),
-			InstalledTools: installedTools,
-		}
-		return tui.RunCompletion(info)
-	}
-
-	// Non-interactive: plain text summary.
+	// Non-interactive / flag-based: plain text summary.
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  Installation complete!"))
 	_, _ = fmt.Fprintln(out)

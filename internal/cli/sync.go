@@ -41,13 +41,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 
 	manifestFlag, _ := cmd.Flags().GetString("manifest")
 
-	// Step 1: Resolve.
-	lockfile, err := RunResolve(ctx, wd, manifestFlag, verbose, out)
-	if err != nil {
-		return fmt.Errorf("sync resolve: %w", err)
-	}
-
-	// Step 2: Read manifest for agent refs and install config.
+	// Step 1: Read manifest for agent refs and install config.
 	manifestPath := manifestFlag
 	if !filepath.IsAbs(manifestPath) {
 		manifestPath = filepath.Join(wd, manifestPath)
@@ -61,7 +55,19 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("sync: parse manifest: %w", err)
 	}
 
-	// Step 3: Install using the lockfile we just resolved.
+	// Step 2: Derive catalogs from sources and update manifest before resolving.
+	// This must happen before RunResolve so the lock hash matches the installed state.
+	if err := syncCatalogs(manifest, manifestPath); err != nil {
+		_, _ = fmt.Fprintf(out, "Warning: could not update catalogs: %v\n", err)
+	}
+
+	// Step 3: Resolve.
+	lockfile, err := RunResolve(ctx, wd, manifestPath, verbose, out)
+	if err != nil {
+		return fmt.Errorf("sync resolve: %w", err)
+	}
+
+	// Step 4: Install using the lockfile we just resolved.
 	// RunInstall reads the lockfile from disk, but we already wrote it in RunResolve.
 	// We still need to pass the lockfile path for RunInstall's interface.
 	lockPath := filepath.Join(wd, "devrune.lock")
@@ -70,11 +76,6 @@ func runSync(cmd *cobra.Command, _ []string) error {
 
 	if err := RunInstall(ctx, wd, lockPath, manifest, verbose, out); err != nil {
 		return fmt.Errorf("sync install: %w", err)
-	}
-
-	// Step 4: Derive catalogs from sources and update manifest if needed.
-	if err := syncCatalogs(manifest, manifestPath); err != nil {
-		_, _ = fmt.Fprintf(out, "Warning: could not update catalogs: %v\n", err)
 	}
 
 	return nil

@@ -49,10 +49,9 @@ internal/materialize/.mcp.json
 .devrune/
 .claude/
 .opencode/
-.github/agents/
-.github/copilot-instructions.md
-.github/rules/
-.github/skills/
+.github/
 .factory/
 .mcp.json
+.agents/
 # <<< devrune managed
+.SDD (Spec-Driven Development)/
