@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
+	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
 )
 
@@ -69,5 +72,113 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("sync install: %w", err)
 	}
 
+	// Step 4: Derive catalogs from sources and update manifest if needed.
+	if err := syncCatalogs(manifest, manifestPath); err != nil {
+		_, _ = fmt.Fprintf(out, "Warning: could not update catalogs: %v\n", err)
+	}
+
 	return nil
+}
+
+// syncCatalogs derives catalog root refs from all source refs in the manifest
+// (packages, mcps, workflows) and writes them to the catalogs: key if any are
+// missing. This keeps the manifest self-documenting about which catalogs it uses.
+func syncCatalogs(manifest model.UserManifest, manifestPath string) error {
+	derived := deriveCatalogRoots(manifest)
+	if len(derived) == 0 {
+		return nil
+	}
+
+	// Check if all derived catalogs are already present.
+	existing := make(map[string]bool, len(manifest.Catalogs))
+	for _, c := range manifest.Catalogs {
+		existing[c] = true
+	}
+
+	var missing []string
+	for _, d := range derived {
+		if !existing[d] {
+			missing = append(missing, d)
+		}
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+
+	// Merge missing catalogs into the manifest and rewrite.
+	manifest.Catalogs = append(manifest.Catalogs, missing...)
+
+	data, err := yaml.Marshal(&manifest)
+	if err != nil {
+		return fmt.Errorf("marshal manifest: %w", err)
+	}
+
+	// Prepend schemaVersion line (yaml.Marshal puts it inline but we want clean output).
+	return os.WriteFile(manifestPath, data, 0o644)
+}
+
+// deriveCatalogRoots extracts unique catalog root refs from all source refs.
+// For "local:/path/to/catalog/mcps/x.yaml" → "local:/path/to/catalog"
+// For "github:owner/repo@ref//subpath" → "github:owner/repo@ref"
+// For "github:owner/repo@ref" → "github:owner/repo@ref"
+func deriveCatalogRoots(manifest model.UserManifest) []string {
+	seen := make(map[string]bool)
+	var roots []string
+
+	addRoot := func(sourceRef string) {
+		root := extractCatalogRoot(sourceRef)
+		if root != "" && !seen[root] {
+			seen[root] = true
+			roots = append(roots, root)
+		}
+	}
+
+	for _, pkg := range manifest.Packages {
+		addRoot(pkg.Source)
+	}
+	for _, mcp := range manifest.MCPs {
+		addRoot(mcp.Source)
+	}
+	for _, wf := range manifest.Workflows {
+		addRoot(wf)
+	}
+
+	return roots
+}
+
+// extractCatalogRoot extracts the catalog root from a source ref.
+//
+// Patterns:
+//   - "github:owner/repo@ref//subpath" → "github:owner/repo@ref"
+//   - "github:owner/repo@ref" → "github:owner/repo@ref"
+//   - "gitlab:owner/repo@ref//subpath" → "gitlab:owner/repo@ref"
+//   - "local:/path/to/catalog" → "local:/path/to/catalog"
+//   - "local:/path/to/catalog/mcps/x.yaml" → strips /mcps/*, /workflows/*, /skills/*
+func extractCatalogRoot(sourceRef string) string {
+	if sourceRef == "" {
+		return ""
+	}
+
+	// GitHub/GitLab: strip //subpath
+	if strings.HasPrefix(sourceRef, "github:") || strings.HasPrefix(sourceRef, "gitlab:") {
+		if idx := strings.Index(sourceRef, "//"); idx != -1 {
+			return sourceRef[:idx]
+		}
+		return sourceRef
+	}
+
+	// Local: strip known subdirectories
+	if strings.HasPrefix(sourceRef, "local:") {
+		path := strings.TrimPrefix(sourceRef, "local:")
+		// Strip /mcps/*, /workflows/*, /skills/*, /rules/* suffixes
+		for _, marker := range []string{"/mcps/", "/workflows/", "/skills/", "/rules/", "/tools/"} {
+			if idx := strings.Index(path, marker); idx != -1 {
+				return "local:" + path[:idx]
+			}
+		}
+		return sourceRef
+	}
+
+	return sourceRef
 }
