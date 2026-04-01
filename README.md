@@ -83,24 +83,20 @@ devrune
 ```
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  ██████╗ ███████╗██╗   ██╗██████╗ ██╗   ██╗███╗   ██╗  │
-│  ██╔══██╗██╔════╝██║   ██║██╔══██╗██║   ██║████╗  ██║  │
-│  ██║  ██║█████╗  ██║   ██║██████╔╝██║   ██║██╔██╗ ██║  │
-│  ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║  │
-│  ██████╔╝███████╗ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║  │
-│  ╚═════╝ ╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝│
-│  Package manager for AI agent instructions               │
-│                                                          │
-│  What would you like to do?                              │
-│  > Setup              Configure agents from scratch      │
-│    Sync project       Resolve + install changes          │
-│    Status             View workspace state               │
-│    Upgrade DevRune    Download latest version             │
-│    Uninstall          Remove all managed files            │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+██████╗ ███████╗██╗   ██╗██████╗ ██╗   ██╗███╗   ██╗███████╗
+██╔══██╗██╔════╝██║   ██║██╔══██╗██║   ██║████╗  ██║██╔════╝
+██║  ██║█████╗  ██║   ██║██████╔╝██║   ██║██╔██╗ ██║█████╗
+██║  ██║██╔══╝  ╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║██╔══╝
+██████╔╝███████╗ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║███████╗
+╚═════╝ ╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
+Package manager for AI agent instructions
+
+What would you like to do?
+> Setup
+  Sync project
+  Status
+  Upgrade DevRune
+  Uninstall
 ```
 
 The interactive menu gives you quick access to all DevRune operations. Select **Setup** to configure agents and install packages from your catalogs — the wizard walks you through agent selection, package sources, and developer tools.
