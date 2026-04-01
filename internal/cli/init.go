@@ -244,6 +244,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 		printDone(out, fmt.Sprintf("Installed for agents: %s", strings.Join(agentSummary, ", ")))
 
+		// Derive catalogs from sources and update manifest.
+		_ = syncCatalogs(manifest, destPath)
+
 		_ = lockfile
 	} else {
 		_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  No packages to resolve."))
