@@ -275,6 +275,48 @@ install:
 
 > **Note on tools:** Developer tools (e.g. Crit, Engram) are defined in the catalog's `tools/` directory, not in the manifest. During `devrune init`, the wizard automatically discovers tools from your selected catalog sources, checks which ones are relevant based on your selections (MCPs, workflows), and offers to install them via Homebrew. Tools are a side-effect of init — they don't appear in `devrune.yaml` or `devrune.lock`.
 
+### Catalog Config File (`devrune.catalog.yaml`)
+
+A `devrune.catalog.yaml` file declares which catalog source refs should be pre-loaded when running `devrune init`. Place this file in your project root (or any catalog repository root) to seed the TUI wizard's source selection step with recommended catalogs.
+
+**Schema:**
+
+```yaml
+schemaVersion: devrune-catalog/v1
+sources:
+  - github:davidarce/devrune-starter-catalog
+  - github:myorg/custom-catalog@v2
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `schemaVersion` | Yes | Must be `devrune-catalog/v1` |
+| `sources` | Yes | List of source ref strings to pre-load (see [Source Ref Formats](#source-ref-formats)) |
+
+**Auto-detection during `devrune init`:**
+
+When you run `devrune init`, DevRune looks for `devrune.catalog.yaml` in the current working directory. If found, the declared sources are injected into Step 2 of the TUI wizard as pre-selected entries alongside the built-in known sources. You can toggle any of them off or add more before scanning proceeds.
+
+**`--import-catalog` flag:**
+
+Use `--import-catalog` to explicitly specify a catalog config file, useful when the file lives outside the project root or for non-interactive (CI) use:
+
+```bash
+devrune init --import-catalog ./path/to/devrune.catalog.yaml
+```
+
+When `--import-catalog` is set, auto-detection is skipped and the specified file is used instead. In non-interactive mode (`--non-interactive`), the sources from the catalog config are merged with any `--source` flag values.
+
+**Sync behavior:**
+
+`devrune sync` operates on an existing `devrune.yaml` manifest and does not read `devrune.catalog.yaml`. If `devrune.catalog.yaml` is present but `devrune.yaml` does not exist, `sync` prints a suggestion:
+
+```
+Found devrune.catalog.yaml but no devrune.yaml. Run `devrune init` first.
+```
+
+The catalog config is only consumed during `init` — the manifest (`devrune.yaml`) is the source of truth after initialization.
+
 ### Source Ref Formats
 
 | Scheme | Format | Example |

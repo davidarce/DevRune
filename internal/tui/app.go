@@ -31,9 +31,14 @@ type RunResult struct {
 //	Step 3: Scan + category/item selection
 //	Step 4: Summary + confirmation
 //
+// catalogSources contains source ref strings pre-loaded from a devrune.catalog.yaml
+// (auto-detected or from --import-catalog). They appear as pre-selected options
+// alongside the built-in known sources in Step 2. Pass nil or an empty slice when
+// no catalog config was detected.
+//
 // If the user aborts at any step (Ctrl-C or declining confirmation) the
 // function returns huh.ErrUserAborted.
-func Run() (RunResult, error) {
+func Run(catalogSources []string) (RunResult, error) {
 	// Step 1 — agents (alt screen, step indicator inside form)
 	agents, err := steps.SelectAgents()
 	if err != nil {
@@ -60,7 +65,8 @@ func Run() (RunResult, error) {
 	}
 
 	// Step 2 — repository sources (alt screen, step indicator inside form)
-	sources, err := steps.EnterRepositories()
+	// Pass catalog-detected sources; EnterRepositories merges them with knownSources.
+	sources, err := steps.EnterRepositories(catalogSources)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}

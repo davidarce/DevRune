@@ -3,6 +3,7 @@
 package steps
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -97,5 +98,107 @@ func TestDeduplicateSources(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMergeKnownSources(t *testing.T) {
+	tests := []struct {
+		name  string
+		base  []knownSource
+		extra []knownSource
+		want  []knownSource
+	}{
+		{
+			name:  "nil extra returns base unchanged",
+			base:  []knownSource{{label: "A", value: "a"}},
+			extra: nil,
+			want:  []knownSource{{label: "A", value: "a"}},
+		},
+		{
+			name:  "empty extra returns base unchanged",
+			base:  []knownSource{{label: "A", value: "a"}},
+			extra: []knownSource{},
+			want:  []knownSource{{label: "A", value: "a"}},
+		},
+		{
+			name:  "non-overlapping extra appended",
+			base:  []knownSource{{label: "A", value: "a"}},
+			extra: []knownSource{{label: "B", value: "b"}},
+			want:  []knownSource{{label: "A", value: "a"}, {label: "B", value: "b"}},
+		},
+		{
+			name:  "duplicate value in extra is skipped",
+			base:  []knownSource{{label: "Starter Catalog", value: "github:owner/repo"}},
+			extra: []knownSource{{label: "github:owner/repo", value: "github:owner/repo"}},
+			want:  []knownSource{{label: "Starter Catalog", value: "github:owner/repo"}},
+		},
+		{
+			name: "multiple extra with one duplicate",
+			base: []knownSource{
+				{label: "Starter", value: "github:owner/starter"},
+			},
+			extra: []knownSource{
+				{label: "github:owner/starter", value: "github:owner/starter"},
+				{label: "github:myorg/custom", value: "github:myorg/custom"},
+			},
+			want: []knownSource{
+				{label: "Starter", value: "github:owner/starter"},
+				{label: "github:myorg/custom", value: "github:myorg/custom"},
+			},
+		},
+		{
+			name:  "empty base with extra",
+			base:  []knownSource{},
+			extra: []knownSource{{label: "X", value: "x"}},
+			want:  []knownSource{{label: "X", value: "x"}},
+		},
+		{
+			name: "base label is preserved when duplicate found (not overwritten by extra label)",
+			base: []knownSource{
+				{label: "DevRune Starter Catalog", value: "github:davidarce/devrune-starter-catalog"},
+			},
+			extra: []knownSource{
+				// Same value, different label — base label must be kept.
+				{label: "github:davidarce/devrune-starter-catalog", value: "github:davidarce/devrune-starter-catalog"},
+			},
+			want: []knownSource{
+				{label: "DevRune Starter Catalog", value: "github:davidarce/devrune-starter-catalog"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeKnownSources(tt.base, tt.extra)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("mergeKnownSources() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEnterRepositoriesExtraSourcesConvertedToKnownSource(t *testing.T) {
+	// Test that mergeKnownSources correctly handles the conversion that
+	// EnterRepositories performs internally: extra ref strings become
+	// knownSource entries with label == value == ref string.
+	extra := []knownSource{
+		{label: "github:myorg/custom-catalog@v2", value: "github:myorg/custom-catalog@v2"},
+	}
+	base := []knownSource{
+		{label: "DevRune Starter Catalog", value: "github:davidarce/devrune-starter-catalog"},
+	}
+	got := mergeKnownSources(base, extra)
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d: %+v", len(got), got)
+	}
+	if got[0].value != "github:davidarce/devrune-starter-catalog" {
+		t.Errorf("got[0].value = %q, want %q", got[0].value, "github:davidarce/devrune-starter-catalog")
+	}
+	if got[1].value != "github:myorg/custom-catalog@v2" {
+		t.Errorf("got[1].value = %q, want %q", got[1].value, "github:myorg/custom-catalog@v2")
+	}
+	if got[1].label != "github:myorg/custom-catalog@v2" {
+		t.Errorf("got[1].label = %q, want source ref as label %q", got[1].label, "github:myorg/custom-catalog@v2")
 	}
 }
