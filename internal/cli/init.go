@@ -40,6 +40,7 @@ sources. In non-interactive mode, use flags to specify all options.`,
 	cmd.Flags().StringArray("mcp", nil, "MCP server source refs (repeatable)")
 	cmd.Flags().StringArray("workflow", nil, "Workflow source refs (repeatable)")
 	cmd.Flags().Bool("force", false, "Overwrite existing devrune.yaml without prompting")
+	cmd.Flags().String("import-catalog", "", "Path to a devrune.catalog.yaml file to pre-load catalog sources")
 
 	return cmd
 }
@@ -55,6 +56,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	sources, _ := cmd.Flags().GetStringArray("source")
 	mcps, _ := cmd.Flags().GetStringArray("mcp")
 	workflows, _ := cmd.Flags().GetStringArray("workflow")
+	importCatalogPath, _ := cmd.Flags().GetString("import-catalog")
 
 	// Determine whether any flags were explicitly provided.
 	hasFlags := cmd.Flags().Changed("agents") ||
@@ -64,6 +66,31 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	destPath := filepath.Join(wd, "devrune.yaml")
+
+	// Resolve catalog sources: --import-catalog takes precedence over auto-detection.
+	var catalogSources []string
+	if importCatalogPath != "" {
+		data, err := os.ReadFile(importCatalogPath)
+		if err != nil {
+			printError(out, fmt.Sprintf("--import-catalog: failed to read %s: %v", importCatalogPath, err))
+			return err
+		}
+		cfg, err := parse.ParseCatalogConfig(data)
+		if err != nil {
+			printError(out, fmt.Sprintf("--import-catalog: %v", err))
+			return err
+		}
+		catalogSources = cfg.Sources
+	} else {
+		// Auto-detect devrune.catalog.yaml in the working directory.
+		cfg, err := parse.DetectCatalogConfig(wd)
+		if err != nil {
+			// Warn and continue with no extra sources (per Q2 decision).
+			_, _ = fmt.Fprintf(out, "  warning: catalog config detected but could not be parsed: %v\n", err)
+		} else if cfg != nil {
+			catalogSources = cfg.Sources
+		}
+	}
 
 	// Check if devrune.yaml already exists.
 	if _, statErr := os.Stat(destPath); statErr == nil {
@@ -104,7 +131,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if !nonInteractive && !hasFlags {
 		// Interactive TUI wizard path.
-		result, tuiErr := tui.Run()
+		result, tuiErr := tui.Run(catalogSources)
 		if tuiErr != nil {
 			if errors.Is(tuiErr, huh.ErrUserAborted) {
 				_, _ = fmt.Fprintln(out, "Aborted.")
@@ -116,6 +143,23 @@ func runInit(cmd *cobra.Command, args []string) error {
 		installedTools = result.InstalledTools
 	} else {
 		// Non-interactive / flag-based path.
+		// Merge catalog sources into --source flag values. Explicit --source flags are
+		// added first; catalog sources are appended if not already present.
+		mergedSources := make([]string, 0, len(sources)+len(catalogSources))
+		seen := make(map[string]bool, len(sources))
+		for _, src := range sources {
+			if src != "" {
+				seen[src] = true
+				mergedSources = append(mergedSources, src)
+			}
+		}
+		for _, src := range catalogSources {
+			if src != "" && !seen[src] {
+				mergedSources = append(mergedSources, src)
+			}
+		}
+		sources = mergedSources
+
 		agentRefs := make([]model.AgentRef, 0, len(agentNames))
 		for _, name := range agentNames {
 			if name != "" {

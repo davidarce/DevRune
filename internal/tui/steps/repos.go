@@ -25,14 +25,24 @@ var knownSources = []knownSource{
 
 // EnterRepositories presents predefined repository catalog sources for selection,
 // then optionally allows adding custom source refs via free-form input.
+// extraSources contains additional catalog-detected source ref strings (e.g. from
+// devrune.catalog.yaml) that are injected alongside knownSources as pre-selected
+// options, deduplicated by value. The source ref string is used as the display label.
 // Returns the combined list of selected predefined and custom sources, deduplicated.
 // An empty result is valid (no repositories required).
-func EnterRepositories() ([]string, error) {
+func EnterRepositories(extraSources []string) ([]string, error) {
 	// Phase A: Multi-select from predefined sources.
+	// Convert extra source ref strings to knownSource entries (label = value = ref string).
+	extra := make([]knownSource, 0, len(extraSources))
+	for _, src := range extraSources {
+		extra = append(extra, knownSource{label: src, value: src})
+	}
+	// Merge knownSources with extra, deduplicating by value.
+	merged := mergeKnownSources(knownSources, extra)
 	var predefined []string
 
-	options := make([]huh.Option[string], len(knownSources))
-	for i, ks := range knownSources {
+	options := make([]huh.Option[string], len(merged))
+	for i, ks := range merged {
 		options[i] = huh.NewOption(ks.label, ks.value).Selected(true)
 	}
 
@@ -43,7 +53,7 @@ func EnterRepositories() ([]string, error) {
 				Title("Select repository catalogs").
 				Description("Use space to toggle, enter to confirm. You can add custom sources next.").
 				Options(options...).
-				Height(len(knownSources)+2).
+				Height(len(merged)+2).
 				Value(&predefined),
 		),
 	).WithTheme(tuistyles.DevRuneThemeFunc).
@@ -171,6 +181,31 @@ func deduplicateSources(predefined, custom []string) []string {
 		if !seen[s] {
 			seen[s] = true
 			result = append(result, s)
+		}
+	}
+
+	return result
+}
+
+// mergeKnownSources appends extra sources to base, skipping any entry whose
+// value already appears in base (deduplication by value, order preserved).
+func mergeKnownSources(base, extra []knownSource) []knownSource {
+	if len(extra) == 0 {
+		return base
+	}
+
+	seen := make(map[string]bool, len(base))
+	for _, ks := range base {
+		seen[ks.value] = true
+	}
+
+	result := make([]knownSource, len(base))
+	copy(result, base)
+
+	for _, ks := range extra {
+		if !seen[ks.value] {
+			seen[ks.value] = true
+			result = append(result, ks)
 		}
 	}
 
