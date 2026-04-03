@@ -1354,8 +1354,9 @@ func TestMaterializer_Install_CLAUDEmd_NotRemovedIfUserOwned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CLAUDE.md should still exist: %v", err)
 	}
-	if string(data) != userContent {
-		t.Errorf("user-owned CLAUDE.md should not be overwritten; got:\n%s", string(data))
+	// User content should be preserved alongside the managed block.
+	if !strings.Contains(string(data), "My custom instructions") {
+		t.Errorf("user-owned CLAUDE.md content should be preserved; got:\n%s", string(data))
 	}
 
 	// AGENTS.md must still exist at project root.

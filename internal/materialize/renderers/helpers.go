@@ -561,7 +561,9 @@ func resolveMCPDefDir(cacheRoot, dir string) string {
 // bugs and unresolved model placeholder markers.
 //
 // Produced replacements:
-//   - {SKILLS_PATH} → "<workspaceDir>/<skillDir>" (no trailing slash)
+//   - {SKILLS_PATH} → "<workspaceDir>/<skillDir>" (base skills directory)
+//   - {WORKFLOW_DIR} → "<workspaceDir>/<skillDir>/<workingDir>" (workflow files directory)
+//   - {WORKFLOW_SUBAGENT_<KEY>} → subagent type for each subagent role
 //   - {WORKFLOW_MODEL_<KEY>} → resolved model value for each subagent role
 //   - {SDD_MODEL_*} legacy aliases when wf.Metadata.Name == "sdd"
 //
@@ -590,18 +592,26 @@ func buildWorkflowPlaceholderReplacements(
 	skillDir string,
 	modelResolver func(string) string,
 	modelOverrides map[string]string,
+	subagentResolver func(roleName string) string,
 ) map[string]string {
 	// Normalise: strip trailing slashes so joins are always clean.
 	workspaceDir = strings.TrimRight(workspaceDir, "/")
 	skillDir = strings.TrimRight(skillDir, "/")
 
-	skillsPath := workspaceDir + "/" + skillDir
+	skillsPath := filepath.Clean(workspaceDir + "/" + skillDir)
 	if skillDir == "" {
 		skillsPath = workspaceDir
 	}
 
+	workingDir := wf.Metadata.EffectiveWorkingDir()
+	workflowDir := filepath.Clean(skillsPath + "/" + workingDir)
+	if workingDir == "" {
+		workflowDir = skillsPath
+	}
+
 	replacements := map[string]string{
-		"{SKILLS_PATH}": skillsPath,
+		"{SKILLS_PATH}":  skillsPath,
+		"{WORKFLOW_DIR}": workflowDir,
 	}
 
 	wfName := wf.Metadata.Name
@@ -620,6 +630,17 @@ func buildWorkflowPlaceholderReplacements(
 		if role.Kind != "subagent" {
 			continue
 		}
+
+		key := model.PlaceholderKeyFromRole(wfName, role.Name, role.Placeholder)
+
+		// Emit subagent type placeholder for every subagent role (regardless of model).
+		// When subagentResolver is nil, defaults to "general" (Claude Code Agent tool).
+		// When provided, resolves to platform-specific agent name (e.g. "sdd-explorer" for OpenCode).
+		subagentType := "general"
+		if subagentResolver != nil {
+			subagentType = subagentResolver(role.Name)
+		}
+		replacements["{WORKFLOW_SUBAGENT_"+key+"}"] = subagentType
 
 		// Check TUI-selected override first, then fall back to role.Model from workflow.yaml.
 		modelValue := ""
@@ -640,7 +661,6 @@ func buildWorkflowPlaceholderReplacements(
 			resolved = modelResolver(modelValue)
 		}
 
-		key := model.PlaceholderKeyFromRole(wfName, role.Name, role.Placeholder)
 		replacements["{WORKFLOW_MODEL_"+key+"}"] = resolved
 
 		// Emit legacy SDD aliases for backward compatibility.
@@ -655,23 +675,39 @@ func buildWorkflowPlaceholderReplacements(
 }
 
 // buildWorkflowPathReplacements constructs a minimal replacement map containing
-// only the {SKILLS_PATH} placeholder. It is used by renderers that do not support
-// model routing (Factory, Copilot) so that model placeholders are never resolved
-// from workflow role metadata. The caller is responsible for removing unresolved
-// model placeholder lines from installed files via removeModelPlaceholderLines
-// after calling resolvePlaceholders.
+// only the {SKILLS_PATH} and {WORKFLOW_DIR} placeholders. It is used by renderers
+// that do not support model routing (Factory, Copilot) so that model placeholders
+// are never resolved from workflow role metadata. The caller is responsible for
+// removing unresolved model placeholder lines from installed files via
+// removeModelPlaceholderLines after calling resolvePlaceholders.
 //
 // workspaceDir and skillDir must not have trailing slashes.
-func buildWorkflowPathReplacements(workspaceDir, skillDir string) map[string]string {
+func buildWorkflowPathReplacements(wf model.WorkflowManifest, workspaceDir, skillDir string) map[string]string {
 	workspaceDir = strings.TrimRight(workspaceDir, "/")
 	skillDir = strings.TrimRight(skillDir, "/")
-	skillsPath := workspaceDir + "/" + skillDir
+	skillsPath := filepath.Clean(workspaceDir + "/" + skillDir)
 	if skillDir == "" {
 		skillsPath = workspaceDir
 	}
-	return map[string]string{
-		"{SKILLS_PATH}": skillsPath,
+	workingDir := wf.Metadata.EffectiveWorkingDir()
+	workflowDir := filepath.Clean(skillsPath + "/" + workingDir)
+	if workingDir == "" {
+		workflowDir = skillsPath
 	}
+	replacements := map[string]string{
+		"{SKILLS_PATH}":  skillsPath,
+		"{WORKFLOW_DIR}": workflowDir,
+	}
+	// Add subagent placeholders defaulting to "general" for renderers without native agents.
+	wfName := wf.Metadata.Name
+	for _, role := range wf.Components.Roles {
+		if role.Kind != "subagent" {
+			continue
+		}
+		key := model.PlaceholderKeyFromRole(wfName, role.Name, role.Placeholder)
+		replacements["{WORKFLOW_SUBAGENT_"+key+"}"] = "general"
+	}
+	return replacements
 }
 
 // removeModelPlaceholderLines walks all .md files under rootDir and removes any

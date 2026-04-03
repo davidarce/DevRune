@@ -332,6 +332,7 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	}
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
+	workflowDirPath := filepath.Join(skillsBase, wf.Metadata.EffectiveWorkingDir())
 	if err := os.MkdirAll(skillsBase, 0o755); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow mkdir skills: %w", err)
 	}
@@ -360,7 +361,15 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	if agentSkillDir == "" {
 		agentSkillDir = r.def.SkillDir
 	}
-	replacements := buildWorkflowPathReplacements(workspaceRoot, agentSkillDir)
+	replacements := buildWorkflowPathReplacements(wf, workspaceRoot, agentSkillDir)
+	// Override subagent placeholders to use role names (Copilot has native .agent.md agents).
+	for _, role := range wf.Components.Roles {
+		if role.Kind != "subagent" {
+			continue
+		}
+		key := model.PlaceholderKeyFromRole(wf.Metadata.Name, role.Name, role.Placeholder)
+		replacements["{WORKFLOW_SUBAGENT_"+key+"}"] = role.Name
+	}
 
 	var managedPaths []string
 
@@ -379,7 +388,7 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 
 		// T019: Install the orchestrator entrypoint as a native .agent.md with frontmatter.
 		if name == wf.Components.Entrypoint {
-			orchRoleName := wf.Metadata.Name + "-orchestrator"
+			orchRoleName := wf.Metadata.EffectiveWorkingDir()
 			if orchRole := findWorkflowRoleByKind(wf.Components.Roles, "orchestrator"); orchRole != nil {
 				orchRoleName = orchRole.Name
 			}
@@ -410,9 +419,8 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
-		// Copy everything else (e.g. _shared/) as-is under skillsBase.
-		// T016: _shared/ goes to skills/_shared/, NOT agents/_shared/.
-		dstPath := filepath.Join(skillsBase, name)
+		// Copy everything else (e.g. _shared/) as-is under workflowDir.
+		dstPath := filepath.Join(workflowDirPath, name)
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
 		}
@@ -480,8 +488,8 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 	}
 
 	// Derive the orchestrator role name from the workflow roles.
-	orchRoleName := wf.Metadata.Name + "-orchestrator"
-	orchDesc := "SDD Orchestrator — coordinates " + wf.Metadata.Name + " workflow via sub-agents"
+	orchRoleName := wf.Metadata.EffectiveWorkingDir()
+	orchDesc := "SDD Orchestrator — coordinates " + wf.Metadata.EffectiveDisplayName() + " workflow via sub-agents"
 	if orchRole := findWorkflowRoleByKind(wf.Components.Roles, "orchestrator"); orchRole != nil {
 		orchRoleName = orchRole.Name
 	}

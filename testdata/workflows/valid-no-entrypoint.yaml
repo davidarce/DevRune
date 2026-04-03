@@ -1,7 +1,7 @@
 apiVersion: devrune/workflow/v1
 metadata:
   name: simple-tools
-  description: "Simple tooling workflow without entrypoint"
+  displayName: "Simple Tooling"
   version: "0.2.0"
 components:
   skills:

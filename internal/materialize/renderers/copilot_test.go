@@ -377,7 +377,7 @@ func TestCopilotRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 
 	wf := model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",
@@ -398,8 +398,8 @@ func TestCopilotRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", skillMD, err)
 	}
 
-	// POSITIVE: _shared directory under skills/
-	sharedDest := filepath.Join(workspaceRoot, "skills", "_shared")
+	// POSITIVE: _shared directory under skills/sdd-orchestrator/ (workflowDir)
+	sharedDest := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
 	if info, err := os.Stat(sharedDest); err != nil || !info.IsDir() {
 		t.Errorf("expected %s to be a directory: err=%v", sharedDest, err)
 	}
@@ -454,7 +454,7 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorOnlyInAgentsDir(t *testing.
 
 	wf := model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",
@@ -509,7 +509,7 @@ func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 
 	wf := model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:   []string{"sdd-explore"},
 			Registry: "REGISTRY.md",
@@ -639,7 +639,7 @@ func TestCopilotRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
 
 	wf := model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",

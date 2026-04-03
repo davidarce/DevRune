@@ -41,9 +41,26 @@ type WorkflowManifest struct {
 
 // WorkflowMetadata holds identifying information for a workflow.
 type WorkflowMetadata struct {
-	Name        string `yaml:"name"`                  // e.g. "sdd"
-	Description string `yaml:"description,omitempty"` // human-readable description
+	Name        string `yaml:"name"`                  // slug identifier, e.g. "sdd"
+	DisplayName string `yaml:"displayName,omitempty"` // human-readable label for catalogs, e.g. "SDD (Spec-Driven Development)"
 	Version     string `yaml:"version"`               // semver, e.g. "1.0.0"
+	WorkingDir  string `yaml:"workingDir,omitempty"`   // directory name for workflow files (orchestrator, _shared/); defaults to Name
+}
+
+// EffectiveDisplayName returns DisplayName if set, otherwise falls back to Name.
+func (m WorkflowMetadata) EffectiveDisplayName() string {
+	if m.DisplayName != "" {
+		return m.DisplayName
+	}
+	return m.Name
+}
+
+// EffectiveWorkingDir returns WorkingDir if set, otherwise falls back to Name.
+func (m WorkflowMetadata) EffectiveWorkingDir() string {
+	if m.WorkingDir != "" {
+		return m.WorkingDir
+	}
+	return m.Name
 }
 
 // WorkflowRole describes the projection metadata for a single agent role within a workflow.

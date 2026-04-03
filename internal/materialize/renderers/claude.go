@@ -210,7 +210,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		skillsSet[s] = true
 	}
 
-	destBase := filepath.Join(workspaceRoot, r.def.SkillDir, wf.Metadata.Name)
+	destBase := filepath.Join(workspaceRoot, r.def.SkillDir, wf.Metadata.EffectiveWorkingDir())
 	if err := os.MkdirAll(destBase, 0o755); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow mkdir %q: %w", destBase, err)
 	}
@@ -266,7 +266,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
 	// Hoisted outside the registry block so postProcessWorkflow can use it too.
-	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir+"/"+wf.Metadata.Name, nil, r.modelOverrides)
+	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir, nil, r.modelOverrides, nil)
 
 	// T021: Load registry content if declared in the workflow manifest.
 	if wf.Components.Registry != "" {

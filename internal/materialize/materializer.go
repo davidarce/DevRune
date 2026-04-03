@@ -289,21 +289,16 @@ func (m *Materializer) Install(
 				return fmt.Errorf("materializer: load workflow manifest %q: %w", wf.Name, err)
 			}
 
-			// Skip workflow skill installation for this agent if its skill directory
-			// was already populated by a prior agent in the loop.
-			if !skillAlreadyRendered {
-				wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, agentWorkspace)
-				if err != nil {
-					return fmt.Errorf("materializer: install workflow %q for agent %q: %w",
-						wf.Name, agentRef.Name, err)
-				}
-				// Use renderer-reported managed paths exclusively. All built-in renderers
-				// (Claude, Factory, OpenCode, Copilot) return the actual installed paths
-				// via WorkflowInstallResult.ManagedPaths. Custom renderers that have not
-				// yet implemented the contract will simply add no workflow paths here,
-				// which is safe — they opt in by returning ManagedPaths.
-				managedPaths = append(managedPaths, wfResult.ManagedPaths...)
+			// Always call InstallWorkflow for every renderer, even when the
+			// shared skill directory was already populated by a prior agent.
+			// Renderers are idempotent for file writes, and per-renderer
+			// synthesis (e.g. opencode.json agent entries) must always run.
+			wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, agentWorkspace)
+			if err != nil {
+				return fmt.Errorf("materializer: install workflow %q for agent %q: %w",
+					wf.Name, agentRef.Name, err)
 			}
+			managedPaths = append(managedPaths, wfResult.ManagedPaths...)
 			installedWorkflows = append(installedWorkflows, wfManifest)
 			// Accumulate for cross-agent root catalog (deduplicated by name).
 			if !containsString(allWorkflowNames, wfManifest.Metadata.Name) {
@@ -335,51 +330,69 @@ func (m *Materializer) Install(
 		activeAgents = append(activeAgents, agentRef.Name)
 	}
 
-	// Step 8 (post-loop): Collect mcpInstructions and registryContents from all renderers.
+	// Step 8 (post-loop): Collect mcpInstructions and per-agent registryContents.
+	// Claude gets its own registry content (with .claude/ paths); all other agents
+	// share AGENTS.md registry content (with .agents/ paths from the first non-claude renderer).
 	mcpInstructions := make(map[string]string)
-	registryContents := make(map[string]string)
+	claudeRegistryContents := make(map[string]string)
+	agentsRegistryContents := make(map[string]string)
 	for _, agentRef := range agents {
 		renderer, ok := m.renderers[agentRef.Name]
 		if !ok {
 			continue
 		}
-		if cc, ok := renderer.(catalogContributor); ok {
-			for k, v := range cc.MCPAgentInstructions() {
-				if _, exists := mcpInstructions[k]; !exists {
-					mcpInstructions[k] = v
-				}
+		cc, ok := renderer.(catalogContributor)
+		if !ok {
+			continue
+		}
+		for k, v := range cc.MCPAgentInstructions() {
+			if _, exists := mcpInstructions[k]; !exists {
+				mcpInstructions[k] = v
 			}
-			for k, v := range cc.RegistryContents() {
-				if _, exists := registryContents[k]; !exists {
-					registryContents[k] = v
-				}
+		}
+		target := agentsRegistryContents
+		if agentRef.Name == "claude" {
+			target = claudeRegistryContents
+		}
+		for k, v := range cc.RegistryContents() {
+			if _, exists := target[k]; !exists {
+				target[k] = v
 			}
 		}
 	}
 
-	// T022: Remove old workspace catalog files before writing root catalog.
+	// T022: Remove old workspace catalog files and stale symlink.
 	for _, old := range []string{
 		filepath.Join(projectRoot, ".claude", "CLAUDE.md"),
 		filepath.Join(projectRoot, ".opencode", "AGENTS.md"),
 		filepath.Join(projectRoot, ".factory", "AGENTS.md"),
 		filepath.Join(projectRoot, ".github", "copilot-instructions.md"),
 	} {
-		_ = os.Remove(old) // ignore errors — files may not exist
+		_ = os.Remove(old)
+	}
+	// Remove stale symlink if CLAUDE.md points to AGENTS.md (legacy).
+	claudePath := filepath.Join(projectRoot, "CLAUDE.md")
+	if linfo, err := os.Lstat(claudePath); err == nil && linfo.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(claudePath)
 	}
 
-	// T021: Generate root catalog AGENTS.md with all skills/rules/workflows.
-	catalogContent, err := renderers.RenderRootCatalog(allSkills, allRules, allWorkflows, mcpInstructions, registryContents)
+	// T021: Generate CLAUDE.md with Claude-specific paths.
+	claudeCatalog, err := renderers.RenderRootCatalog(allSkills, allRules, allWorkflows, mcpInstructions, claudeRegistryContents)
 	if err != nil {
-		return fmt.Errorf("materializer: render root catalog: %w", err)
+		return fmt.Errorf("materializer: render CLAUDE.md catalog: %w", err)
+	}
+	if err := renderers.WriteManagedBlock(claudePath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, claudeCatalog); err != nil {
+		return fmt.Errorf("materializer: write CLAUDE.md: %w", err)
+	}
+
+	// Generate AGENTS.md with .agents/ paths for factory, codex, opencode, copilot.
+	agentsCatalog, err := renderers.RenderRootCatalog(allSkills, allRules, allWorkflows, mcpInstructions, agentsRegistryContents)
+	if err != nil {
+		return fmt.Errorf("materializer: render AGENTS.md catalog: %w", err)
 	}
 	agentsPath := filepath.Join(projectRoot, "AGENTS.md")
-	if err := renderers.WriteManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, catalogContent); err != nil {
-		return fmt.Errorf("materializer: write root AGENTS.md: %w", err)
-	}
-	claudePath := filepath.Join(projectRoot, "CLAUDE.md")
-	if err := renderers.CreateSymlinkOrCopy(agentsPath, claudePath); err != nil {
-		// Non-fatal: warn but don't block install (e.g. user has a custom CLAUDE.md).
-		_, _ = fmt.Fprintf(os.Stderr, "materializer: warning: create CLAUDE.md symlink: %v\n", err)
+	if err := renderers.WriteManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, agentsCatalog); err != nil {
+		return fmt.Errorf("materializer: write AGENTS.md: %w", err)
 	}
 
 	// Step 6.5: Ensure project-root .mcp.json exists for any MCP-enabled install.

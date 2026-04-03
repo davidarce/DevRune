@@ -907,11 +907,11 @@ func TestBuildWorkflowPlaceholderReplacements_OpenCodeResolver(t *testing.T) {
 
 // TestBuildWorkflowPathReplacements_OnlySkillsPath verifies that the function
 // returns only a {SKILLS_PATH} entry and no {SDD_MODEL_*} entries.
-func TestBuildWorkflowPathReplacements_OnlySkillsPath(t *testing.T) {
-	result := renderers.BuildWorkflowPathReplacements("/ws", "skills")
+func TestBuildWorkflowPathReplacements_OnlyPathKeys(t *testing.T) {
+	result := renderers.BuildWorkflowPathReplacements(model.WorkflowManifest{}, "/ws", "skills")
 
-	if len(result) != 1 {
-		t.Errorf("expected exactly 1 replacement, got %d: %v", len(result), result)
+	if len(result) != 2 {
+		t.Errorf("expected exactly 2 replacements, got %d: %v", len(result), result)
 	}
 	got, ok := result["{SKILLS_PATH}"]
 	if !ok {
@@ -920,17 +920,19 @@ func TestBuildWorkflowPathReplacements_OnlySkillsPath(t *testing.T) {
 	if got != "/ws/skills" {
 		t.Errorf("{SKILLS_PATH} = %q, want %q", got, "/ws/skills")
 	}
-	// Verify no model placeholders are present.
-	for key := range result {
-		if key != "{SKILLS_PATH}" {
-			t.Errorf("unexpected key %q in result — only {SKILLS_PATH} should be present", key)
-		}
+	// WORKFLOW_DIR defaults to SKILLS_PATH when workingDir is empty.
+	gotWD, ok := result["{WORKFLOW_DIR}"]
+	if !ok {
+		t.Fatal("{WORKFLOW_DIR} key missing from result")
+	}
+	if gotWD != "/ws/skills" {
+		t.Errorf("{WORKFLOW_DIR} = %q, want %q (empty workingDir should yield skillsPath)", gotWD, "/ws/skills")
 	}
 }
 
 // TestBuildWorkflowPathReplacements_EmptySkillDir uses workspaceDir directly when skillDir is empty.
 func TestBuildWorkflowPathReplacements_EmptySkillDir(t *testing.T) {
-	result := renderers.BuildWorkflowPathReplacements("/ws", "")
+	result := renderers.BuildWorkflowPathReplacements(model.WorkflowManifest{}, "/ws", "")
 	got := result["{SKILLS_PATH}"]
 	if got != "/ws" {
 		t.Errorf("{SKILLS_PATH} = %q, want %q (empty skillDir should yield workspaceDir only)", got, "/ws")
@@ -940,7 +942,7 @@ func TestBuildWorkflowPathReplacements_EmptySkillDir(t *testing.T) {
 // TestBuildWorkflowPathReplacements_TrailingSlashStripped verifies trailing slashes are
 // stripped from both workspaceDir and skillDir before joining.
 func TestBuildWorkflowPathReplacements_TrailingSlashStripped(t *testing.T) {
-	result := renderers.BuildWorkflowPathReplacements("/ws/", "skills/")
+	result := renderers.BuildWorkflowPathReplacements(model.WorkflowManifest{}, "/ws/", "skills/")
 	got := result["{SKILLS_PATH}"]
 	const want = "/ws/skills"
 	if got != want {
@@ -952,12 +954,11 @@ func TestBuildWorkflowPathReplacements_TrailingSlashStripped(t *testing.T) {
 // buildWorkflowPlaceholderReplacements, this function never adds {SDD_MODEL_*} keys
 // regardless of the workflow manifest roles provided.
 func TestBuildWorkflowPathReplacements_NoModelKeysEvenWithRoles(t *testing.T) {
-	// The function doesn't take a WorkflowManifest — this test confirms the design
-	// by checking that no model keys appear when we use the path-only function.
-	result := renderers.BuildWorkflowPathReplacements("/project", "agents")
+	result := renderers.BuildWorkflowPathReplacements(model.WorkflowManifest{}, "/project", "agents")
+	allowedKeys := map[string]bool{"{SKILLS_PATH}": true, "{WORKFLOW_DIR}": true}
 	for key := range result {
-		if key != "{SKILLS_PATH}" {
-			t.Errorf("unexpected key %q — buildWorkflowPathReplacements must only produce {SKILLS_PATH}", key)
+		if !allowedKeys[key] {
+			t.Errorf("unexpected key %q — buildWorkflowPathReplacements must only produce path keys", key)
 		}
 	}
 }

@@ -237,6 +237,7 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	}
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
+	workflowDir := filepath.Join(skillsBase, wf.Metadata.EffectiveWorkingDir())
 
 	if err := os.MkdirAll(skillsBase, 0o755); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: workflow mkdir skills: %w", err)
@@ -276,22 +277,20 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		}
 
 		if name == wf.Components.Entrypoint {
-			// Orchestrator: .factory/skills/<wf-name>-orchestrator/ORCHESTRATOR.md
-			orchDirName := wf.Metadata.Name + "-orchestrator"
-			orchDir := filepath.Join(skillsBase, orchDirName)
-			if err := os.MkdirAll(orchDir, 0o755); err != nil {
+			// Orchestrator: .factory/skills/<workingDir>/ORCHESTRATOR.md
+			if err := os.MkdirAll(workflowDir, 0o755); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: mkdir orchestrator: %w", err)
 			}
-			dstPath := filepath.Join(orchDir, name)
+			dstPath := filepath.Join(workflowDir, name)
 			if err := copySingleFile(srcPath, dstPath, 0o644); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: workflow entrypoint: %w", err)
 			}
-			managedPaths = append(managedPaths, orchDir)
+			managedPaths = append(managedPaths, workflowDir)
 			continue
 		}
 
-		// Copy everything else (e.g. _shared/) as-is under skillsBase.
-		dstPath := filepath.Join(skillsBase, name)
+		// Copy everything else (e.g. _shared/) as-is under workflowDir.
+		dstPath := filepath.Join(workflowDir, name)
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: workflow copy %q: %w", name, err)
 		}
@@ -304,7 +303,7 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// removeModelPlaceholderLines below. This prevents invalid model IDs from being
 	// written into the installed ORCHESTRATOR.md, allowing sub-agents to inherit the
 	// session's active model instead.
-	replacements := buildWorkflowPathReplacements(workspaceRoot, r.def.SkillDir)
+	replacements := buildWorkflowPathReplacements(wf, workspaceRoot, r.def.SkillDir)
 
 	// Capture registry content for catalog injection; apply shared replacements.
 	if wf.Components.Registry != "" {
