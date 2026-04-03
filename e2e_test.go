@@ -523,8 +523,9 @@ func buildSddWorkflowFixture(t *testing.T) string {
 	workflowYAML := `apiVersion: devrune/workflow/v1
 metadata:
   name: sdd
-  description: "Spec-Driven Development"
+  displayName: "SDD (Spec-Driven Development)"
   version: "1.0.0"
+  workingDir: sdd-orchestrator
 components:
   skills:
     - sdd-plan

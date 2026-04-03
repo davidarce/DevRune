@@ -285,6 +285,10 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	}
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
+	// OpenCode installs workflow files (orchestrator, _shared) in its own workspace
+	// to avoid conflicts with shared .agents/skills/ and to allow platform-specific
+	// placeholder resolution (subagent types = role names instead of "general").
+	workflowDir := filepath.Join(workspaceRoot, wf.Metadata.EffectiveWorkingDir())
 	if err := os.MkdirAll(skillsBase, 0o755); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow mkdir: %w", err)
 	}
@@ -331,9 +335,9 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			continue
 		}
 
-		// Copy everything else (e.g. _shared/) as-is under skillsBase.
+		// Copy everything else (e.g. _shared/) as-is under workflowDir.
 		// agents/ and commands/ directories are NOT created — OpenCode uses opencode.json.
-		dstPath := filepath.Join(skillsBase, name)
+		dstPath := filepath.Join(workflowDir, name)
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
 		}
@@ -343,7 +347,13 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
 	// Uses buildWorkflowPlaceholderReplacements to avoid double-slash bugs and
 	// to ensure {SDD_MODEL_*} markers are resolved from workflow role metadata.
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, resolveOpenCodeModel, r.modelOverrides)
+	// OpenCode subagent resolver: maps role names to their OpenCode agent names.
+	openCodeSubagentResolver := func(roleName string) string { return roleName }
+	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, resolveOpenCodeModel, r.modelOverrides, openCodeSubagentResolver)
+	// Override {WORKFLOW_DIR} to point to the workspace-local workflow directory
+	// instead of the shared skillsBase path.
+	replacements["{WORKFLOW_DIR}"] = workflowDir
+
 
 	// Capture registry content for catalog injection; apply shared replacements.
 	if wf.Components.Registry != "" {
@@ -356,9 +366,15 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 		}
 	}
 
-	// Resolve placeholders in all installed .md files (covers {SKILLS_PATH} and {SDD_MODEL_*}).
+	// Resolve placeholders in skill .md files under skillsBase.
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
-		return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: resolve placeholders: %w", err)
+		return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: resolve skill placeholders: %w", err)
+	}
+	// Resolve placeholders in workflow files under the workspace-local workflowDir (if it exists).
+	if _, statErr := os.Stat(workflowDir); statErr == nil {
+		if err := resolvePlaceholders(workflowDir, replacements); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: resolve workflow placeholders: %w", err)
+		}
 	}
 
 	// Synthesize SDD agents into opencode.json from components.roles.
@@ -464,7 +480,7 @@ func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, rol
 		}
 	}
 
-	description := buildRoleDescription(role.Name, fmt.Sprintf("coordinates %s workflow via sub-agents", wf.Metadata.Name))
+	description := buildRoleDescription(role.Name, fmt.Sprintf("coordinates %s workflow via sub-agents", wf.Metadata.EffectiveDisplayName()))
 
 	entry := map[string]interface{}{
 		"description": description,

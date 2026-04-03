@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
+	"github.com/davidarce/devrune/internal/tui"
 	"github.com/davidarce/devrune/internal/tui/steps"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
@@ -129,7 +131,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	var manifest model.UserManifest
 
-	{
+	if !nonInteractive && !hasFlags {
+		// Interactive mode: launch TUI wizard.
+		result, err := tui.Run(catalogSources)
+		if err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				_, _ = fmt.Fprintln(out, "Aborted.")
+				return nil
+			}
+			printError(out, "Wizard failed: "+err.Error())
+			return err
+		}
+		manifest = result.Manifest
+	} else {
 		// Non-interactive / flag-based path.
 		// Merge catalog sources into --source flag values. Explicit --source flags are
 		// added first; catalog sources are appended if not already present.

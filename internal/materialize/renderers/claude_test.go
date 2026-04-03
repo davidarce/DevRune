@@ -533,15 +533,15 @@ components:
 	}
 }
 
-// TestClaudeRenderer_InstallWorkflow_ReplacesSkillsPath verifies that {SKILLS_PATH}
-// in an ORCHESTRATOR.md file is replaced with the actual workspace-relative path.
+// TestClaudeRenderer_InstallWorkflow_ReplacesPlaceholders verifies that {SKILLS_PATH}
+// and {WORKFLOW_DIR} in an ORCHESTRATOR.md file are replaced with actual paths.
 func TestClaudeRenderer_InstallWorkflow_ReplacesSkillsPath(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeAgentDef())
 
-	// Create a temporary workflow directory with an ORCHESTRATOR.md containing {SKILLS_PATH}.
+	// Create a temporary workflow directory with an ORCHESTRATOR.md containing placeholders.
 	wfCacheDir := t.TempDir()
 
-	orchestratorContent := "# Orchestrator\n\nSkills path: {SKILLS_PATH}\n"
+	orchestratorContent := "# Orchestrator\n\nSkills: {SKILLS_PATH}\nWorkflow: {WORKFLOW_DIR}\n"
 	if err := os.WriteFile(filepath.Join(wfCacheDir, "ORCHESTRATOR.md"), []byte(orchestratorContent), 0o644); err != nil {
 		t.Fatalf("write ORCHESTRATOR.md: %v", err)
 	}
@@ -583,9 +583,12 @@ components:
 	if strings.Contains(content, "{SKILLS_PATH}") {
 		t.Errorf("{SKILLS_PATH} was not replaced; ORCHESTRATOR.md content:\n%s", content)
 	}
-	// The replacement should contain the workflow name in the path.
-	if !strings.Contains(content, "sdd") {
-		t.Errorf("replaced skills path does not reference workflow name; content:\n%s", content)
+	if strings.Contains(content, "{WORKFLOW_DIR}") {
+		t.Errorf("{WORKFLOW_DIR} was not replaced; ORCHESTRATOR.md content:\n%s", content)
+	}
+	// SKILLS_PATH is the base skills directory; WORKFLOW_DIR includes the workingDir (defaults to name "sdd").
+	if !strings.Contains(content, "skills/sdd") {
+		t.Errorf("replaced workflow dir does not reference workflow workingDir; content:\n%s", content)
 	}
 }
 
@@ -666,8 +669,8 @@ func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
 
 	wfCacheDir := t.TempDir()
 
-	// REGISTRY.md uses {SKILLS_PATH}/ORCHESTRATOR.md — matching the real catalog template.
-	registryContent := "Full orchestrator instructions: {SKILLS_PATH}/ORCHESTRATOR.md\n"
+	// REGISTRY.md uses {WORKFLOW_DIR}/ORCHESTRATOR.md — matching the real catalog template.
+	registryContent := "Full orchestrator instructions: {WORKFLOW_DIR}/ORCHESTRATOR.md\n"
 	if err := os.WriteFile(filepath.Join(wfCacheDir, "REGISTRY.md"), []byte(registryContent), 0o644); err != nil {
 		t.Fatalf("write REGISTRY.md: %v", err)
 	}
@@ -696,10 +699,10 @@ func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
 	if strings.Contains(content, "//") {
 		t.Errorf("double slash found in registry content; got:\n%s", content)
 	}
-	if strings.Contains(content, "{SKILLS_PATH}") {
-		t.Errorf("{SKILLS_PATH} was not resolved; got:\n%s", content)
+	if strings.Contains(content, "{WORKFLOW_DIR}") {
+		t.Errorf("{WORKFLOW_DIR} was not resolved; got:\n%s", content)
 	}
-	// Path must resolve to skills/sdd/ORCHESTRATOR.md — no spurious sdd-orchestrator/ subdir.
+	// Path must resolve to skills/sdd/ORCHESTRATOR.md — workingDir defaults to name "sdd".
 	wantSuffix := "skills/sdd/ORCHESTRATOR.md"
 	if !strings.Contains(content, wantSuffix) {
 		t.Errorf("expected path containing %q; got:\n%s", wantSuffix, content)

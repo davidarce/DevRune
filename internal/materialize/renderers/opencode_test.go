@@ -409,7 +409,7 @@ components:
 func sddParityManifest() model.WorkflowManifest {
 	return model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",
@@ -457,8 +457,8 @@ func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", skillMD, err)
 	}
 
-	// POSITIVE: _shared/ directory installed under .agents/skills/
-	sharedDir := filepath.Join(agentsSkillsDir, "_shared")
+	// POSITIVE: _shared/ directory installed under .opencode/sdd-orchestrator/ (workspace-local, not shared)
+	sharedDir := filepath.Join(workspaceDir, "sdd-orchestrator", "_shared")
 	info, err := os.Stat(sharedDir)
 	if err != nil {
 		t.Errorf("expected %s to exist: %v", sharedDir, err)
@@ -694,7 +694,7 @@ components:
 
 	wf := model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:   []string{"sdd-plan"},
 			Registry: "REGISTRY.md",

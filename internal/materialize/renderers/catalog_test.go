@@ -136,7 +136,7 @@ func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 		{
 			Metadata: model.WorkflowMetadata{
 				Name:        "sdd",
-				Description: "Spec-Driven Development workflow: explore, plan, implement, review.",
+				DisplayName: "SDD (Spec-Driven Development)",
 			},
 			Components: model.WorkflowComponents{
 				DecisionRules: []model.DecisionRule{
@@ -160,11 +160,8 @@ func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 	if !strings.Contains(out, "## Workflows") {
 		t.Errorf("output missing Workflows section")
 	}
-	if !strings.Contains(out, "### sdd") {
+	if !strings.Contains(out, "### SDD (Spec-Driven Development)") {
 		t.Errorf("output missing sdd workflow heading")
-	}
-	if !strings.Contains(out, "Spec-Driven Development workflow") {
-		t.Errorf("output missing workflow description")
 	}
 	if !strings.Contains(out, "## Decision Rules") {
 		t.Errorf("output missing Decision Rules section")

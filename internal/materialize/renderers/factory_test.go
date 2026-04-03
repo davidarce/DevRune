@@ -315,7 +315,7 @@ func setupFactoryWorkflowFixture(t *testing.T) string {
 func sddWorkflowManifest() model.WorkflowManifest {
 	return model.WorkflowManifest{
 		APIVersion: "devrune/workflow/v1",
-		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
 		Components: model.WorkflowComponents{
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",
@@ -370,10 +370,10 @@ func TestFactoryRenderer_InstallWorkflow_SkillsInCorrectLocation(t *testing.T) {
 		t.Errorf("expected sdd-orchestrator/ORCHESTRATOR.md but got: %v", err)
 	}
 
-	// Positive: _shared directory copied under skillsBase.
-	sharedDir := filepath.Join(agentsSkillsDir, "_shared")
+	// Positive: _shared directory copied under workflowDir (sdd-orchestrator).
+	sharedDir := filepath.Join(agentsSkillsDir, "sdd-orchestrator", "_shared")
 	if _, err := os.Stat(sharedDir); err != nil {
-		t.Errorf("expected _shared/ directory under .agents/skills but got: %v", err)
+		t.Errorf("expected _shared/ directory under .agents/skills/sdd-orchestrator but got: %v", err)
 	}
 
 	// Positive: ManagedPaths is non-empty.

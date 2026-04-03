@@ -45,10 +45,7 @@ func RenderRootCatalog(
 	if len(workflows) > 0 {
 		sb.WriteString("## Workflows\n\n")
 		for _, wf := range workflows {
-			_, _ = fmt.Fprintf(&sb, "### %s\n\n", wf.Metadata.Name)
-			if wf.Metadata.Description != "" {
-				sb.WriteString(wf.Metadata.Description + "\n\n")
-			}
+			_, _ = fmt.Fprintf(&sb, "### %s\n\n", wf.Metadata.EffectiveDisplayName())
 			if len(wf.Components.Commands) > 0 {
 				sb.WriteString("| Command | Action |\n")
 				sb.WriteString("|---------|--------|\n")

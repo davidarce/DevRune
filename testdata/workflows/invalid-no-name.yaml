@@ -1,6 +1,6 @@
 apiVersion: devrune/workflow/v1
 metadata:
-  description: "Workflow missing a name"
+  displayName: "Workflow missing a name"
   version: "1.0.0"
 components:
   skills:
