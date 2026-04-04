@@ -39,9 +39,12 @@ func SelectAgents(preselected []string) ([]string, error) {
 			stepHeader(1, TotalSteps, "Agent selection"),
 			huh.NewMultiSelect[string]().
 				Title("Which agents do you want to configure?").
-				Description("Select one or more AI agents. Use space to toggle, enter to confirm.").
+				Description(responsiveDescription(
+					"Select one or more AI agents. Use space to toggle, enter to confirm.",
+					"Space to toggle, enter to confirm.",
+				)).
 				Options(options...).
-				Height(len(knownAgents)+2).
+				Height(dynamicHeight(len(knownAgents)+2)).
 				Validate(func(v []string) error {
 					if len(v) == 0 {
 						return fmt.Errorf("please select at least one agent")

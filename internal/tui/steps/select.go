@@ -14,15 +14,15 @@ import (
 
 // ScannedRepoInput is the input data for the selection step.
 type ScannedRepoInput struct {
-	Source    string
-	Skills    []string
-	Rules     []string
-	MCPs      []string
+	Source            string
+	Skills            []string
+	Rules             []string
+	MCPs              []string
 	Workflows         []string
 	WorkflowManifests []model.WorkflowManifest // parsed workflow manifests
 	Tools             []model.ToolDef          // available tool definitions
-	Descs     map[string]string // item name → description
-	MCPFiles  map[string]string // MCP name → filename (e.g. "engram" → "engram.yaml")
+	Descs             map[string]string        // item name → description
+	MCPFiles          map[string]string        // MCP name → filename (e.g. "engram" → "engram.yaml")
 }
 
 // SelectionResult holds the final user selection after the select step.
@@ -411,7 +411,7 @@ func (m SelectModel) View() tea.View {
 func (m *SelectModel) renderCollapsed() string {
 	var sb strings.Builder
 
-	sb.WriteString(responsiveBanner())
+	sb.WriteString(ResponsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleStepIndicator.Render(fmt.Sprintf("Step 3/%d: Select content", TotalSteps)))

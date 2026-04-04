@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/davidarce/devrune/internal/tui/steps"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
@@ -104,7 +105,7 @@ func (m completionModel) View() tea.View {
 		MarginTop(1).
 		Render("Press q to exit")
 
-	sb.WriteString(Banner())
+	sb.WriteString(steps.ResponsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString(title)
 	sb.WriteString("\n")
