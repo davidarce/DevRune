@@ -66,9 +66,12 @@ func EnterRepositories(extraSources []string, preselected []string) ([]string, e
 			stepHeader(2, TotalSteps, "Repository sources"),
 			huh.NewMultiSelect[string]().
 				Title("Select repository catalogs").
-				Description("Use space to toggle, enter to confirm. You can add custom sources next.").
+				Description(responsiveDescription(
+					"Use space to toggle, enter to confirm. You can add custom sources next.",
+					"Space to toggle, enter to confirm.",
+				)).
 				Options(options...).
-				Height(len(merged)+2).
+				Height(dynamicHeight(len(merged)+2)).
 				Value(&predefined),
 		),
 	).WithTheme(tuistyles.DevRuneThemeFunc).
