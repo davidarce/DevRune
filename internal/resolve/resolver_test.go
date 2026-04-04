@@ -457,7 +457,9 @@ components:
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}},
 		Packages:      []model.PackageRef{{Source: "github:owner/pkg@v1.0.0"}},
-		Workflows:     []string{"github:owner/wf@v1.0.0"},
+		Workflows: map[string]model.WorkflowEntry{
+			"wf": {Source: "github:owner/wf@v1.0.0"},
+		},
 	}
 
 	lockfile, err := r.Resolve(context.Background(), manifest)
@@ -488,7 +490,9 @@ func TestResolver_InvalidWorkflowSourceRef(t *testing.T) {
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}},
 		Packages:      nil,
-		Workflows:     []string{"not-a-valid-source-ref"},
+		Workflows: map[string]model.WorkflowEntry{
+			"test": {Source: "not-a-valid-source-ref"},
+		},
 	}
 
 	_, err := r.Resolve(context.Background(), manifest)

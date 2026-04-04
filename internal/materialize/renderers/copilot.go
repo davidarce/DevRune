@@ -307,7 +307,7 @@ func (r *CopilotRenderer) MCPAgentInstructions() map[string]string {
 //
 // Layout (Copilot native sub-agent model):
 //   - Adviser skills:  .github/skills/<skill-name>/SKILL.md  (non-SDD skills only)
-//   - _shared:         .github/skills/_shared/               (shared contracts)
+//   - _shared:         .github/skills/sdd-orchestrator/_shared/ (shared contracts)
 //   - Orchestrator:    .github/agents/sdd-orchestrator.agent.md (with frontmatter + resolved placeholders)
 //   - Sub-agents:      .github/agents/{role-name}.agent.md   (synthesized from skill content)
 //   - REGISTRY.md:     captured for catalog injection (not copied loose)
@@ -332,7 +332,6 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	}
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
-	workflowDirPath := filepath.Join(skillsBase, wf.Metadata.EffectiveWorkingDir())
 	if err := os.MkdirAll(skillsBase, 0o755); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow mkdir skills: %w", err)
 	}
@@ -347,6 +346,18 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow mkdir agents: %w", err)
 	}
 
+	// Resolve the orchestrator role name upfront so non-skill auxiliary files
+	// (e.g. _shared/) land under skillsBase/<orchRoleName>/ rather than in agentsBase.
+	// In Copilot's model, agents/ contains only flat .agent.md files; skills/ holds
+	// content, resources, and references (including _shared/ templates).
+	// This matches the paths the orchestrator .agent.md references (e.g.
+	// .github/skills/sdd-orchestrator/_shared/launch-templates.md).
+	orchRoleName := wf.Metadata.EffectiveWorkingDir()
+	if orchRole := findWorkflowRoleByKind(wf.Components.Roles, "orchestrator"); orchRole != nil {
+		orchRoleName = orchRole.Name
+	}
+	orchSkillDir := filepath.Join(skillsBase, orchRoleName)
+
 	entries, err := os.ReadDir(cachePath)
 	if err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: read workflow dir %q: %w", cachePath, err)
@@ -357,11 +368,13 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// are intentionally left unresolved here and removed entirely by
 	// removeModelPlaceholderLines below. Sub-agents inherit the session's active model
 	// via the frontmatter synthesized in installOrchestratorAgent / generateSubAgentFile.
-	agentSkillDir := r.def.AgentDir
-	if agentSkillDir == "" {
-		agentSkillDir = r.def.SkillDir
-	}
-	replacements := buildWorkflowPathReplacements(wf, workspaceRoot, agentSkillDir)
+	//
+	// {SKILLS_PATH} resolves to the skills/ directory (not agents/) because in Copilot's
+	// model, agents/ contains only flat .agent.md files while content (_shared/, templates,
+	// references) lives under skills/. The orchestrator .agent.md references resources via
+	// paths like .github/skills/sdd-orchestrator/_shared/launch-templates.md.
+	skillDirName := r.def.SkillDir
+	replacements := buildWorkflowPathReplacements(wf, workspaceRoot, skillDirName)
 	// Override subagent placeholders to use role names (Copilot has native .agent.md agents).
 	for _, role := range wf.Components.Roles {
 		if role.Kind != "subagent" {
@@ -388,10 +401,6 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 
 		// T019: Install the orchestrator entrypoint as a native .agent.md with frontmatter.
 		if name == wf.Components.Entrypoint {
-			orchRoleName := wf.Metadata.EffectiveWorkingDir()
-			if orchRole := findWorkflowRoleByKind(wf.Components.Roles, "orchestrator"); orchRole != nil {
-				orchRoleName = orchRole.Name
-			}
 			dstPath := filepath.Join(agentsBase, orchRoleName+".agent.md")
 			if err := r.installOrchestratorAgent(srcPath, dstPath, wf, replacements); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow orchestrator: %w", err)
@@ -419,8 +428,11 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
-		// Copy everything else (e.g. _shared/) as-is under workflowDir.
-		dstPath := filepath.Join(workflowDirPath, name)
+		// Copy everything else (e.g. _shared/) under skillsBase/<orchRoleName>/
+		// so that the orchestrator .agent.md can reference them via paths such as
+		// .github/skills/sdd-orchestrator/_shared/launch-templates.md.
+		// In Copilot's model, agents/ is flat (.agent.md files only); content lives in skills/.
+		dstPath := filepath.Join(orchSkillDir, name)
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
 		}
@@ -451,9 +463,13 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		}
 	}
 
-	// Resolve placeholders in all installed .md files under skillsBase.
+	// Resolve placeholders in all installed .md files under skillsBase and agentsBase.
+	// agentsBase now contains the orchestrator .agent.md and the _shared/ directory.
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
-		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders: %w", err)
+		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders (skills): %w", err)
+	}
+	if err := resolvePlaceholders(agentsBase, replacements); err != nil {
+		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders (agents): %w", err)
 	}
 
 	// Remove any lines containing unresolved {SDD_MODEL_*} placeholders.
@@ -486,6 +502,10 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 	for placeholder, value := range replacements {
 		content = strings.ReplaceAll(content, placeholder, value)
 	}
+
+	// Strip the empty Phase-to-Model Table — Copilot uses native sub-agents and
+	// does not support per-phase model routing, so the table is always empty.
+	content = stripEmptyPhaseToModelTable(content)
 
 	// Derive the orchestrator role name from the workflow roles.
 	orchRoleName := wf.Metadata.EffectiveWorkingDir()
@@ -677,4 +697,42 @@ func (r *CopilotRenderer) SettingsManagedPaths(workspaceRoot string) []string {
 func (r *CopilotRenderer) ManagedConfigPaths(workspaceRoot string) []string {
 	mcpConfig := EffectiveMCPConfig(r.agentDef.MCP)
 	return []string{ResolveMCPOutputPath(workspaceRoot, mcpConfig)}
+}
+
+// stripEmptyPhaseToModelTable removes the "## Phase-to-Model Table" section when
+// it contains only the header row and no data rows. This avoids rendering an empty
+// table in agents that don't support per-phase model routing (e.g. Copilot).
+func stripEmptyPhaseToModelTable(content string) string {
+	const marker = "## Phase-to-Model Table"
+	idx := strings.Index(content, marker)
+	if idx < 0 {
+		return content
+	}
+	// Find the end of the section: next "## " heading or end of string.
+	rest := content[idx+len(marker):]
+	endIdx := strings.Index(rest, "\n## ")
+	if endIdx < 0 {
+		endIdx = len(rest)
+	}
+	section := rest[:endIdx]
+	// Count non-empty, non-header lines in the table. The table has:
+	//   | Phase | Skill | Model |
+	//   |-------|-------|-------|
+	// If there are no data rows after the separator, strip the whole section.
+	lines := strings.Split(section, "\n")
+	dataRows := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "| Phase") || strings.HasPrefix(trimmed, "|---") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "|") {
+			dataRows++
+		}
+	}
+	if dataRows > 0 {
+		return content // Table has data, keep it.
+	}
+	// Strip the section including trailing newlines.
+	return content[:idx] + strings.TrimLeft(rest[endIdx:], "\n")
 }

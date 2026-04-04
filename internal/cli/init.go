@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -95,45 +94,48 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Check if devrune.yaml already exists.
+	// Build ExistingConfig from existing manifest if present (for smart config merge).
+	// In interactive mode this replaces the old "Overwrite?" confirm prompt.
+	var existing *tui.ExistingConfig
+	if existingData, err := os.ReadFile(destPath); err == nil {
+		var existingManifest model.UserManifest
+		if err := yaml.Unmarshal(existingData, &existingManifest); err == nil {
+			existingAgents := make([]string, 0, len(existingManifest.Agents))
+			for _, a := range existingManifest.Agents {
+				if a.Name != "" {
+					existingAgents = append(existingAgents, a.Name)
+				}
+			}
+			existingSources := make([]string, 0, len(existingManifest.Packages))
+			for _, p := range existingManifest.Packages {
+				if p.Source != "" {
+					existingSources = append(existingSources, p.Source)
+				}
+			}
+			existing = &tui.ExistingConfig{
+				Agents:         existingAgents,
+				Sources:        existingSources,
+				WorkflowModels: mergeWorkflowModels(existingManifest.Workflows),
+			}
+		}
+	}
+
+	// Check if devrune.yaml already exists in non-interactive / force scenarios.
 	if _, statErr := os.Stat(destPath); statErr == nil {
 		if nonInteractive || hasFlags {
 			if !force {
 				printError(out, fmt.Sprintf("%s already exists — use --force to overwrite", destPath))
 				return fmt.Errorf("%s already exists", destPath)
 			}
-		} else {
-			// Interactive mode: ask user.
-			var overwrite bool
-			form := huh.NewForm(
-				huh.NewGroup(
-					steps.BannerNote(),
-					huh.NewConfirm().
-						Title("devrune.yaml already exists. Overwrite it?").
-						Affirmative("Yes, overwrite").
-						Negative("Cancel").
-						Value(&overwrite),
-				),
-			).WithTheme(tuistyles.DevRuneThemeFunc).
-				WithViewHook(func(v tea.View) tea.View {
-					v.AltScreen = true
-					return v
-				})
-			if err := form.Run(); err != nil {
-				return err
-			}
-			if !overwrite {
-				_, _ = fmt.Fprintln(out, "Aborted.")
-				return nil
-			}
 		}
+		// Interactive mode: no "Overwrite?" prompt — wizard re-runs with preselected values.
 	}
 
 	var manifest model.UserManifest
 
 	if !nonInteractive && !hasFlags {
-		// Interactive mode: launch TUI wizard.
-		result, err := tui.Run(catalogSources)
+		// Interactive mode: launch TUI wizard with preselection from existing config (if any).
+		result, err := tui.Run(catalogSources, existing)
 		if err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				_, _ = fmt.Fprintln(out, "Aborted.")
@@ -183,12 +185,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		workflowEntries := buildWorkflowEntries(workflows)
 		manifest = model.UserManifest{
 			SchemaVersion: "devrune/v1",
 			Agents:        agentRefs,
 			Packages:      pkgRefs,
 			MCPs:          mcpRefs,
-			Workflows:     workflows,
+			Workflows:     workflowEntries,
 			Catalogs:      catalogSources,
 		}
 	}
@@ -227,26 +230,24 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// This must happen before RunResolve so the lock hash matches the installed state.
 		_ = syncCatalogs(manifest, destPath)
 
-		// Resolve.
-		printProgress(out, "Resolving packages...")
-		lockfile, err := RunResolve(ctx, wd, destPath, verbose, nopWriter{})
-		if err != nil {
-			printError(out, "Resolve failed: "+err.Error())
-			return err
-		}
-		skillCount, ruleCount := countContents(lockfile)
-		printDone(out, fmt.Sprintf("Resolved %d package(s), %d MCP(s), %d workflow(s) — %d skills, %d rules",
-			len(lockfile.Packages), len(lockfile.MCPs), len(lockfile.Workflows), skillCount, ruleCount))
-
-		// Install.
-		printProgress(out, "Installing workspace...")
+		// Resolve + install via bubbletea spinner.
+		var lockfile model.Lockfile
 		lockPath := filepath.Join(wd, "devrune.lock")
-		if err := RunInstall(ctx, wd, lockPath, manifest, verbose, nopWriter{}); err != nil {
-			printError(out, "Install failed: "+err.Error())
+		if err := steps.RunInstallSpinner(
+			func() error {
+				lf, resolveErr := RunResolve(ctx, wd, destPath, verbose, nopWriter{})
+				if resolveErr != nil {
+					return resolveErr
+				}
+				lockfile = lf
+				return nil
+			},
+			func() error {
+				return RunInstall(ctx, wd, lockPath, manifest, verbose, nopWriter{})
+			},
+		); err != nil {
 			return err
 		}
-		printDone(out, fmt.Sprintf("Installed for agents: %s", strings.Join(agentSummary, ", ")))
-
 		_ = lockfile
 	} else {
 		_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  No packages to resolve."))
@@ -275,12 +276,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 // printProgress writes a styled "in progress" step line.
 func printProgress(out io.Writer, msg string) {
-	_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  ⧗ "+msg))
+	style := tuistyles.StyleInfo.Foreground(tuistyles.ColorSecondary)
+	_, _ = fmt.Fprintln(out, style.Render("  ⧗ "+msg))
 }
 
 // printDone writes a styled "completed" step line with a green checkmark.
 func printDone(out io.Writer, msg string) {
-	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  ✓ ")+tuistyles.StyleSummaryValue.Render(msg))
+	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Foreground(tuistyles.ColorSuccess).Render("  ✓ ")+tuistyles.StyleSummaryValue.Render(msg))
 }
 
 // printError writes a styled error line with a red cross.
@@ -292,6 +294,74 @@ func printError(out io.Writer, msg string) {
 func printSummaryLine(out io.Writer, key, value string) {
 	padded := fmt.Sprintf("%-12s", key+":")
 	_, _ = fmt.Fprintln(out, "  "+tuistyles.StyleSummaryKey.Render(padded)+tuistyles.StyleSummaryValue.Render(value))
+}
+
+// buildWorkflowEntries converts a list of workflow source ref strings (from --workflow flags)
+// into a map[name]WorkflowEntry suitable for UserManifest.Workflows.
+// The workflow name is derived from the last path component of the source ref.
+func buildWorkflowEntries(sources []string) map[string]model.WorkflowEntry {
+	if len(sources) == 0 {
+		return nil
+	}
+	entries := make(map[string]model.WorkflowEntry, len(sources))
+	for _, src := range sources {
+		if src == "" {
+			continue
+		}
+		name := workflowNameFromSource(src)
+		entries[name] = model.WorkflowEntry{Source: src}
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return entries
+}
+
+// workflowNameFromSource derives a workflow name from a source ref string.
+// Uses the last path component after the "//" subpath separator, or the last
+// slash-separated segment otherwise.
+func workflowNameFromSource(src string) string {
+	// Strip subpath after "//".
+	if idx := strings.Index(src, "//"); idx >= 0 {
+		sub := src[idx+2:]
+		// e.g. "workflows/sdd" → last component "sdd"
+		if last := strings.LastIndex(sub, "/"); last >= 0 {
+			return sub[last+1:]
+		}
+		return sub
+	}
+	// No subpath: use last segment before any "@" ref.
+	noRef := src
+	if at := strings.Index(src, "@"); at >= 0 {
+		noRef = src[:at]
+	}
+	if last := strings.LastIndex(noRef, "/"); last >= 0 {
+		return noRef[last+1:]
+	}
+	return noRef
+}
+
+// mergeWorkflowModels merges per-agent role model overrides from all workflow entries
+// into a flat map[agentName]map[roleName]modelValue.
+func mergeWorkflowModels(workflows map[string]model.WorkflowEntry) map[string]map[string]string {
+	var merged map[string]map[string]string
+	for _, entry := range workflows {
+		if len(entry.Roles) == 0 {
+			continue
+		}
+		if merged == nil {
+			merged = make(map[string]map[string]string)
+		}
+		for agent, roles := range entry.Roles {
+			if merged[agent] == nil {
+				merged[agent] = make(map[string]string)
+			}
+			for role, modelVal := range roles {
+				merged[agent][role] = modelVal
+			}
+		}
+	}
+	return merged
 }
 
 // nopWriter discards all writes. Used to suppress pipeline output when the

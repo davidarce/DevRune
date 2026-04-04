@@ -16,7 +16,8 @@ agents:
   - name: opencode
 
 workflows:
-  - github:davidarce/devrune-starter@v0.1.0//workflows/sdd
+  sdd:
+    source: github:davidarce/devrune-starter@v0.1.0//workflows/sdd
 
 catalogs:
   - github:davidarce/devrune-starter-catalog

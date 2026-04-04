@@ -37,7 +37,9 @@ func TestExpandWorkflows_ValidWorkflowSources(t *testing.T) {
 		SchemaVersion: "devrune/v1",
 		Packages:      []model.PackageRef{},
 		Agents:        []model.AgentRef{{Name: "claude"}},
-		Workflows:     []string{"github:owner/repo@v1.0.0"},
+		Workflows: map[string]model.WorkflowEntry{
+			"repo": {Source: "github:owner/repo@v1.0.0"},
+		},
 	}
 
 	f := &mockFetcherSimple{data: map[string][]byte{}}
@@ -53,8 +55,8 @@ func TestExpandWorkflows_ValidWorkflowSources(t *testing.T) {
 	if len(result.Workflows) != 1 {
 		t.Errorf("Workflows count: got %d, want 1", len(result.Workflows))
 	}
-	if result.Workflows[0] != manifest.Workflows[0] {
-		t.Errorf("Workflow[0]: got %q, want %q", result.Workflows[0], manifest.Workflows[0])
+	if result.Workflows["repo"].Source != manifest.Workflows["repo"].Source {
+		t.Errorf("Workflow[repo].Source: got %q, want %q", result.Workflows["repo"].Source, manifest.Workflows["repo"].Source)
 	}
 }
 
@@ -83,14 +85,15 @@ func TestExpandWorkflows_NoWorkflows(t *testing.T) {
 	}
 }
 
+
 // TestExpandWorkflows_MultipleWorkflows verifies that multiple valid workflow sources all pass.
 func TestExpandWorkflows_MultipleWorkflows(t *testing.T) {
 	manifest := model.UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}},
-		Workflows: []string{
-			"github:owner/repo-a@v1.0.0",
-			"github:owner/repo-b@v2.0.0",
+		Workflows: map[string]model.WorkflowEntry{
+			"repo-a": {Source: "github:owner/repo-a@v1.0.0"},
+			"repo-b": {Source: "github:owner/repo-b@v2.0.0"},
 		},
 	}
 
@@ -130,7 +133,9 @@ func TestExpandWorkflows_InvalidSourceRef(t *testing.T) {
 			manifest := model.UserManifest{
 				SchemaVersion: "devrune/v1",
 				Agents:        []model.AgentRef{{Name: "claude"}},
-				Workflows:     []string{tt.workflow},
+				Workflows: map[string]model.WorkflowEntry{
+					"test": {Source: tt.workflow},
+				},
 			}
 
 			f := &mockFetcherSimple{}
@@ -147,7 +152,9 @@ func TestExpandWorkflows_LocalSourceRef(t *testing.T) {
 	manifest := model.UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}},
-		Workflows:     []string{"local:./my-workflow"},
+		Workflows: map[string]model.WorkflowEntry{
+			"my-workflow": {Source: "local:./my-workflow"},
+		},
 	}
 
 	f := &mockFetcherSimple{data: map[string][]byte{}}
@@ -156,8 +163,8 @@ func TestExpandWorkflows_LocalSourceRef(t *testing.T) {
 		t.Fatalf("ExpandWorkflows() error = %v", err)
 	}
 
-	if len(result.Workflows) != 1 || result.Workflows[0] != "local:./my-workflow" {
-		t.Errorf("Workflows = %v, want [local:./my-workflow]", result.Workflows)
+	if len(result.Workflows) != 1 || result.Workflows["my-workflow"].Source != "local:./my-workflow" {
+		t.Errorf("Workflows = %v, want {my-workflow: {source: local:./my-workflow}}", result.Workflows)
 	}
 }
 
@@ -169,7 +176,9 @@ func TestExpandWorkflows_PackagesUnchanged(t *testing.T) {
 		Packages: []model.PackageRef{
 			{Source: "github:owner/pkg@v1.0.0"},
 		},
-		Workflows: []string{"github:owner/wf@v1.0.0"},
+		Workflows: map[string]model.WorkflowEntry{
+			"wf": {Source: "github:owner/wf@v1.0.0"},
+		},
 	}
 
 	f := &mockFetcherSimple{data: map[string][]byte{}}

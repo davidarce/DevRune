@@ -36,9 +36,9 @@ func TestUserManifest_Validate(t *testing.T) {
 				SchemaVersion: "devrune/v1",
 				Agents:        []AgentRef{{Name: "claude"}},
 				Packages:      []PackageRef{{Source: "github:owner/repo@v1.0.0"}},
-				Workflows: []string{
-					"github:owner/workflows@v1.0.0//sdd",
-					"local:./my-workflow",
+				Workflows: map[string]WorkflowEntry{
+					"sdd":         {Source: "github:owner/workflows@v1.0.0//sdd"},
+					"my-workflow": {Source: "local:./my-workflow"},
 				},
 			},
 			wantErr: false,
@@ -483,15 +483,20 @@ func TestUserManifest_Catalogs_ValidatePassesWithCatalogs(t *testing.T) {
 	}
 }
 
-// TestUserManifest_WorkflowModels_Serialization tests that WorkflowModels serializes to YAML correctly.
-func TestUserManifest_WorkflowModels_Serialization(t *testing.T) {
+// TestUserManifest_WorkflowEntry_Serialization tests that WorkflowEntry with roles serializes correctly.
+func TestUserManifest_WorkflowEntry_Serialization(t *testing.T) {
 	manifest := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}},
-		WorkflowModels: map[string]map[string]string{
-			"claude": {
-				"sdd-explorer": "sonnet",
-				"sdd-planner":  "opus",
+		Workflows: map[string]WorkflowEntry{
+			"sdd": {
+				Source: "github:owner/workflows@v1.0.0//workflows/sdd",
+				Roles: map[string]map[string]string{
+					"claude": {
+						"sdd-explorer": "sonnet",
+						"sdd-planner":  "opus",
+					},
+				},
 			},
 		},
 	}
@@ -502,8 +507,17 @@ func TestUserManifest_WorkflowModels_Serialization(t *testing.T) {
 	}
 
 	yamlStr := string(data)
-	if !strings.Contains(yamlStr, "workflowModels:") {
-		t.Errorf("serialized YAML does not contain 'workflowModels:' key:\n%s", yamlStr)
+	if !strings.Contains(yamlStr, "workflows:") {
+		t.Errorf("serialized YAML does not contain 'workflows:' key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "sdd:") {
+		t.Errorf("serialized YAML does not contain 'sdd:' workflow key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "source:") {
+		t.Errorf("serialized YAML does not contain 'source:' key:\n%s", yamlStr)
+	}
+	if !strings.Contains(yamlStr, "roles:") {
+		t.Errorf("serialized YAML does not contain 'roles:' key:\n%s", yamlStr)
 	}
 	if !strings.Contains(yamlStr, "claude:") {
 		t.Errorf("serialized YAML does not contain 'claude:' agent key:\n%s", yamlStr)
@@ -516,12 +530,12 @@ func TestUserManifest_WorkflowModels_Serialization(t *testing.T) {
 	}
 }
 
-// TestUserManifest_WorkflowModels_OmitWhenNil tests that nil WorkflowModels omits the key entirely.
-func TestUserManifest_WorkflowModels_OmitWhenNil(t *testing.T) {
+// TestUserManifest_WorkflowEntry_OmitWhenNil tests that nil Workflows omits the key entirely.
+func TestUserManifest_WorkflowEntry_OmitWhenNil(t *testing.T) {
 	manifest := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}},
-		WorkflowModels: nil,
+		Workflows:     nil,
 	}
 
 	data, err := yaml.Marshal(manifest)
@@ -530,25 +544,52 @@ func TestUserManifest_WorkflowModels_OmitWhenNil(t *testing.T) {
 	}
 
 	yamlStr := string(data)
-	if strings.Contains(yamlStr, "workflowModels") {
-		t.Errorf("serialized YAML contains 'workflowModels' for nil value (omitempty violation):\n%s", yamlStr)
+	if strings.Contains(yamlStr, "workflows") {
+		t.Errorf("serialized YAML contains 'workflows' for nil value (omitempty violation):\n%s", yamlStr)
 	}
 }
 
-// TestUserManifest_WorkflowModels_RoundTrip tests that marshal → unmarshal preserves WorkflowModels.
-func TestUserManifest_WorkflowModels_RoundTrip(t *testing.T) {
+// TestUserManifest_WorkflowEntry_RolesOmitWhenNil tests that a workflow entry without roles
+// omits the roles key.
+func TestUserManifest_WorkflowEntry_RolesOmitWhenNil(t *testing.T) {
+	manifest := UserManifest{
+		SchemaVersion: "devrune/v1",
+		Agents:        []AgentRef{{Name: "claude"}},
+		Workflows: map[string]WorkflowEntry{
+			"sdd": {Source: "github:owner/workflows@v1.0.0//workflows/sdd"},
+		},
+	}
+
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	yamlStr := string(data)
+	if strings.Contains(yamlStr, "roles") {
+		t.Errorf("serialized YAML contains 'roles' for nil roles (omitempty violation):\n%s", yamlStr)
+	}
+}
+
+// TestUserManifest_WorkflowEntry_RoundTrip tests that marshal → unmarshal preserves WorkflowEntry.Roles.
+func TestUserManifest_WorkflowEntry_RoundTrip(t *testing.T) {
 	original := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}, {Name: "opencode"}},
-		WorkflowModels: map[string]map[string]string{
-			"claude": {
-				"sdd-explorer":    "sonnet",
-				"sdd-planner":     "opus",
-				"sdd-implementer": "haiku",
-				"sdd-reviewer":    "sonnet",
-			},
-			"opencode": {
-				"sdd-explorer": "claude-sonnet-4.5",
+		Workflows: map[string]WorkflowEntry{
+			"sdd": {
+				Source: "github:owner/workflows@v1.0.0//workflows/sdd",
+				Roles: map[string]map[string]string{
+					"claude": {
+						"sdd-explorer":    "sonnet",
+						"sdd-planner":     "opus",
+						"sdd-implementer": "haiku",
+						"sdd-reviewer":    "sonnet",
+					},
+					"opencode": {
+						"sdd-explorer": "claude-sonnet-4.5",
+					},
+				},
 			},
 		},
 	}
@@ -563,74 +604,52 @@ func TestUserManifest_WorkflowModels_RoundTrip(t *testing.T) {
 		t.Fatalf("yaml.Unmarshal() error = %v", err)
 	}
 
-	if len(restored.WorkflowModels) != len(original.WorkflowModels) {
-		t.Errorf("WorkflowModels agent count after round-trip = %d, want %d", len(restored.WorkflowModels), len(original.WorkflowModels))
+	restoredEntry, ok := restored.Workflows["sdd"]
+	if !ok {
+		t.Fatal("Workflows[\"sdd\"] missing after round-trip")
 	}
 
-	for agent, roles := range original.WorkflowModels {
-		restoredRoles, ok := restored.WorkflowModels[agent]
+	originalEntry := original.Workflows["sdd"]
+	for agent, roles := range originalEntry.Roles {
+		restoredAgentRoles, ok := restoredEntry.Roles[agent]
 		if !ok {
-			t.Errorf("WorkflowModels missing agent %q after round-trip", agent)
+			t.Errorf("Workflows[sdd].Roles missing agent %q after round-trip", agent)
 			continue
 		}
 		for role, wantModel := range roles {
-			gotModel, ok := restoredRoles[role]
+			gotModel, ok := restoredAgentRoles[role]
 			if !ok {
-				t.Errorf("WorkflowModels[%q] missing role %q after round-trip", agent, role)
+				t.Errorf("Workflows[sdd].Roles[%q] missing role %q after round-trip", agent, role)
 				continue
 			}
 			if gotModel != wantModel {
-				t.Errorf("WorkflowModels[%q][%q] = %q after round-trip, want %q", agent, role, gotModel, wantModel)
+				t.Errorf("Workflows[sdd].Roles[%q][%q] = %q after round-trip, want %q", agent, role, gotModel, wantModel)
 			}
 		}
 	}
 }
 
-// TestUserManifest_WorkflowModels_ValidatePassesWithWorkflowModels tests that Validate() succeeds
-// when WorkflowModels is populated.
-func TestUserManifest_WorkflowModels_ValidatePassesWithWorkflowModels(t *testing.T) {
+// TestUserManifest_WorkflowEntry_ValidatePassesWithRoles tests that Validate() succeeds
+// when Workflows has entries with roles.
+func TestUserManifest_WorkflowEntry_ValidatePassesWithRoles(t *testing.T) {
 	manifest := UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []AgentRef{{Name: "claude"}},
 		Packages:      []PackageRef{{Source: "github:owner/repo@v1.0.0"}},
-		WorkflowModels: map[string]map[string]string{
-			"claude": {
-				"sdd-explorer": "sonnet",
+		Workflows: map[string]WorkflowEntry{
+			"sdd": {
+				Source: "github:owner/workflows@v1.0.0//workflows/sdd",
+				Roles: map[string]map[string]string{
+					"claude": {
+						"sdd-explorer": "sonnet",
+					},
+				},
 			},
 		},
 	}
 
 	if err := manifest.Validate(); err != nil {
-		t.Errorf("Validate() with WorkflowModels populated returned error = %v, want nil", err)
-	}
-}
-
-// TestUserManifest_LegacySDDModels_Migration tests that the legacy "sddModels" YAML key
-// is migrated to WorkflowModels during unmarshalling.
-func TestUserManifest_LegacySDDModels_Migration(t *testing.T) {
-	yamlData := []byte(`
-schemaVersion: devrune/v1
-agents:
-  - name: claude
-sddModels:
-  claude:
-    sdd-explorer: sonnet
-    sdd-planner: opus
-`)
-
-	var manifest UserManifest
-	if err := yaml.Unmarshal(yamlData, &manifest); err != nil {
-		t.Fatalf("yaml.Unmarshal() error = %v", err)
-	}
-
-	if manifest.WorkflowModels == nil {
-		t.Fatal("WorkflowModels is nil after legacy migration")
-	}
-	if got := manifest.WorkflowModels["claude"]["sdd-explorer"]; got != "sonnet" {
-		t.Errorf("WorkflowModels[claude][sdd-explorer] = %q, want %q", got, "sonnet")
-	}
-	if got := manifest.WorkflowModels["claude"]["sdd-planner"]; got != "opus" {
-		t.Errorf("WorkflowModels[claude][sdd-planner] = %q, want %q", got, "opus")
+		t.Errorf("Validate() with Workflows populated returned error = %v, want nil", err)
 	}
 }
 

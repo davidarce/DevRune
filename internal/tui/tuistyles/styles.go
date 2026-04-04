@@ -10,20 +10,25 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// ANSI color indices — compatible with any terminal theme (Base16, Dracula,
-// Solarized, etc.).  These are the only colors used by the DevRune TUI so that
-// it harmonises with huh.ThemeBase16's native ANSI palette.
+// ANSI color indices — ANSI 0-15 only for maximum terminal compatibility.
+// These are the only colors used by the DevRune TUI so that it harmonises
+// with huh.ThemeBase16's native ANSI palette across iTerm2, Terminal.app,
+// Windows Terminal, and Linux VTs.
 var (
-	// ColorGreen is ANSI green (2) — used for success and completed dots.
-	ColorGreen = lipgloss.Color("2")
-	// ColorRed is ANSI red (1) — used for error messages.
-	ColorRed = lipgloss.Color("1")
-	// ColorAccent is ANSI bright green (10) — used for titles, current dot, step labels.
-	ColorAccent = lipgloss.Color("10")
-	// ColorWhite is ANSI white (7) — used for highlighted text.
-	ColorWhite = lipgloss.Color("7")
-	// ColorDim is ANSI bright-black / gray (8) — used for muted/info text and future dots.
+	// ColorAccent is ANSI bright white (15) — primary accent for titles, labels.
+	ColorAccent = lipgloss.Color("15")
+	// ColorSecondary is ANSI bright cyan (14) — highlights, step indicators, links.
+	ColorSecondary = lipgloss.Color("14")
+	// ColorSuccess is ANSI green (2) — checkmarks, success states, completed dots.
+	ColorSuccess = lipgloss.Color("2")
+	// ColorError is ANSI red (1) — error messages.
+	ColorError = lipgloss.Color("1")
+	// ColorDim is ANSI bright-black / dark gray (8) — muted text, borders, future dots.
 	ColorDim = lipgloss.Color("8")
+	// ColorMuted is ANSI light gray (7) — secondary text, summary values.
+	ColorMuted = lipgloss.Color("7")
+	// ColorBg is ANSI black (0) — backgrounds where needed.
+	ColorBg = lipgloss.Color("0")
 
 	// StyleTitle renders the main title text.
 	StyleTitle = lipgloss.NewStyle().
@@ -37,12 +42,12 @@ var (
 
 	// StyleSuccess renders success messages.
 	StyleSuccess = lipgloss.NewStyle().
-			Foreground(ColorGreen).
+			Foreground(ColorSuccess).
 			Bold(true)
 
 	// StyleError renders error messages.
 	StyleError = lipgloss.NewStyle().
-			Foreground(ColorRed).
+			Foreground(ColorError).
 			Bold(true)
 
 	// StyleInfo renders informational text.
@@ -51,10 +56,10 @@ var (
 
 	// StyleHighlight renders highlighted/important values.
 	StyleHighlight = lipgloss.NewStyle().
-			Foreground(ColorWhite).
+			Foreground(ColorAccent).
 			Bold(true)
 
-	// StyleBanner renders the DevRune ASCII banner.
+	// StyleBanner renders the DevRune banner.
 	StyleBanner = lipgloss.NewStyle().
 			Foreground(ColorAccent).
 			Bold(true).
@@ -62,7 +67,7 @@ var (
 
 	// StyleStepIndicator renders the "Step N/M: Name" header.
 	StyleStepIndicator = lipgloss.NewStyle().
-				Foreground(ColorAccent).
+				Foreground(ColorSecondary).
 				Bold(true).
 				MarginBottom(1)
 
@@ -73,7 +78,7 @@ var (
 
 	// StyleSummaryValue renders a summary value.
 	StyleSummaryValue = lipgloss.NewStyle().
-				Foreground(ColorWhite)
+				Foreground(ColorMuted)
 
 	// StyleVersionBadge renders the version tag.
 	StyleVersionBadge = lipgloss.NewStyle().
@@ -81,18 +86,19 @@ var (
 )
 
 // DevRuneTheme returns a huh theme based on Base16 with button colors
-// overridden to use ANSI green/gray instead of the default pink/magenta.
+// overridden to use the ANSI-16 neutral palette.
 //
-//   - FocusedButton: ANSI green (2) background, black (0) foreground — matches the green accent.
-//   - BlurredButton: ANSI bright-black/gray (8) background, white (7) foreground — subtle, neutral.
+//   - FocusedButton: black (0) foreground on bright cyan (14) background — clearly visible primary action.
+//   - BlurredButton: light gray (7) foreground on dark gray (8) background — dimmer secondary action.
 func DevRuneTheme(isDark bool) *huh.Styles {
 	t := huh.ThemeBase16(isDark)
 	t.Focused.FocusedButton = t.Focused.FocusedButton.
-		Background(lipgloss.Color("2")).
-		Foreground(lipgloss.Color("0"))
+		Background(ColorSecondary).
+		Foreground(ColorBg).
+		Bold(true)
 	t.Focused.BlurredButton = t.Focused.BlurredButton.
-		Background(lipgloss.Color("8")).
-		Foreground(lipgloss.Color("7"))
+		Background(ColorDim).
+		Foreground(ColorMuted)
 	// t.Blurred is a copy of t.Focused set inside ThemeBase16, so button
 	// styles on t.Blurred already inherited the Focused values. Override them
 	// explicitly to be sure they stay consistent.

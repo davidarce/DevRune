@@ -23,8 +23,9 @@ type ScannedRepo struct {
 	Skills    []string          // discovered skill names
 	Rules     []string          // discovered rule names
 	MCPs      []string          // discovered MCP names (files in mcps/ dir)
-	Workflows []string          // discovered workflow names (dirs with workflow.yaml)
-	Tools     []model.ToolDef   // discovered tool definitions (files in tools/ dir)
+	Workflows         []string                 // discovered workflow names (dirs with workflow.yaml)
+	WorkflowManifests []model.WorkflowManifest // parsed workflow manifests
+	Tools             []model.ToolDef          // discovered tool definitions (files in tools/ dir)
 	Descs     map[string]string // item name → description (for skills, workflows, MCPs)
 	MCPFiles  map[string]string // MCP name → filename with extension (e.g. "engram" → "engram.yaml")
 	Error     error             // scan error (nil if ok)
@@ -96,10 +97,17 @@ func ScanRepositories(ctx context.Context, sources []string, cp string) ([]Scann
 		// Discover tools: YAML files in tools/ directory.
 		repo.Tools = discoverTools(dir)
 
-		// Read workflow descriptions from workflow.yaml metadata.
+		// Parse workflow manifests and read descriptions.
 		for _, wf := range repo.Workflows {
-			if desc := readWorkflowDesc(filepath.Join(dir, "workflows", wf, "workflow.yaml")); desc != "" {
+			wfPath := filepath.Join(dir, "workflows", wf, "workflow.yaml")
+			if desc := readWorkflowDesc(wfPath); desc != "" {
 				repo.Descs[wf] = desc
+			}
+			if data, err := os.ReadFile(wfPath); err == nil {
+				var wfManifest model.WorkflowManifest
+				if err := yaml.Unmarshal(data, &wfManifest); err == nil {
+					repo.WorkflowManifests = append(repo.WorkflowManifests, wfManifest)
+				}
 			}
 		}
 

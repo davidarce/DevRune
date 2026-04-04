@@ -33,7 +33,14 @@ agent configuration directories (.claude/, .agents/, .codex/, .opencode/,
 
 The devrune binary itself is NOT removed. Use your package manager or
 delete it manually if desired.`,
-		RunE: runUninstall,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := runUninstall(cmd, args)
+			if err == huh.ErrUserAborted {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+				return nil
+			}
+			return err
+		},
 	}
 }
 
@@ -83,15 +90,13 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 
 	if err := form.Run(); err != nil {
 		if err == huh.ErrUserAborted {
-			_, _ = fmt.Fprintln(out, "Aborted.")
-			return nil
+			return huh.ErrUserAborted
 		}
 		return fmt.Errorf("confirmation form: %w", err)
 	}
 
 	if !confirmed {
-		_, _ = fmt.Fprintln(out, "Aborted.")
-		return nil
+		return huh.ErrUserAborted
 	}
 
 	// Remove managed paths from state.

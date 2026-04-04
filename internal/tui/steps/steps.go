@@ -33,17 +33,21 @@ var TotalSteps = 5
 
 // termHeight queries the current terminal height.
 // Returns 40 as a safe default when the size cannot be determined.
-func termHeight() int {
-	_, h, err := xterm.GetSize(os.Stdout.Fd())
-	if err != nil || h <= 0 {
-		return 40 // default to full banner
+func termSize() (int, int) {
+	w, h, err := xterm.GetSize(os.Stdout.Fd())
+	if err != nil || w <= 0 || h <= 0 {
+		return 80, 40 // defaults
 	}
+	return w, h
+}
+
+func termHeight() int {
+	_, h := termSize()
 	return h
 }
 
 // renderFullBanner builds the full multi-line ASCII art banner string.
-// Uses ANSI bright green (10) for a hacker/dev brand color.
-// Each line is left-aligned with a 2-space indent.
+// Uses ANSI bright cyan (14) for the art, with subtitle and separator in dim gray (8).
 func renderFullBanner() string {
 	artLines := []string{
 		`██████╗ ███████╗██╗   ██╗██████╗ ██╗   ██╗███╗   ██╗███████╗`,
@@ -54,7 +58,8 @@ func renderFullBanner() string {
 		`╚═════╝ ╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝`,
 	}
 
-	artStyle := ansiStyle("10", true) // ANSI bright green, bold
+	artStyle := ansiStyle("14", true) // ANSI bright cyan, bold
+	dimStyle := ansiStyle("8", false) // ANSI dark gray
 
 	var b strings.Builder
 	b.WriteString("\n")
@@ -64,33 +69,65 @@ func renderFullBanner() string {
 		b.WriteString("\n")
 	}
 
-	// Subtitle: plain dim text — no colored blocks.
-	subtitleText := "Package manager for AI agent instructions"
+	// Subtitle.
 	b.WriteString("  ")
-	b.WriteString(ansiStyle("8", false).Render(subtitleText))
+	b.WriteString(dimStyle.Render("Package manager for AI agent instructions"))
 	b.WriteString("\n")
 
-	// Separator: dim gray.
-	shimmerText := "─────────────────────────────────────────────────────────────────"
+	// Separator.
 	b.WriteString("  ")
-	b.WriteString(ansiStyle("8", false).Render(shimmerText))
+	b.WriteString(dimStyle.Render("─────────────────────────────────────────────────────────────────"))
+
+	return b.String()
+}
+
+// renderMinimalBanner builds a minimal 2-line banner for medium-large terminals.
+// Used inside wizard steps where the full ASCII art would take too much space.
+func renderMinimalBanner() string {
+	titleStyle := ansiStyle("15", true)
+	dimStyle := ansiStyle("8", false)
+	cyanStyle := ansiStyle("14", false)
+
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  ")
+	b.WriteString(cyanStyle.Render("◆ "))
+	b.WriteString(titleStyle.Render("DevRune"))
+	b.WriteString("  ")
+	b.WriteString(dimStyle.Render("Package manager for AI agent instructions"))
+	b.WriteString("\n")
+	b.WriteString("  ")
+	b.WriteString(dimStyle.Render("─────────────────────────────────────────────────────────────────"))
 
 	return b.String()
 }
 
 // renderCompactBanner builds a single-line branded banner for medium terminals.
-// Uses ANSI bright green (10) to match the full banner style.
+// Uses ANSI bright white (15) to match the full banner style.
 // Left-aligned with a 2-space indent.
 func renderCompactBanner() string {
-	text := "◆ DevRune — Package manager for AI agent instructions"
-	return "\n" + "  " + ansiStyle("10", true).Render(text)
+	return "\n" + "  " + ansiStyle("14", false).Render("◆ ") + ansiStyle("15", true).Render("DevRune")
 }
 
-// responsiveBanner returns the appropriate banner string based on terminal height:
-//   - < 25 rows : empty string (no banner)
-//   - 25–34 rows: compact single-line banner
-//   - ≥ 35 rows : full ASCII art banner
+// responsiveBanner returns the appropriate banner string based on terminal size:
+//   - too small (h < 25): empty string
+//   - medium (h 25-34 or w < 70): compact single-line banner
+//   - large (h >= 35 and w >= 70): full ASCII art banner
 func responsiveBanner() string {
+	w, h := termSize()
+	switch {
+	case h < 25:
+		return ""
+	case h < 35 || w < 70:
+		return renderCompactBanner()
+	default:
+		return renderFullBanner()
+	}
+}
+
+// responsiveStepBanner returns a banner for wizard steps (minimal, not the full ASCII art).
+// The full ASCII art is reserved for the main menu via responsiveBanner/BannerNote.
+func responsiveStepBanner() string {
 	h := termHeight()
 	switch {
 	case h < 25:
@@ -98,7 +135,7 @@ func responsiveBanner() string {
 	case h < 35:
 		return renderCompactBanner()
 	default:
-		return renderFullBanner()
+		return renderMinimalBanner()
 	}
 }
 
@@ -107,7 +144,7 @@ func responsiveBanner() string {
 // Use this for standalone dialogs that should show the banner but aren't
 // part of the numbered wizard steps.
 func BannerNote() *huh.Note {
-	return huh.NewNote().Description(responsiveBanner())
+	return huh.NewNote().Title(responsiveBanner())
 }
 
 // stepHeaderString returns the rendered banner + step indicator as a plain string.
@@ -122,8 +159,8 @@ func stepHeaderString(step, total int, label string) string {
 			// Completed: ANSI green (2)
 			dots = append(dots, ansiStyle("2", false).Render("●"))
 		} else if i == step-1 {
-			// Current: ANSI bright green (10)
-			dots = append(dots, ansiStyle("10", false).Render("●"))
+			// Current: ANSI bright cyan (14)
+			dots = append(dots, ansiStyle("14", false).Render("●"))
 		} else {
 			// Future: ANSI gray (8)
 			dots = append(dots, ansiStyle("8", false).Render("○"))
@@ -137,7 +174,7 @@ func stepHeaderString(step, total int, label string) string {
 	stepLine := "  " + stepLabel + "  " + dotsLine
 
 	return fmt.Sprintf("%s\n%s\n%s",
-		responsiveBanner(),
+		responsiveStepBanner(),
 		stepLine,
 		"  "+ansiStyle("8", false).Render(""),
 	)

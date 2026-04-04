@@ -52,20 +52,20 @@ func (m completionModel) View() tea.View {
 	// Box styles.
 	boxBorder := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("2")). // ANSI green
+		BorderForeground(tuistyles.ColorDim). // ANSI dark gray
 		Padding(1, 3).
 		MarginTop(1).
 		MarginLeft(2)
 
 	// Title.
 	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("2")). // ANSI green
+		Foreground(tuistyles.ColorAccent). // ANSI bright white
 		Bold(true).
 		Render("  Installation Complete!")
 
 	// Divider.
 	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")). // ANSI gray
+		Foreground(tuistyles.ColorDim). // ANSI dark gray
 		Render("  ─────────────────────────────────────")
 
 	// Summary lines.
@@ -98,7 +98,7 @@ func (m completionModel) View() tea.View {
 
 	// Footer hint.
 	hint := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")). // ANSI gray
+		Foreground(tuistyles.ColorDim). // ANSI dark gray
 		Italic(true).
 		MarginLeft(4).
 		MarginTop(1).

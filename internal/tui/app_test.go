@@ -35,9 +35,9 @@ func TestLoadExistingManifest_NoFile(t *testing.T) {
 	}
 }
 
-// TestLoadExistingManifest_WithWorkflowModels verifies loadExistingManifest returns
-// a populated manifest with WorkflowModels when devrune.yaml contains the workflowModels field.
-func TestLoadExistingManifest_WithWorkflowModels(t *testing.T) {
+// TestLoadExistingManifest_WithWorkflowRoles verifies loadExistingManifest returns
+// a populated manifest with Workflows[*].Roles when devrune.yaml contains the new schema.
+func TestLoadExistingManifest_WithWorkflowRoles(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, err := os.Getwd()
 	if err != nil {
@@ -50,14 +50,19 @@ func TestLoadExistingManifest_WithWorkflowModels(t *testing.T) {
 		_ = os.Chdir(origDir)
 	})
 
-	// Write a devrune.yaml with workflowModels.
+	// Write a devrune.yaml with workflows.roles.
 	manifest := model.UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}},
-		WorkflowModels: map[string]map[string]string{
-			"claude": {
-				"sdd-explorer": "sonnet",
-				"sdd-planner":  "opus",
+		Workflows: map[string]model.WorkflowEntry{
+			"sdd": {
+				Source: "github:owner/workflows@v1.0.0//workflows/sdd",
+				Roles: map[string]map[string]string{
+					"claude": {
+						"sdd-explorer": "sonnet",
+						"sdd-planner":  "opus",
+					},
+				},
 			},
 		},
 	}
@@ -70,14 +75,18 @@ func TestLoadExistingManifest_WithWorkflowModels(t *testing.T) {
 	}
 
 	result := loadExistingManifest()
-	if result == nil || result.WorkflowModels == nil {
-		t.Fatal("expected non-nil manifest with WorkflowModels when devrune.yaml exists")
+	if result == nil || len(result.Workflows) == 0 {
+		t.Fatal("expected non-nil manifest with Workflows when devrune.yaml exists")
 	}
-	if got := result.WorkflowModels["claude"]["sdd-explorer"]; got != "sonnet" {
-		t.Errorf("WorkflowModels[claude][sdd-explorer]: got %q, want %q", got, "sonnet")
+	sddEntry, ok := result.Workflows["sdd"]
+	if !ok {
+		t.Fatal("Workflows[\"sdd\"] missing")
 	}
-	if got := result.WorkflowModels["claude"]["sdd-planner"]; got != "opus" {
-		t.Errorf("WorkflowModels[claude][sdd-planner]: got %q, want %q", got, "opus")
+	if got := sddEntry.Roles["claude"]["sdd-explorer"]; got != "sonnet" {
+		t.Errorf("Workflows[sdd].Roles[claude][sdd-explorer]: got %q, want %q", got, "sonnet")
+	}
+	if got := sddEntry.Roles["claude"]["sdd-planner"]; got != "opus" {
+		t.Errorf("Workflows[sdd].Roles[claude][sdd-planner]: got %q, want %q", got, "opus")
 	}
 }
 
@@ -106,24 +115,29 @@ func TestLoadExistingManifest_InvalidYAML(t *testing.T) {
 	}
 }
 
-// TestManifestRoundTrip_WithWorkflowModels verifies that a manifest with WorkflowModels
+// TestManifestRoundTrip_WithWorkflowRoles verifies that a manifest with Workflows[*].Roles
 // survives a YAML marshal/unmarshal round-trip without data loss.
-func TestManifestRoundTrip_WithWorkflowModels(t *testing.T) {
+func TestManifestRoundTrip_WithWorkflowRoles(t *testing.T) {
 	tmp := t.TempDir()
 	yamlPath := filepath.Join(tmp, "devrune.yaml")
 
 	original := model.UserManifest{
 		SchemaVersion: "devrune/v1",
 		Agents:        []model.AgentRef{{Name: "claude"}, {Name: "opencode"}},
-		WorkflowModels: map[string]map[string]string{
-			"claude": {
-				"sdd-explorer":    "haiku",
-				"sdd-planner":     "sonnet",
-				"sdd-implementer": "opus",
-				"sdd-reviewer":    "sonnet",
-			},
-			"opencode": {
-				"sdd-explorer": "claude-sonnet-4.5",
+		Workflows: map[string]model.WorkflowEntry{
+			"sdd": {
+				Source: "github:owner/workflows@v1.0.0//workflows/sdd",
+				Roles: map[string]map[string]string{
+					"claude": {
+						"sdd-explorer":    "haiku",
+						"sdd-planner":     "sonnet",
+						"sdd-implementer": "opus",
+						"sdd-reviewer":    "sonnet",
+					},
+					"opencode": {
+						"sdd-explorer": "claude-sonnet-4.5",
+					},
+				},
 			},
 		},
 	}
@@ -147,19 +161,26 @@ func TestManifestRoundTrip_WithWorkflowModels(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// Verify WorkflowModels are preserved.
-	if loaded.WorkflowModels == nil {
-		t.Fatal("WorkflowModels is nil after round-trip")
+	// Verify Workflows.Roles are preserved.
+	if len(loaded.Workflows) == 0 {
+		t.Fatal("Workflows is empty after round-trip")
 	}
-	for agentName, roles := range original.WorkflowModels {
-		loadedRoles, ok := loaded.WorkflowModels[agentName]
+	for wfName, entry := range original.Workflows {
+		loadedEntry, ok := loaded.Workflows[wfName]
 		if !ok {
-			t.Errorf("agent %q missing from loaded WorkflowModels", agentName)
+			t.Errorf("workflow %q missing after round-trip", wfName)
 			continue
 		}
-		for roleName, modelVal := range roles {
-			if got := loadedRoles[roleName]; got != modelVal {
-				t.Errorf("WorkflowModels[%s][%s]: got %q, want %q", agentName, roleName, got, modelVal)
+		for agentName, roles := range entry.Roles {
+			loadedRoles, ok := loadedEntry.Roles[agentName]
+			if !ok {
+				t.Errorf("agent %q missing from loaded Workflows[%s].Roles", agentName, wfName)
+				continue
+			}
+			for roleName, modelVal := range roles {
+				if got := loadedRoles[roleName]; got != modelVal {
+					t.Errorf("Workflows[%s].Roles[%s][%s]: got %q, want %q", wfName, agentName, roleName, got, modelVal)
+				}
 			}
 		}
 	}
