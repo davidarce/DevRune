@@ -13,6 +13,7 @@ import (
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
 	"github.com/davidarce/devrune/internal/state"
 	"github.com/davidarce/devrune/internal/tui"
@@ -29,6 +30,7 @@ const (
 	menuActionStatus    menuAction = "status"
 	menuActionUpgrade   menuAction = "upgrade"
 	menuActionUninstall menuAction = "uninstall"
+	menuActionQuit      menuAction = "quit"
 )
 
 // RunMenu displays the interactive DevRune main menu in a loop.
@@ -50,6 +52,7 @@ func RunMenu(cmd *cobra.Command) error {
 						huh.NewOption("Status", menuActionStatus),
 						huh.NewOption("Upgrade DevRune", menuActionUpgrade),
 						huh.NewOption("Uninstall", menuActionUninstall),
+						huh.NewOption("Quit", menuActionQuit),
 					).
 					Value(&selected),
 			),
@@ -101,12 +104,16 @@ func RunMenu(cmd *cobra.Command) error {
 			err := runUninstall(cmd, nil)
 			if err == errNothingToUninstall {
 				_ = showMenuMessage(cmd, "Nothing to Uninstall", "No DevRune installation found.\nRun Setup to get started.")
+			} else if err == huh.ErrUserAborted {
+				// User cancelled uninstall — loop back to menu silently.
 			} else if err != nil {
 				_ = showMenuMessage(cmd, "Uninstall Failed", err.Error())
 			} else {
 				_ = showMenuMessage(cmd, "Uninstalled", "All DevRune configuration has been removed.")
 			}
-			// Always loop back to menu (cancelled, completed, or error).
+
+		case menuActionQuit:
+			return nil
 		}
 	}
 }
@@ -298,7 +305,7 @@ func runInitFromMenu(cmd *cobra.Command) error {
 	}
 
 	// Run TUI wizard.
-	result, err := tui.Run(nil)
+	result, err := tui.Run(nil, nil)
 	if err != nil {
 		if err == huh.ErrUserAborted {
 			return nil
@@ -319,50 +326,57 @@ func runInitFromMenu(cmd *cobra.Command) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, tuistyles.StyleSubtitle.Render("  Installing..."))
-	_, _ = fmt.Fprintln(out)
-
 	if err := os.WriteFile(destPath, data, 0o644); err != nil {
 		printError(out, "Write manifest: "+err.Error())
 		return err
 	}
-	printDone(out, "Manifest written: "+destPath)
 
 	agentSummary := make([]string, 0, len(manifest.Agents))
 	for _, a := range manifest.Agents {
 		agentSummary = append(agentSummary, a.Name)
 	}
 
+	var lockfile model.Lockfile
+	lockPath := filepath.Join(wd, "devrune.lock")
+
 	if len(manifest.Packages) > 0 || len(manifest.MCPs) > 0 || len(manifest.Workflows) > 0 {
 		// Derive catalogs from sources and update manifest before resolving.
 		// This must happen before RunResolve so the lock hash matches the installed state.
 		_ = syncCatalogs(manifest, destPath)
 
-		printProgress(out, "Resolving packages...")
-		lockfile, err := RunResolve(ctx, wd, destPath, verbose, nopWriter{})
-		if err != nil {
-			printError(out, "Resolve failed: "+err.Error())
+		// Run resolve + install inside the bubbletea spinner (alt-screen).
+		if err := steps.RunInstallSpinner(
+			func() error {
+				lf, resolveErr := RunResolve(ctx, wd, destPath, verbose, nopWriter{})
+				if resolveErr != nil {
+					return resolveErr
+				}
+				lockfile = lf
+				return nil
+			},
+			func() error {
+				return RunInstall(ctx, wd, lockPath, manifest, verbose, nopWriter{})
+			},
+		); err != nil {
 			return err
 		}
-		skillCount, ruleCount := countContents(lockfile)
-		printDone(out, fmt.Sprintf("Resolved %d package(s), %d MCP(s), %d workflow(s) — %d skills, %d rules",
-			len(lockfile.Packages), len(lockfile.MCPs), len(lockfile.Workflows), skillCount, ruleCount))
-
-		printProgress(out, "Installing workspace...")
-		lockPath := filepath.Join(wd, "devrune.lock")
-		if err := RunInstall(ctx, wd, lockPath, manifest, verbose, nopWriter{}); err != nil {
-			printError(out, "Install failed: "+err.Error())
-			return err
-		}
-		printDone(out, fmt.Sprintf("Installed for agents: %s", strings.Join(agentSummary, ", ")))
-	} else {
-		_, _ = fmt.Fprintln(out, tuistyles.StyleInfo.Render("  No packages to resolve."))
 	}
 
-	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Render("  Installation complete!"))
-	_, _ = fmt.Fprintln(out)
+	// Show the completion summary screen (alt-screen, blocks until Q pressed).
+	skillCount, ruleCount := countContents(lockfile)
+	if err := tui.RunCompletion(tui.CompletionInfo{
+		Agents:         agentSummary,
+		Packages:       len(lockfile.Packages),
+		MCPs:           len(lockfile.MCPs),
+		Workflows:      len(lockfile.Workflows),
+		Skills:         skillCount,
+		Rules:          ruleCount,
+		Manifest:       destPath,
+		Lockfile:       lockPath,
+		InstalledTools: result.InstalledTools,
+	}); err != nil {
+		return err
+	}
 
 	return nil
 }

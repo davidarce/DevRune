@@ -178,7 +178,8 @@ Create a detailed implementation plan.
 		"packages:\n" +
 		"  - source: \"local:" + pkgDir + "\"\n" +
 		"workflows:\n" +
-		"  - \"local:" + wfDir + "\"\n" +
+		"  sdd:\n" +
+		"    source: \"local:" + wfDir + "\"\n" +
 		"agents:\n" +
 		"  - name: claude\n"
 	manifestPath := filepath.Join(projectRoot, "devrune.yaml")
@@ -585,7 +586,8 @@ func TestE2E_FactoryParityLayout(t *testing.T) {
 
 	manifestYAML := "schemaVersion: devrune/v1\n" +
 		"workflows:\n" +
-		"  - \"local:" + wfDir + "\"\n" +
+		"  sdd:\n" +
+		"    source: \"local:" + wfDir + "\"\n" +
 		"agents:\n" +
 		"  - name: factory\n"
 	manifestPath := filepath.Join(projectRoot, "devrune.yaml")
@@ -662,7 +664,8 @@ func TestE2E_OpenCodeParityLayout(t *testing.T) {
 
 	manifestYAML := "schemaVersion: devrune/v1\n" +
 		"workflows:\n" +
-		"  - \"local:" + wfDir + "\"\n" +
+		"  sdd:\n" +
+		"    source: \"local:" + wfDir + "\"\n" +
 		"agents:\n" +
 		"  - name: opencode\n"
 	manifestPath := filepath.Join(projectRoot, "devrune.yaml")
@@ -1096,7 +1099,8 @@ func TestE2E_CopilotParityLayout(t *testing.T) {
 
 	manifestYAML := "schemaVersion: devrune/v1\n" +
 		"workflows:\n" +
-		"  - \"local:" + wfDir + "\"\n" +
+		"  sdd:\n" +
+		"    source: \"local:" + wfDir + "\"\n" +
 		"agents:\n" +
 		"  - name: copilot\n"
 	manifestPath := filepath.Join(projectRoot, "devrune.yaml")

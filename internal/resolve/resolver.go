@@ -70,7 +70,7 @@ func (r *Resolver) Resolve(ctx context.Context, manifest model.UserManifest) (mo
 	}
 
 	// Step 4: Resolve workflows.
-	lockedWorkflows, err := r.resolveWorkflows(ctx, expanded.Workflows)
+	lockedWorkflows, err := r.resolveWorkflows(ctx, workflowSources(expanded.Workflows))
 	if err != nil {
 		return model.Lockfile{}, err
 	}
@@ -181,6 +181,16 @@ func (r *Resolver) resolveMCP(ctx context.Context, mcp model.MCPRef) (model.Lock
 		Name:   name,
 		Dir:    dir,
 	}, nil
+}
+
+// workflowSources extracts the source ref strings from a Workflows map.
+// The order is non-deterministic (map iteration), but that is acceptable for resolution.
+func workflowSources(workflows map[string]model.WorkflowEntry) []string {
+	sources := make([]string, 0, len(workflows))
+	for _, entry := range workflows {
+		sources = append(sources, entry.Source)
+	}
+	return sources
 }
 
 // resolveWorkflows fetches and hashes each workflow source.

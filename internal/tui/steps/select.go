@@ -18,8 +18,9 @@ type ScannedRepoInput struct {
 	Skills    []string
 	Rules     []string
 	MCPs      []string
-	Workflows []string
-	Tools     []model.ToolDef   // available tool definitions
+	Workflows         []string
+	WorkflowManifests []model.WorkflowManifest // parsed workflow manifests
+	Tools             []model.ToolDef          // available tool definitions
 	Descs     map[string]string // item name → description
 	MCPFiles  map[string]string // MCP name → filename (e.g. "engram" → "engram.yaml")
 }

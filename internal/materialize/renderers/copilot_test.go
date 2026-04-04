@@ -398,10 +398,19 @@ func TestCopilotRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", skillMD, err)
 	}
 
-	// POSITIVE: _shared directory under skills/sdd-orchestrator/ (workflowDir)
+	// POSITIVE: _shared directory under skills/sdd-orchestrator/_shared
+	// (matches the paths the orchestrator .agent.md references, e.g.
+	// .github/skills/sdd-orchestrator/_shared/launch-templates.md)
 	sharedDest := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
 	if info, err := os.Stat(sharedDest); err != nil || !info.IsDir() {
 		t.Errorf("expected %s to be a directory: err=%v", sharedDest, err)
+	}
+
+	// NEGATIVE: _shared must NOT be installed under agents/sdd-orchestrator/
+	// (agents/ is flat: only .agent.md files, no subdirectories)
+	sharedInAgents := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator", "_shared")
+	if _, err := os.Stat(sharedInAgents); err == nil {
+		t.Error("_shared must NOT exist under agents/sdd-orchestrator/ for Copilot — it belongs in skills/sdd-orchestrator/")
 	}
 
 	// POSITIVE: orchestrator surfaced as native .agent.md in agents/

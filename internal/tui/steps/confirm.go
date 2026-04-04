@@ -141,7 +141,7 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 
 	var pkgRefs []model.PackageRef
 	var mcpRefs []model.MCPRef
-	var workflowSources []string
+	workflowEntries := make(map[string]model.WorkflowEntry)
 
 	for _, repo := range selection.Repos {
 		if len(repo.SelectedSkills) == 0 && len(repo.SelectedRules) == 0 &&
@@ -171,21 +171,30 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 			mcpRefs = append(mcpRefs, model.MCPRef{Source: mcpSrc})
 		}
 
-		// Workflows from this repo become workflow source refs.
+		// Workflows from this repo become WorkflowEntry values in the map.
+		// The workflow model overrides (workflowModels) are attached to every workflow entry.
 		for _, wf := range repo.SelectedWorkflows {
 			wfSrc := appendSubpath(repo.Source, "workflows/"+wf)
-			workflowSources = append(workflowSources, wfSrc)
+			entry := model.WorkflowEntry{Source: wfSrc}
+			if len(workflowModels) > 0 {
+				entry.Roles = workflowModels
+			}
+			workflowEntries[wf] = entry
 		}
 	}
 
+	var workflows map[string]model.WorkflowEntry
+	if len(workflowEntries) > 0 {
+		workflows = workflowEntries
+	}
+
 	return model.UserManifest{
-		SchemaVersion:  "devrune/v1",
-		Agents:         agentRefs,
-		Packages:       pkgRefs,
-		MCPs:           mcpRefs,
-		Workflows:      workflowSources,
-		Catalogs:       catalogSources,
-		WorkflowModels: workflowModels,
+		SchemaVersion: "devrune/v1",
+		Agents:        agentRefs,
+		Packages:      pkgRefs,
+		MCPs:          mcpRefs,
+		Workflows:     workflows,
+		Catalogs:      catalogSources,
 	}
 }
 

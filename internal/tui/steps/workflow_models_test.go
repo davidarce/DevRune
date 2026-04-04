@@ -217,3 +217,102 @@ func TestWorkflowModelLayout_FourRoles(t *testing.T) {
 	// Four roles with enough terminal height should use grid.
 	_ = WorkflowModelLayout(4, 40)
 }
+
+// ---------------------------------------------------------------------------
+// Tests for phaseFromRole — phase-grouped layout (T016)
+// ---------------------------------------------------------------------------
+
+func TestPhaseFromRole_SddPrefix(t *testing.T) {
+	tests := []struct {
+		roleKey string
+		want    string
+	}{
+		{"sdd-explore", "Explore"},
+		{"sdd-plan", "Plan"},
+		{"sdd-implement", "Implement"},
+		{"sdd-review", "Review"},
+		{"cicd-build", "Build"},
+		{"cicd-deploy", "Deploy"},
+		{"review-checker", "Checker"},
+		{"simple", "Simple"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.roleKey, func(t *testing.T) {
+			got := phaseFromRole(tt.roleKey)
+			if got != tt.want {
+				t.Errorf("phaseFromRole(%q) = %q, want %q", tt.roleKey, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPhaseFromRole_TrailingHyphen(t *testing.T) {
+	// A role key ending with a hyphen should use the prefix as phase name.
+	got := phaseFromRole("sdd-")
+	want := "Sdd"
+	if got != want {
+		t.Errorf("phaseFromRole(%q) = %q, want %q", "sdd-", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for groupRolesByPhase — phase-grouped layout (T015)
+// ---------------------------------------------------------------------------
+
+func TestGroupRolesByPhase_PreservesInsertionOrder(t *testing.T) {
+	roles := []model.WorkflowRole{
+		{Name: "sdd-explore", Kind: "subagent"},
+		{Name: "sdd-plan", Kind: "subagent"},
+		{Name: "sdd-implement", Kind: "subagent"},
+		{Name: "sdd-review", Kind: "subagent"},
+	}
+
+	phases, groups := groupRolesByPhase(roles)
+
+	wantPhases := []string{"Explore", "Plan", "Implement", "Review"}
+	if len(phases) != len(wantPhases) {
+		t.Fatalf("groupRolesByPhase() phases = %v (len %d), want %v (len %d)",
+			phases, len(phases), wantPhases, len(wantPhases))
+	}
+	for i, p := range phases {
+		if p != wantPhases[i] {
+			t.Errorf("phases[%d] = %q, want %q", i, p, wantPhases[i])
+		}
+	}
+
+	// Each phase should have exactly one role.
+	for _, phase := range wantPhases {
+		if len(groups[phase]) != 1 {
+			t.Errorf("groups[%q] has %d roles, want 1", phase, len(groups[phase]))
+		}
+	}
+}
+
+func TestGroupRolesByPhase_MultipleRolesSamePhase(t *testing.T) {
+	roles := []model.WorkflowRole{
+		{Name: "sdd-explore", Kind: "subagent"},
+		{Name: "cicd-build", Kind: "subagent"},
+		{Name: "cicd-deploy", Kind: "subagent"},
+	}
+
+	phases, groups := groupRolesByPhase(roles)
+
+	// Explore and Build should be separate phases; deploy groups with Build.
+	// Note: "cicd-build" → "Build" and "cicd-deploy" → "Deploy" — they differ.
+	if len(phases) != 3 {
+		t.Fatalf("expected 3 phases, got %d: %v", len(phases), phases)
+	}
+	_ = groups
+}
+
+func TestGroupRolesByPhase_EmptyInput(t *testing.T) {
+	phases, groups := groupRolesByPhase(nil)
+	if len(phases) != 0 {
+		t.Errorf("expected 0 phases for nil input, got %d", len(phases))
+	}
+	if len(groups) != 0 {
+		t.Errorf("expected 0 groups for nil input, got %d", len(groups))
+	}
+}

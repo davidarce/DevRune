@@ -134,7 +134,7 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 
 	_, _ = fmt.Fprintf(out, "Installing workspace...")
 
-	if err := materializer.Install(ctx, lockfile, manifest.Agents, manifest.Install, workDir, manifest.WorkflowModels); err != nil {
+	if err := materializer.Install(ctx, lockfile, manifest.Agents, manifest.Install, workDir, extractWorkflowModels(manifest)); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
@@ -151,6 +151,30 @@ func RunInstall(ctx context.Context, workDir string, lockfilePath string, manife
 	_, _ = fmt.Fprintf(out, "\nReady! Your AI agent workspace is configured.\n")
 
 	return nil
+}
+
+// extractWorkflowModels merges role model overrides from all workflow entries in the manifest.
+// The result is a flat map[agentName]map[roleName]modelValue suitable for passing to the materializer.
+// When two workflows define the same agent/role pair, the last one wins (map iteration order).
+func extractWorkflowModels(manifest model.UserManifest) map[string]map[string]string {
+	var merged map[string]map[string]string
+	for _, entry := range manifest.Workflows {
+		if len(entry.Roles) == 0 {
+			continue
+		}
+		if merged == nil {
+			merged = make(map[string]map[string]string)
+		}
+		for agent, roles := range entry.Roles {
+			if merged[agent] == nil {
+				merged[agent] = make(map[string]string)
+			}
+			for role, modelVal := range roles {
+				merged[agent][role] = modelVal
+			}
+		}
+	}
+	return merged
 }
 
 // countContents tallies skills and rules across all packages in a lockfile.

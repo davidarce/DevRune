@@ -26,8 +26,9 @@ type ScanResult struct {
 	Skills    []string
 	Rules     []string
 	MCPs      []string
-	Workflows []string
-	Tools     []model.ToolDef
+	Workflows         []string
+	WorkflowManifests []model.WorkflowManifest
+	Tools             []model.ToolDef
 	Descs     map[string]string
 	MCPFiles  map[string]string
 	Error     error

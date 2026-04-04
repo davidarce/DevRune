@@ -142,7 +142,7 @@ func deriveCatalogRoots(manifest model.UserManifest) []string {
 		addRoot(mcp.Source)
 	}
 	for _, wf := range manifest.Workflows {
-		addRoot(wf)
+		addRoot(wf.Source)
 	}
 
 	return roots

@@ -28,9 +28,9 @@ const workflowYAML = "workflow.yaml"
 // baseDir is used to resolve relative local paths in source refs.
 // Returns an error if any workflow source ref is malformed.
 func ExpandWorkflows(_ context.Context, manifest model.UserManifest, _ Fetcher, baseDir string) (model.UserManifest, error) {
-	for _, wfSource := range manifest.Workflows {
-		if _, err := model.ParseSourceRef(wfSource, baseDir); err != nil {
-			return model.UserManifest{}, fmt.Errorf("expand workflows: invalid source ref %q: %w", wfSource, err)
+	for _, entry := range manifest.Workflows {
+		if _, err := model.ParseSourceRef(entry.Source, baseDir); err != nil {
+			return model.UserManifest{}, fmt.Errorf("expand workflows: invalid source ref %q: %w", entry.Source, err)
 		}
 	}
 	return manifest, nil

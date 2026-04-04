@@ -4,25 +4,25 @@ package model
 
 import (
 	"fmt"
-
-	"gopkg.in/yaml.v3"
 )
+
+// WorkflowEntry represents a single workflow declaration in devrune.yaml.
+// It combines the workflow source ref with optional per-agent role model overrides.
+type WorkflowEntry struct {
+	Source string                       `yaml:"source"`
+	Roles  map[string]map[string]string `yaml:"roles,omitempty"`
+}
 
 // UserManifest represents the user's devrune.yaml file.
 // It declares packages, MCP servers, agents, and optional workflows to install.
 type UserManifest struct {
-	SchemaVersion string        `yaml:"schemaVersion"`
-	Packages      []PackageRef  `yaml:"packages"`
-	MCPs          []MCPRef      `yaml:"mcps,omitempty"`
-	Agents        []AgentRef    `yaml:"agents"`
-	Workflows     []string      `yaml:"workflows,omitempty"` // source ref strings
-	Catalogs      []string      `yaml:"catalogs,omitempty"`  // catalog source refs
-	Install       InstallConfig                `yaml:"install,omitempty"`
-	// WorkflowModels holds per-agent, per-workflow role model selections.
-	// Structure: WorkflowModels[agentName][roleName] = modelValue
-	// The YAML key is "workflowModels" but we also accept the legacy "sddModels"
-	// key via custom UnmarshalYAML for backward compatibility.
-	WorkflowModels map[string]map[string]string `yaml:"workflowModels,omitempty"`
+	SchemaVersion string                   `yaml:"schemaVersion"`
+	Packages      []PackageRef             `yaml:"packages"`
+	MCPs          []MCPRef                 `yaml:"mcps,omitempty"`
+	Agents        []AgentRef               `yaml:"agents"`
+	Workflows     map[string]WorkflowEntry `yaml:"workflows,omitempty"` // name -> WorkflowEntry
+	Catalogs      []string                 `yaml:"catalogs,omitempty"`  // catalog source refs
+	Install       InstallConfig            `yaml:"install,omitempty"`
 }
 
 // PackageRef is a reference to a package in the user manifest.
@@ -51,41 +51,6 @@ type InstallConfig struct {
 type SelectFilter struct {
 	Skills []string `yaml:"skills,omitempty"`
 	Rules  []string `yaml:"rules,omitempty"`
-}
-
-// userManifestRaw is an alias used by UnmarshalYAML to decode without infinite recursion.
-type userManifestRaw UserManifest
-
-// legacyManifestOverlay captures only the legacy sddModels key from YAML.
-type legacyManifestOverlay struct {
-	SDDModels map[string]map[string]string `yaml:"sddModels,omitempty"`
-}
-
-// UnmarshalYAML implements custom YAML decoding for UserManifest.
-// It migrates the legacy "sddModels" key to WorkflowModels when the new key is absent.
-func (m *UserManifest) UnmarshalYAML(value *yaml.Node) error {
-	// Decode into the raw alias to get all standard fields.
-	var raw userManifestRaw
-	if err := value.Decode(&raw); err != nil {
-		return err
-	}
-	*m = UserManifest(raw)
-
-	// If WorkflowModels is already populated, nothing to migrate.
-	if len(m.WorkflowModels) > 0 {
-		return nil
-	}
-
-	// Check for legacy sddModels key.
-	var legacy legacyManifestOverlay
-	if err := value.Decode(&legacy); err != nil {
-		return nil // non-fatal: ignore decode errors for legacy overlay
-	}
-	if len(legacy.SDDModels) > 0 {
-		m.WorkflowModels = legacy.SDDModels
-	}
-
-	return nil
 }
 
 // Validate checks that the UserManifest has all required fields and is consistent.

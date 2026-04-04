@@ -21,6 +21,16 @@ type RunResult struct {
 	InstalledTools []string // tool names successfully installed via brew
 }
 
+// ExistingConfig holds preselection data loaded from an existing devrune.yaml.
+// When non-nil, the wizard uses these values to preselect agents and sources
+// that still exist in the current scan results (smart config merge).
+// WorkflowModels is the merged per-agent role model map extracted from all workflow entries.
+type ExistingConfig struct {
+	Agents         []string
+	Sources        []string
+	WorkflowModels map[string]map[string]string
+}
+
 // Run executes the interactive TUI wizard and returns the resulting
 // RunResult on success.
 //
@@ -36,11 +46,23 @@ type RunResult struct {
 // alongside the built-in known sources in Step 2. Pass nil or an empty slice when
 // no catalog config was detected.
 //
+// existing, when non-nil, provides preselection data from an existing devrune.yaml.
+// Agents and sources from existing that still appear in the current catalog/scan
+// are preselected in the wizard. Pass nil for a fresh (non-merge) init.
+//
 // If the user aborts at any step (Ctrl-C or declining confirmation) the
 // function returns huh.ErrUserAborted.
-func Run(catalogSources []string) (RunResult, error) {
+func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
+	// Determine preselected agents and sources from existing config.
+	var preselectedAgents []string
+	var preselectedSources []string
+	if existing != nil {
+		preselectedAgents = existing.Agents
+		preselectedSources = existing.Sources
+	}
+
 	// Step 1 — agents (alt screen, step indicator inside form)
-	agents, err := steps.SelectAgents()
+	agents, err := steps.SelectAgents(preselectedAgents)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}
@@ -66,7 +88,7 @@ func Run(catalogSources []string) (RunResult, error) {
 
 	// Step 2 — repository sources (alt screen, step indicator inside form)
 	// Pass catalog-detected sources; EnterRepositories merges them with knownSources.
-	sources, err := steps.EnterRepositories(catalogSources)
+	sources, err := steps.EnterRepositories(catalogSources, preselectedSources)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}
@@ -88,15 +110,16 @@ func Run(catalogSources []string) (RunResult, error) {
 			out := make([]steps.ScanResult, len(s))
 			for i, r := range s {
 				out[i] = steps.ScanResult{
-					Source:    r.Source,
-					Skills:    r.Skills,
-					Rules:     r.Rules,
-					MCPs:      r.MCPs,
-					Workflows: r.Workflows,
-					Descs:     r.Descs,
-					MCPFiles:  r.MCPFiles,
-					Tools:     r.Tools,
-					Error:     r.Error,
+					Source:            r.Source,
+					Skills:            r.Skills,
+					Rules:             r.Rules,
+					MCPs:              r.MCPs,
+					Workflows:         r.Workflows,
+					WorkflowManifests: r.WorkflowManifests,
+					Descs:             r.Descs,
+					MCPFiles:          r.MCPFiles,
+					Tools:             r.Tools,
+					Error:             r.Error,
 				}
 			}
 			return out, nil
@@ -118,14 +141,15 @@ func Run(catalogSources []string) (RunResult, error) {
 		for _, r := range scanned {
 			if r.Error == nil {
 				inputs = append(inputs, steps.ScannedRepoInput{
-					Source:    r.Source,
-					Skills:    r.Skills,
-					Rules:     r.Rules,
-					MCPs:      r.MCPs,
-					Workflows: r.Workflows,
-					Tools:     r.Tools,
-					Descs:     r.Descs,
-					MCPFiles:  r.MCPFiles,
+					Source:            r.Source,
+					Skills:            r.Skills,
+					Rules:             r.Rules,
+					MCPs:              r.MCPs,
+					Workflows:         r.Workflows,
+					WorkflowManifests: r.WorkflowManifests,
+					Tools:             r.Tools,
+					Descs:             r.Descs,
+					MCPFiles:          r.MCPFiles,
 				})
 			}
 		}
@@ -135,6 +159,14 @@ func Run(catalogSources []string) (RunResult, error) {
 			if err != nil {
 				return RunResult{}, mapErr(err)
 			}
+		}
+	}
+
+	// Collect workflow manifests from all scanned repos for the model selector.
+	var allWorkflowManifests []model.WorkflowManifest
+	for _, r := range scanned {
+		if r.Error == nil {
+			allWorkflowManifests = append(allWorkflowManifests, r.WorkflowManifests...)
 		}
 	}
 
@@ -154,16 +186,18 @@ func Run(catalogSources []string) (RunResult, error) {
 	}
 
 	// Step 4 (optional) — Workflow model selection
-	// Load saved models from existing devrune.yaml if present.
+	// Use saved models from ExistingConfig when provided; fall back to disk load.
 	var savedModels map[string]map[string]string
-	savedManifest := loadExistingManifest()
-	if savedManifest != nil {
-		savedModels = savedManifest.WorkflowModels
+	if existing != nil {
+		savedModels = existing.WorkflowModels
+	} else {
+		savedManifest := loadExistingManifest()
+		if savedManifest != nil {
+			savedModels = mergeWorkflowModels(savedManifest.Workflows)
+		}
 	}
 
-	// TODO: resolve workflow manifests from selection to pass to RunWorkflowModelSelection.
-	// For now, pass nil — the function will skip if no roles have models.
-	workflowModels, err := steps.RunWorkflowModelSelection(agents, selection, savedModels, nil)
+	workflowModels, err := steps.RunWorkflowModelSelection(agents, selection, savedModels, allWorkflowManifests)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}
@@ -200,6 +234,29 @@ func Run(catalogSources []string) (RunResult, error) {
 	}
 
 	return RunResult{Manifest: manifest, InstalledTools: installedTools}, nil
+}
+
+// mergeWorkflowModels merges per-agent role model overrides from all workflow entries
+// into a flat map[agentName]map[roleName]modelValue for use by the model selection step.
+func mergeWorkflowModels(workflows map[string]model.WorkflowEntry) map[string]map[string]string {
+	var merged map[string]map[string]string
+	for _, entry := range workflows {
+		if len(entry.Roles) == 0 {
+			continue
+		}
+		if merged == nil {
+			merged = make(map[string]map[string]string)
+		}
+		for agent, roles := range entry.Roles {
+			if merged[agent] == nil {
+				merged[agent] = make(map[string]string)
+			}
+			for role, modelVal := range roles {
+				merged[agent][role] = modelVal
+			}
+		}
+	}
+	return merged
 }
 
 // loadExistingManifest reads devrune.yaml from the current working directory

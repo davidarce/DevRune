@@ -127,7 +127,7 @@ func TestParseManifest_ValidFull_Fields(t *testing.T) {
 		t.Errorf("len(Agents) = %d, want 2", len(m.Agents))
 	}
 	if len(m.Workflows) != 1 {
-		t.Errorf("len(Workflows) = %d, want 1", len(m.Workflows))
+		t.Errorf("len(Workflows) = %d, want 1 (sdd)", len(m.Workflows))
 	}
 	if m.Install.LinkMode != "copy" {
 		t.Errorf("Install.LinkMode = %q, want %q", m.Install.LinkMode, "copy")

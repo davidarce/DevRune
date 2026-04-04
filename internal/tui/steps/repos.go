@@ -28,9 +28,16 @@ var knownSources = []knownSource{
 // extraSources contains additional source ref strings (from catalogs: in devrune.yaml
 // or --catalog flags) that are injected alongside knownSources as pre-selected
 // options, deduplicated by value. The source ref string is used as the display label.
+//
+// preselected, when non-nil, restricts which sources start checked to those whose
+// value appears in the preselected slice. Sources in preselected that are not
+// present in the merged list are silently dropped (smart config merge: only
+// preselect what still exists). Pass nil to start all known sources checked
+// (default fresh-init behavior).
+//
 // Returns the combined list of selected predefined and custom sources, deduplicated.
 // An empty result is valid (no repositories required).
-func EnterRepositories(extraSources []string) ([]string, error) {
+func EnterRepositories(extraSources []string, preselected []string) ([]string, error) {
 	// Phase A: Multi-select from predefined sources.
 	// Convert extra source ref strings to knownSource entries (label = value = ref string).
 	extra := make([]knownSource, 0, len(extraSources))
@@ -41,9 +48,17 @@ func EnterRepositories(extraSources []string) ([]string, error) {
 	merged := mergeKnownSources(knownSources, extra)
 	var predefined []string
 
+	// Build preselection set. When nil, default all to selected (original behavior).
+	preSet := make(map[string]bool, len(preselected))
+	usePreselect := preselected != nil
+	for _, p := range preselected {
+		preSet[p] = true
+	}
+
 	options := make([]huh.Option[string], len(merged))
 	for i, ks := range merged {
-		options[i] = huh.NewOption(ks.label, ks.value).Selected(true)
+		isSelected := !usePreselect || preSet[ks.value]
+		options[i] = huh.NewOption(ks.label, ks.value).Selected(isSelected)
 	}
 
 	selectForm := huh.NewForm(
