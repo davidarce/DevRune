@@ -274,11 +274,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// printProgress writes a styled "in progress" step line.
-func printProgress(out io.Writer, msg string) {
-	style := tuistyles.StyleInfo.Foreground(tuistyles.ColorSecondary)
-	_, _ = fmt.Fprintln(out, style.Render("  ⧗ "+msg))
-}
 
 // printDone writes a styled "completed" step line with a green checkmark.
 func printDone(out io.Writer, msg string) {

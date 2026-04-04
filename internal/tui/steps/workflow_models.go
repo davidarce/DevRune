@@ -28,8 +28,6 @@ const workflowModelSelectHeight = 7
 // falls back to LayoutColumns(2) which paginates groups at a time.
 const workflowGridMinHeight = 35
 
-// cardGap is the horizontal gap between agent cards (sequential fallback layout).
-const cardGap = 4
 
 // colMinWidth is the minimum per-agent column width for the column layout.
 const colMinWidth = 20
@@ -124,15 +122,6 @@ func (c *huhSelectCommand) Run() error {
 	return nil
 }
 
-// workflowTermHeight queries the current terminal height.
-// Falls back to workflowGridMinHeight so the grid layout is used by default.
-func workflowTermHeight() int {
-	_, h, err := xterm.GetSize(os.Stdout.Fd())
-	if err != nil || h <= 0 {
-		return workflowGridMinHeight
-	}
-	return h
-}
 
 // WorkflowModelLayout returns the appropriate huh Layout for the workflow model
 // selection form based on the number of roles and terminal height.
