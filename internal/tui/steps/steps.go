@@ -31,19 +31,26 @@ func ansiStyle(color string, bold bool) lipgloss.Style {
 // app.go sets this to 6 when the SDD model selection step is active, 5 otherwise.
 var TotalSteps = 5
 
-// termHeight queries the current terminal height.
-// Returns 40 as a safe default when the size cannot be determined.
+const (
+	// narrowWidthThreshold is the terminal width below which compact/short variants are used.
+	// Matches the w < 70 check in ResponsiveBanner().
+	narrowWidthThreshold = 70
+	// headerOverhead is the estimated lines consumed by banner + step indicator + title +
+	// description + huh padding. Derived from worst-case breakdown: minimal banner (3) +
+	// step indicator (2) + form padding (2) + title (1) + description (2) = 10 lines.
+	headerOverhead = 10
+	// minSelectHeight is the minimum number of visible items in MultiSelect/Select.
+	minSelectHeight = 3
+)
+
+// termSize queries the current terminal width and height.
+// Returns (80, 40) as safe defaults when the size cannot be determined.
 func termSize() (int, int) {
 	w, h, err := xterm.GetSize(os.Stdout.Fd())
 	if err != nil || w <= 0 || h <= 0 {
 		return 80, 40 // defaults
 	}
 	return w, h
-}
-
-func termHeight() int {
-	_, h := termSize()
-	return h
 }
 
 // renderFullBanner builds the full multi-line ASCII art banner string.
@@ -109,11 +116,13 @@ func renderCompactBanner() string {
 	return "\n" + "  " + ansiStyle("14", false).Render("◆ ") + ansiStyle("15", true).Render("DevRune")
 }
 
-// responsiveBanner returns the appropriate banner string based on terminal size:
+// ResponsiveBanner returns the appropriate banner string based on terminal size:
 //   - too small (h < 25): empty string
 //   - medium (h 25-34 or w < 70): compact single-line banner
 //   - large (h >= 35 and w >= 70): full ASCII art banner
-func responsiveBanner() string {
+//
+// Exported so that completion.go (package tui) can use it without circular imports.
+func ResponsiveBanner() string {
 	w, h := termSize()
 	switch {
 	case h < 25:
@@ -126,13 +135,21 @@ func responsiveBanner() string {
 }
 
 // responsiveStepBanner returns a banner for wizard steps (minimal, not the full ASCII art).
-// The full ASCII art is reserved for the main menu via responsiveBanner/BannerNote.
+// The full ASCII art is reserved for the main menu via ResponsiveBanner/BannerNote.
+// Also checks terminal width: uses compact banner when w < narrowWidthThreshold to avoid
+// the 65-char separator in renderMinimalBanner() wrapping on narrow terminals.
 func responsiveStepBanner() string {
-	h := termHeight()
+	w, h := termSize()
+	return testableResponsiveStepBanner(w, h)
+}
+
+// testableResponsiveStepBanner implements the width+height banner selection logic for
+// wizard steps. Accepts explicit dimensions to allow unit testing without a real terminal.
+func testableResponsiveStepBanner(w, h int) string {
 	switch {
 	case h < 25:
 		return ""
-	case h < 35:
+	case h < 35 || w < narrowWidthThreshold:
 		return renderCompactBanner()
 	default:
 		return renderMinimalBanner()
@@ -144,7 +161,45 @@ func responsiveStepBanner() string {
 // Use this for standalone dialogs that should show the banner but aren't
 // part of the numbered wizard steps.
 func BannerNote() *huh.Note {
-	return huh.NewNote().Title(responsiveBanner())
+	return huh.NewNote().Title(ResponsiveBanner())
+}
+
+// responsiveDescription returns shortDesc when the terminal width is below
+// narrowWidthThreshold, fullDesc otherwise.
+func responsiveDescription(fullDesc, shortDesc string) string {
+	w, _ := termSize()
+	return testableResponsiveDescription(fullDesc, shortDesc, w)
+}
+
+// testableResponsiveDescription implements the description selection logic.
+// Accepts explicit width to allow unit testing without a real terminal.
+func testableResponsiveDescription(fullDesc, shortDesc string, width int) string {
+	if width < narrowWidthThreshold {
+		return shortDesc
+	}
+	return fullDesc
+}
+
+// dynamicHeight returns the Height() value for MultiSelect/Select fields.
+// It picks the smaller of requestedHeight and the available vertical space
+// (terminal height minus headerOverhead), clamped to minSelectHeight.
+// This ensures MultiSelect/Select items remain visible even on short terminals.
+func dynamicHeight(requestedHeight int) int {
+	_, h := termSize()
+	return testableDynamicHeight(requestedHeight, h)
+}
+
+// testableDynamicHeight implements the height clamping logic.
+// Accepts explicit termHeight to allow unit testing without a real terminal.
+func testableDynamicHeight(requestedHeight, termH int) int {
+	available := termH - headerOverhead
+	if available < minSelectHeight {
+		available = minSelectHeight
+	}
+	if requestedHeight > available {
+		return available
+	}
+	return requestedHeight
 }
 
 // stepHeaderString returns the rendered banner + step indicator as a plain string.

@@ -22,16 +22,16 @@ type ScanFunc func(ctx context.Context, sources []string, cachePath string) ([]S
 // ScanResult mirrors tui.ScannedRepo but lives in the steps package to avoid
 // import cycles. The caller maps between the two.
 type ScanResult struct {
-	Source    string
-	Skills    []string
-	Rules     []string
-	MCPs      []string
+	Source            string
+	Skills            []string
+	Rules             []string
+	MCPs              []string
 	Workflows         []string
 	WorkflowManifests []model.WorkflowManifest
 	Tools             []model.ToolDef
-	Descs     map[string]string
-	MCPFiles  map[string]string
-	Error     error
+	Descs             map[string]string
+	MCPFiles          map[string]string
+	Error             error
 }
 
 // scanDoneMsg is sent when the background scan completes.
@@ -120,7 +120,7 @@ func (m scanModel) View() tea.View {
 
 	var sb strings.Builder
 
-	sb.WriteString(responsiveBanner())
+	sb.WriteString(ResponsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleStepIndicator.Render(fmt.Sprintf("Step 3/%d: Select content", TotalSteps)))

@@ -95,7 +95,7 @@ func (m toolInstallModel) View() tea.View {
 
 	var sb strings.Builder
 
-	sb.WriteString(responsiveBanner())
+	sb.WriteString(ResponsiveBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	toolStep := TotalSteps - 1
@@ -219,9 +219,12 @@ func RunToolInstallStep(allTools []model.ToolDef) (ToolInstallResult, error) {
 			stepHeader(toolStep, TotalSteps, "Tool installation"),
 			huh.NewMultiSelect[string]().
 				Title("Select tools to install").
-				Description("Use space to toggle, enter to confirm. Selected tools will be installed via brew.").
+				Description(responsiveDescription(
+					"Use space to toggle, enter to confirm. Selected tools will be installed via brew.",
+					"Space to toggle, enter to confirm.",
+				)).
 				Options(options...).
-				Height(len(allTools)+2).
+				Height(dynamicHeight(len(allTools)+2)).
 				Value(&selected),
 		),
 	).WithTheme(tuistyles.DevRuneThemeFunc).
