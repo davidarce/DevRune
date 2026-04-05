@@ -43,8 +43,9 @@ type AgentRef struct {
 
 // InstallConfig holds installation preferences declared in the user manifest.
 type InstallConfig struct {
-	LinkMode  string            `yaml:"linkMode,omitempty"`  // "symlink" | "copy" | "hardlink"
-	RulesMode map[string]string `yaml:"rulesMode,omitempty"` // agent -> "concat" | "individual" | "both"
+	LinkMode      string            `yaml:"linkMode,omitempty"`      // "symlink" | "copy" | "hardlink"
+	RulesMode     map[string]string `yaml:"rulesMode,omitempty"`     // agent -> "concat" | "individual" | "both"
+	AutoRecommend *bool             `yaml:"autoRecommend,omitempty"` // nil = enabled; explicit false disables auto-recommend
 }
 
 // SelectFilter allows the user to select a subset of a package's content.

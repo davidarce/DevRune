@@ -15,6 +15,12 @@ import (
 	"github.com/davidarce/devrune/internal/tui/steps"
 )
 
+// autoRecommendEnabled returns true when the auto-recommend feature should run.
+// A nil pointer (field absent) means enabled; explicit false disables it.
+func autoRecommendEnabled(cfg model.InstallConfig) bool {
+	return cfg.AutoRecommend == nil || *cfg.AutoRecommend
+}
+
 // RunResult holds all outputs from the interactive TUI wizard.
 type RunResult struct {
 	Manifest       model.UserManifest
@@ -25,10 +31,13 @@ type RunResult struct {
 // When non-nil, the wizard uses these values to preselect agents and sources
 // that still exist in the current scan results (smart config merge).
 // WorkflowModels is the merged per-agent role model map extracted from all workflow entries.
+// Recommendations holds AI recommendations from a previous devrune.recommended.yaml run,
+// used to pre-select items with AI badges in the selection step.
 type ExistingConfig struct {
-	Agents         []string
-	Sources        []string
-	WorkflowModels map[string]map[string]string
+	Agents          []string
+	Sources         []string
+	WorkflowModels  map[string]map[string]string
+	Recommendations []model.RecommendedItem // AI recommendations for pre-selection
 }
 
 // Run executes the interactive TUI wizard and returns the resulting
@@ -67,6 +76,13 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 		return RunResult{}, mapErr(err)
 	}
 
+	// Determine whether auto-recommend is enabled.
+	var installCfg model.InstallConfig
+	if m := loadExistingManifest(); m != nil {
+		installCfg = m.Install
+	}
+	recommendEnabled := autoRecommendEnabled(installCfg)
+
 	// Determine early if the workflow model selection step may be active.
 	// The step requires at least one qualifying agent (in ModelRoutingAgents)
 	// AND at least one workflow selected. We know the agent condition now; workflow
@@ -80,11 +96,11 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 			break
 		}
 	}
+	baseSteps := 5
 	if hasQualifyingAgent {
-		steps.TotalSteps = 6
-	} else {
-		steps.TotalSteps = 5
+		baseSteps = 6
 	}
+	steps.TotalSteps = baseSteps
 
 	// Step 2 — repository sources (alt screen, step indicator inside form)
 	// Pass catalog-detected sources; EnterRepositories merges them with knownSources.
@@ -96,6 +112,7 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 	// Step 3 — scan + select (alt screen)
 	var selection steps.SelectionResult
 	var scanned []steps.ScanResult
+	var inputs []steps.ScannedRepoInput
 
 	if len(sources) > 0 {
 		cp := cachePath()
@@ -137,7 +154,7 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 		}
 
 		// Convert to ScannedRepoInput for the select model.
-		inputs := make([]steps.ScannedRepoInput, 0, len(scanned))
+		inputs = make([]steps.ScannedRepoInput, 0, len(scanned))
 		for _, r := range scanned {
 			if r.Error == nil {
 				inputs = append(inputs, steps.ScannedRepoInput{
@@ -155,9 +172,47 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 		}
 
 		if len(inputs) > 0 {
-			selection, err = steps.RunSelectModel(inputs)
-			if err != nil {
-				return RunResult{}, mapErr(err)
+			// Loop: select → (optional) AI recommendations → back to select if user declines.
+			var prevSelection *steps.SelectionResult // preserves state on go-back
+			for {
+				var selectResult steps.SelectModelResult
+				var err error
+				if prevSelection != nil {
+					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, *prevSelection)
+				} else {
+					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled)
+				}
+				if err != nil {
+					return RunResult{}, mapErr(err)
+				}
+				selection = selectResult.Selection
+				prevSelection = &selection // save for potential go-back
+
+				if !selectResult.UseRecommendations {
+					// User chose "Confirm selection" — done.
+					break
+				}
+
+				// User chose "AI Recommendations" — run spinner+gate in one program.
+				// Keep alt-screen active to avoid flicker between programs.
+				fmt.Print("\033[?1049h\033[2J\033[H") // enter alt-screen + clear
+				flowResult := steps.RunRecommendFlow(inputs)
+				if flowResult.Err != nil {
+					_, _ = fmt.Fprintf(os.Stderr, "[devrune] recommend error: %v\n", flowResult.Err)
+					break
+				}
+				if flowResult.Accepted && flowResult.Result != nil {
+					// Merge recommendations into selection.
+					selection = steps.MergeRecommendationsIntoSelection(
+						selection, flowResult.Result.Recommendations, 0.7,
+					)
+					break
+				}
+				if flowResult.Skipped {
+					// User chose "No, go back" — loop back to select step.
+					continue
+				}
+				break
 			}
 		}
 	}
@@ -170,8 +225,7 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 		}
 	}
 
-	// Now that selection is known, confirm whether the SDD step will actually run.
-	// If no workflows were selected, TotalSteps reverts to 5 even for qualifying agents.
+	// Now that selection is known, confirm whether the workflow model step will actually run.
 	if hasQualifyingAgent {
 		hasWorkflow := false
 		for _, repo := range selection.Repos {

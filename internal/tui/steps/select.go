@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
@@ -48,16 +49,14 @@ type CategorySelection struct {
 	Selected map[string]bool   // which items are selected (default: all true)
 	IsOn     bool              // category-level toggle (default: true)
 	Descs    map[string]string // item name → description (optional)
+	Badges   map[string]string // item name → badge text (e.g. "Recommended"), optional
 }
 
 // selectedCount returns how many individual items are selected.
 func (c *CategorySelection) selectedCount() int {
-	if !c.IsOn {
-		return 0
-	}
 	count := 0
-	for _, v := range c.Selected {
-		if v {
+	for _, item := range c.Items {
+		if c.Selected[item] {
 			count++
 		}
 	}
@@ -88,16 +87,29 @@ type SelectModel struct {
 	done     bool
 	aborted  bool
 	width    int
+
+	// Recommendation support.
+	recEnabled         bool // show the "Confirm with AI recommendations" button
+	useRecommendations bool // true if user chose "Confirm with AI recommendations"
 }
 
-// flatLen returns the total number of navigable rows (categories + confirm button).
+// flatLen returns the total number of navigable rows (categories + confirm buttons).
 func (m *SelectModel) flatLen() int {
-	return len(m.repos)*5 + 1 // +1 for the confirm button
+	buttons := 1
+	if m.recEnabled {
+		buttons = 2
+	}
+	return len(m.repos)*5 + buttons
 }
 
 // isConfirmRow reports whether the given flat cursor index is the confirm button.
 func (m *SelectModel) isConfirmRow(cursor int) bool {
-	return cursor == len(m.repos)*5
+	return cursor >= len(m.repos)*5
+}
+
+// isRecConfirmRow reports whether the cursor is on the "Confirm with AI recommendations" button.
+func (m *SelectModel) isRecConfirmRow(cursor int) bool {
+	return m.recEnabled && cursor == len(m.repos)*5+1
 }
 
 // repoAndCat converts a flat cursor index to (repoIdx, catIdx).
@@ -145,6 +157,55 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 	return m
 }
 
+// EnableRecommendations enables the "Confirm with AI recommendations" button.
+func (m *SelectModel) EnableRecommendations() {
+	m.recEnabled = true
+}
+
+// restoreSelection sets each item's Selected state from a previous SelectionResult.
+func restoreSelection(m *SelectModel, prev SelectionResult) {
+	prevBySource := make(map[string]RepoSelectionResult, len(prev.Repos))
+	for _, r := range prev.Repos {
+		prevBySource[r.Source] = r
+	}
+
+	for ri := range m.repos {
+		prevRepo, ok := prevBySource[m.repos[ri].Source]
+		if !ok {
+			continue
+		}
+
+		prevSelected := [5]map[string]bool{
+			toStringSet(prevRepo.SelectedSkills),
+			toStringSet(prevRepo.SelectedRules),
+			toStringSet(prevRepo.SelectedMCPs),
+			toStringSet(prevRepo.SelectedWorkflows),
+			toStringSet(prevRepo.SelectedTools),
+		}
+
+		for ci := range m.repos[ri].Categories {
+			cat := &m.repos[ri].Categories[ci]
+			prev := prevSelected[ci]
+			allOn := len(cat.Items) > 0
+			for _, item := range cat.Items {
+				cat.Selected[item] = prev[item]
+				if !prev[item] {
+					allOn = false
+				}
+			}
+			cat.IsOn = allOn
+		}
+	}
+}
+
+func toStringSet(items []string) map[string]bool {
+	s := make(map[string]bool, len(items))
+	for _, item := range items {
+		s[item] = true
+	}
+	return s
+}
+
 // buildCategoryWithDescs creates a CategorySelection with all items selected by default.
 func buildCategoryWithDescs(kind string, items []string, descs map[string]string) CategorySelection {
 	sel := make(map[string]bool, len(items))
@@ -161,6 +222,7 @@ func buildCategoryWithDescs(kind string, items []string, descs map[string]string
 		Selected: sel,
 		IsOn:     true,
 		Descs:    catDescs,
+		Badges:   map[string]string{},
 	}
 }
 
@@ -264,16 +326,46 @@ func (m SelectModel) updateCollapsed(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 
+	case "left", "h":
+		// Navigate between buttons when on a confirm row.
+		if m.isConfirmRow(m.cursor) {
+			confirmIdx := len(m.repos) * 5
+			if m.cursor > confirmIdx {
+				m.cursor = confirmIdx
+			}
+		}
+
+	case "right", "l":
+		// Navigate between buttons when on a confirm row.
+		if m.isConfirmRow(m.cursor) && m.recEnabled {
+			recIdx := len(m.repos)*5 + 1
+			if m.cursor < recIdx {
+				m.cursor = recIdx
+			}
+		}
+
 	case " ", "space":
-		// Toggle category on/off (not on confirm row).
+		// Toggle all items in category on/off (not on confirm row).
 		if !m.isConfirmRow(m.cursor) {
 			ri, ci := repoAndCat(m.cursor)
-			m.repos[ri].Categories[ci].IsOn = !m.repos[ri].Categories[ci].IsOn
+			cat := &m.repos[ri].Categories[ci]
+			// If any item is selected, deselect all. Otherwise, select all.
+			anySelected := cat.selectedCount() > 0
+			for _, item := range cat.Items {
+				cat.Selected[item] = !anySelected
+			}
+			cat.IsOn = !anySelected
 		}
 
 	case "enter":
+		if m.isRecConfirmRow(m.cursor) {
+			// "Confirm with AI recommendations" button pressed.
+			m.useRecommendations = true
+			m.done = true
+			return m, tea.Quit
+		}
 		if m.isConfirmRow(m.cursor) {
-			// Confirm button pressed.
+			// "Confirm selection" button pressed.
 			m.done = true
 			return m, tea.Quit
 		}
@@ -411,7 +503,7 @@ func (m SelectModel) View() tea.View {
 func (m *SelectModel) renderCollapsed() string {
 	var sb strings.Builder
 
-	sb.WriteString(ResponsiveBanner())
+	sb.WriteString(responsiveStepBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleStepIndicator.Render(fmt.Sprintf("Step 3/%d: Select content", TotalSteps)))
@@ -433,16 +525,20 @@ func (m *SelectModel) renderCollapsed() string {
 				cursor = tuistyles.StyleSuccess.Render("► ")
 			}
 
-			checkBox := tuistyles.StyleError.Render("[ ]")
-			if cat.IsOn {
+			sel := cat.selectedCount()
+			var checkBox string
+			if sel == len(cat.Items) && sel > 0 {
 				checkBox = tuistyles.StyleSuccess.Render("[x]")
+			} else if sel > 0 {
+				checkBox = tuistyles.StyleHighlight.Render("[-]")
+			} else {
+				checkBox = tuistyles.StyleError.Render("[ ]")
 			}
 
-			count := fmt.Sprintf("(%d)", len(cat.Items))
+			var count string
 			if len(cat.Items) == 0 {
 				count = tuistyles.StyleInfo.Render("(none)")
-			} else if cat.IsOn {
-				sel := cat.selectedCount()
+			} else {
 				count = tuistyles.StyleInfo.Render(fmt.Sprintf("(%d/%d)", sel, len(cat.Items)))
 			}
 
@@ -462,14 +558,44 @@ func (m *SelectModel) renderCollapsed() string {
 		sb.WriteString("\n\n")
 	}
 
-	// Confirm button.
-	confirmIdx := len(m.repos) * 5
-	isFocused := m.cursor == confirmIdx
-	if isFocused {
-		sb.WriteString(tuistyles.StyleSuccess.Render("  ► ✓ Confirm selection"))
-	} else {
-		sb.WriteString(tuistyles.StyleInfo.Render("    ✓ Confirm selection"))
+	// Action buttons styled like huh confirm buttons.
+	focusedBtn := lipgloss.NewStyle().
+		Background(tuistyles.ColorSecondary).
+		Foreground(tuistyles.ColorBg).
+		Bold(true).
+		Padding(0, 2)
+	blurredBtn := lipgloss.NewStyle().
+		Background(tuistyles.ColorDim).
+		Foreground(lipgloss.Color("7")).
+		Padding(0, 2)
+
+	// Responsive labels: shorter text for narrow terminals.
+	confirmLabel := "Confirm selection"
+	aiLabel := "✨ AI Recommendations"
+	if m.width < 60 {
+		confirmLabel = "Confirm"
+		aiLabel = "✨ AI Recs"
 	}
+
+	sb.WriteString("\n")
+
+	confirmIdx := len(m.repos) * 5
+	if m.cursor == confirmIdx {
+		sb.WriteString("  " + focusedBtn.Render(confirmLabel))
+	} else {
+		sb.WriteString("  " + blurredBtn.Render(confirmLabel))
+	}
+
+	if m.recEnabled {
+		recIdx := confirmIdx + 1
+		sb.WriteString("  ")
+		if m.cursor == recIdx {
+			sb.WriteString(focusedBtn.Render(aiLabel))
+		} else {
+			sb.WriteString(blurredBtn.Render(aiLabel))
+		}
+	}
+
 	sb.WriteString("\n\n")
 
 	return sb.String()
@@ -568,6 +694,11 @@ func (m *SelectModel) renderExpanded() string {
 
 		sb.WriteString(line)
 
+		// Show badge if present (e.g. "Recommended", "Suggested").
+		if badge, ok := cat.Badges[item]; ok && badge != "" {
+			sb.WriteString(tuistyles.StyleSuccess.Render(" [" + badge + "]"))
+		}
+
 		// Show description on the same line if available.
 		if desc, ok := cat.Descs[item]; ok && desc != "" {
 			sb.WriteString(tuistyles.StyleInfo.Render(" — " + desc))
@@ -606,30 +737,50 @@ func applyFilter(items []string, filter string) []string {
 	return result
 }
 
+// SelectModelResult holds the output of RunSelectModel, including whether
+// the user chose to include AI recommendations.
+type SelectModelResult struct {
+	Selection          SelectionResult
+	UseRecommendations bool
+}
+
 // RunSelectModel runs the Bubbletea selection model and returns the result.
-func RunSelectModel(repos []ScannedRepoInput) (SelectionResult, error) {
+// previousSelection, if non-nil, restores the user's prior selections (for go-back support).
+func RunSelectModel(repos []ScannedRepoInput, enableRecommendations bool, previousSelection ...SelectionResult) (SelectModelResult, error) {
 	if len(repos) == 0 {
-		return SelectionResult{}, nil
+		return SelectModelResult{}, nil
 	}
 
 	m := NewSelectModel(repos)
+	if enableRecommendations {
+		m.EnableRecommendations()
+	}
+
+	// Restore previous selection state (for go-back loop).
+	if len(previousSelection) > 0 && len(previousSelection[0].Repos) > 0 {
+		restoreSelection(m, previousSelection[0])
+	}
+
 	p := tea.NewProgram(m)
 
 	finalModel, err := p.Run()
 	if err != nil {
-		return SelectionResult{}, fmt.Errorf("select model: %w", err)
+		return SelectModelResult{}, fmt.Errorf("select model: %w", err)
 	}
 
 	result, ok := finalModel.(SelectModel)
 	if !ok {
-		return SelectionResult{}, fmt.Errorf("select model: unexpected model type")
+		return SelectModelResult{}, fmt.Errorf("select model: unexpected model type")
 	}
 
 	if result.aborted {
-		return SelectionResult{}, errUserAborted
+		return SelectModelResult{}, errUserAborted
 	}
 
-	return result.Result(), nil
+	return SelectModelResult{
+		Selection:          result.Result(),
+		UseRecommendations: result.useRecommendations,
+	}, nil
 }
 
 // errUserAborted is returned when the user quits the selection model.

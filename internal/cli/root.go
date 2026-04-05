@@ -41,6 +41,7 @@ definitions, and workflows into developer workspaces.`,
 		newVersionCmd(version, commit),
 		newUninstallCmd(),
 		newUpgradeCmd(),
+		newCacheCmd(),
 	)
 
 	return rootCmd
