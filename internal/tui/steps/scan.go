@@ -120,7 +120,7 @@ func (m scanModel) View() tea.View {
 
 	var sb strings.Builder
 
-	sb.WriteString(ResponsiveBanner())
+	sb.WriteString(responsiveStepBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleStepIndicator.Render(fmt.Sprintf("Step 3/%d: Select content", TotalSteps)))

@@ -95,7 +95,7 @@ func (m toolInstallModel) View() tea.View {
 
 	var sb strings.Builder
 
-	sb.WriteString(ResponsiveBanner())
+	sb.WriteString(responsiveStepBanner())
 	sb.WriteString("\n\n")
 	sb.WriteString("  ")
 	toolStep := TotalSteps - 1

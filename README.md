@@ -173,6 +173,31 @@ That's it. Your workspace now has correctly formatted skills, rules, MCP configs
 
 > You can also run `devrune resolve` and `devrune install` separately for advanced workflows (CI/CD, offline installs).
 
+## AI Recommendations
+
+During `devrune init`, the TUI wizard offers an **AI-powered recommendation** option. After selecting your catalog sources and reviewing the available content, you'll see two action buttons:
+
+- **Confirm selection** — proceed with your manual selection
+- **AI Recommendations** — analyze your project and suggest relevant items from the catalog
+
+When you choose AI Recommendations, DevRune:
+
+1. **Detects your project profile** — scans languages, dependencies (`go.mod`, `package.json`, `pom.xml`, etc.), frameworks, and configuration files using [go-enry](https://github.com/go-enry/go-enry)
+2. **Invokes an AI agent** — sends the project profile and catalog items to Claude (via `claude -p`) or OpenCode, requesting structured recommendations with confidence scores
+3. **Shows the results** — displays recommended items grouped by category (Skills, Rules, MCPs, Workflows) with confidence percentages and reasons
+4. **Lets you decide** — apply the recommendations to merge them into your selection, or go back to adjust manually
+
+**Requirements:**
+- An AI coding agent must be installed: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (preferred) or [OpenCode](https://opencode.ai)
+- The agent must be authenticated (logged in)
+
+**Performance:**
+- First recommendation takes 15-40 seconds depending on the model and catalog size
+- Results are cached for 1 hour at `~/.cache/devrune/recommend/` — subsequent runs with the same project and catalogs return instantly
+- Use `devrune cache clean` to invalidate cached recommendations
+
+> The AI recommendation feature is optional — the wizard works exactly the same without it. If no AI agent is installed, only the "Confirm selection" button appears.
+
 ## How It Works
 
 DevRune follows a **three-stage pipeline**:
@@ -204,6 +229,7 @@ Commands:
   resolve     Resolve packages and produce devrune.lock
   install     Materialize the workspace from devrune.lock
   status      Show workspace installation state
+  cache       Manage cached data (packages, AI recommendations)
   version     Print version information
 
 Global Flags:
@@ -277,6 +303,21 @@ Shows what's installed and whether the lockfile is in sync:
 ```bash
 devrune status
 ```
+
+### `devrune cache clean`
+
+Removes cached data to force fresh fetches:
+
+```bash
+devrune cache clean                  # Clean all caches (packages + recommendations)
+devrune cache clean --packages-only  # Only clean package cache
+devrune cache clean --recommend-only # Only clean AI recommendation cache
+```
+
+| Flag | Description |
+|------|-------------|
+| `--packages-only` | Only clean the package download cache (`~/.cache/devrune/packages/`) |
+| `--recommend-only` | Only clean the AI recommendation cache (`~/.cache/devrune/recommend/`) |
 
 ## Manifest Format
 
@@ -493,8 +534,10 @@ make run      # Run via go run
 DevRune/
 ├── cmd/devrune/           # CLI entrypoint
 ├── internal/
-│   ├── cli/               # Cobra commands (init, sync, resolve, install, status, version)
+│   ├── cli/               # Cobra commands (init, sync, resolve, install, status, cache, version)
 │   ├── cache/             # Package fetchers (GitHub, GitLab, local)
+│   ├── detect/            # Project tech profile detection (go-enry, dependency parsing)
+│   ├── recommend/         # AI recommendation engine (Claude/OpenCode integration, caching)
 │   ├── resolve/           # Dependency resolver → devrune.lock
 │   ├── materialize/       # Workspace materializer
 │   │   └── renderers/     # Agent-specific renderers (Claude, Codex, Copilot, OpenCode, Factory)
