@@ -301,6 +301,13 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	var managedPaths []string
 	var orchPath string // path to the installed entrypoint for orchestrator prompt
 
+	// Resolve agent-specific orchestrator variant if present.
+	// ORCHESTRATOR.opencode.md takes precedence over the generic ORCHESTRATOR.md.
+	const variantEntrypointName = "ORCHESTRATOR.opencode.md"
+	if _, statErr := os.Stat(filepath.Join(cachePath, variantEntrypointName)); statErr == nil {
+		orchPath = filepath.Join(cachePath, variantEntrypointName)
+	}
+
 	for _, entry := range entries {
 		name := entry.Name()
 		srcPath := filepath.Join(cachePath, name)
@@ -311,6 +318,11 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 
 		// Skip the registry file — it is captured below, not copied loose.
 		if wf.Components.Registry != "" && name == wf.Components.Registry {
+			continue
+		}
+
+		// Skip the variant entrypoint — already handled by pre-loop probe above.
+		if name == variantEntrypointName {
 			continue
 		}
 
@@ -331,7 +343,11 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			// Entrypoint (ORCHESTRATOR.md) is NOT installed as a file in OpenCode.
 			// Instead, its content is read and synthesized into opencode.json as the
 			// orchestrator agent prompt. Record the src path for synthesis below.
-			orchPath = srcPath
+			if orchPath == "" {
+				// No variant found: use the generic entrypoint.
+				orchPath = srcPath
+			}
+			// If orchPath is already set (variant was found), skip the generic file entirely.
 			continue
 		}
 
@@ -353,7 +369,6 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	// Override {WORKFLOW_DIR} to point to the workspace-local workflow directory
 	// instead of the shared skillsBase path.
 	replacements["{WORKFLOW_DIR}"] = workflowDir
-
 
 	// Capture registry content for catalog injection; apply shared replacements.
 	if wf.Components.Registry != "" {

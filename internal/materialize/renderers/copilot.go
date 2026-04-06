@@ -386,6 +386,14 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 
 	var managedPaths []string
 
+	// Resolve agent-specific orchestrator variant if present.
+	// ORCHESTRATOR.copilot.md takes precedence over the generic ORCHESTRATOR.md.
+	const variantEntrypointName = "ORCHESTRATOR.copilot.md"
+	variantOrchPath := ""
+	if _, statErr := os.Stat(filepath.Join(cachePath, variantEntrypointName)); statErr == nil {
+		variantOrchPath = filepath.Join(cachePath, variantEntrypointName)
+	}
+
 	for _, entry := range entries {
 		name := entry.Name()
 		srcPath := filepath.Join(cachePath, name)
@@ -399,10 +407,19 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
+		// Skip the variant entrypoint — already handled by pre-loop probe above.
+		if name == variantEntrypointName {
+			continue
+		}
+
 		// T019: Install the orchestrator entrypoint as a native .agent.md with frontmatter.
 		if name == wf.Components.Entrypoint {
+			effectiveSrc := srcPath
+			if variantOrchPath != "" {
+				effectiveSrc = variantOrchPath // use variant if found
+			}
 			dstPath := filepath.Join(agentsBase, orchRoleName+".agent.md")
-			if err := r.installOrchestratorAgent(srcPath, dstPath, wf, replacements); err != nil {
+			if err := r.installOrchestratorAgent(effectiveSrc, dstPath, wf, replacements); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow orchestrator: %w", err)
 			}
 			managedPaths = append(managedPaths, dstPath)
