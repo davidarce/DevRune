@@ -407,8 +407,9 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
-		// Skip the variant entrypoint — already handled by pre-loop probe above.
-		if name == variantEntrypointName {
+		// Skip all orchestrator variant files — none should be copied as loose files.
+		// Each renderer uses only its own variant (resolved in the pre-loop probe above).
+		if orchestratorVariantNames[name] {
 			continue
 		}
 

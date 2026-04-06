@@ -1007,6 +1007,60 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric(
 	}
 }
 
+// TestCopilotRenderer_InstallWorkflow_ForeignVariantNotCopied verifies that
+// ORCHESTRATOR.opencode.md (a foreign variant) is never copied as a loose file
+// into the Copilot workspace when both variant files are present in the cache.
+// Only ORCHESTRATOR.copilot.md must be used (embedded in .agent.md);
+// neither variant file should appear as a loose file on disk.
+func TestCopilotRenderer_InstallWorkflow_ForeignVariantNotCopied(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := copilotParityDef(workspaceRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cachePath := t.TempDir()
+
+	// Write generic + both variant files.
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.md"), []byte("# Generic\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.opencode.md"), []byte("# OpenCode variant\n"), 0o644); err != nil {
+		t.Fatalf("write opencode variant: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.copilot.md"), []byte("# Copilot variant\n"), 0o644); err != nil {
+		t.Fatalf("write copilot variant: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
+		Components: model.WorkflowComponents{
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-orchestrator", Kind: "orchestrator"},
+			},
+		},
+	}
+
+	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Walk the entire workspace root and assert neither variant appears as a loose file.
+	forbidden := []string{"ORCHESTRATOR.opencode.md", "ORCHESTRATOR.copilot.md"}
+	_ = filepath.WalkDir(workspaceRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		base := filepath.Base(path)
+		for _, f := range forbidden {
+			if base == f {
+				t.Errorf("forbidden file found as loose file: %s", path)
+			}
+		}
+		return nil
+	})
+}
+
 // TestCopilotRenderer_RenderSettings_ExistingContentPreserved verifies that
 // existing .vscode/settings.json content is preserved when merging.
 func TestCopilotRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {

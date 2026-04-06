@@ -263,6 +263,13 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
+		// Skip all orchestrator variant files — none should be copied as loose files.
+		// Factory uses the generic ORCHESTRATOR.md entrypoint; agent-specific variants
+		// are for OpenCode and Copilot only.
+		if orchestratorVariantNames[name] {
+			continue
+		}
+
 		if skillsSet[name] {
 			// Workflow skills: .factory/skills/<skill-name>/SKILL.md
 			destDir := filepath.Join(skillsBase, name)

@@ -1290,7 +1290,57 @@ func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric
 	}
 }
 
-// TestOpenCodeRenderer_RenderSettings_ExistingContentPreserved verifies that
+// TestOpenCodeRenderer_InstallWorkflow_ForeignVariantNotCopied verifies that
+// ORCHESTRATOR.copilot.md (a foreign variant) is never copied as a loose file
+// into the OpenCode workspace when both variant files are present in the cache.
+// Only ORCHESTRATOR.opencode.md must be used (embedded in opencode.json);
+// neither variant file should appear as a loose file on disk.
+func TestOpenCodeRenderer_InstallWorkflow_ForeignVariantNotCopied(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	def := model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   workspaceRoot,
+		SkillDir:    "../.agents/skills",
+		CommandDir:  "commands",
+		RulesDir:    "rules",
+		CatalogFile: "AGENTS.md",
+	}
+	r := renderers.NewOpenCodeRenderer(def)
+
+	wfCacheDir := buildSddWorkflowCache(t, "# Generic\n")
+	// Write both variant files.
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "ORCHESTRATOR.opencode.md"), []byte("# OpenCode variant\n"), 0o644); err != nil {
+		t.Fatalf("write opencode variant: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "ORCHESTRATOR.copilot.md"), []byte("# Copilot variant\n"), 0o644); err != nil {
+		t.Fatalf("write copilot variant: %v", err)
+	}
+
+	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Walk the entire project root and assert neither variant appears as a loose file.
+	forbidden := []string{"ORCHESTRATOR.opencode.md", "ORCHESTRATOR.copilot.md"}
+	_ = filepath.WalkDir(projectRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		base := filepath.Base(path)
+		for _, f := range forbidden {
+			if base == f {
+				t.Errorf("forbidden file found as loose file: %s", path)
+			}
+		}
+		return nil
+	})
+}
+
 // existing opencode.json content is preserved and the permission section is merged.
 func TestOpenCodeRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {
 	workspaceRoot := t.TempDir()
