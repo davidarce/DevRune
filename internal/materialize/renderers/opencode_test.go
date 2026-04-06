@@ -1177,6 +1177,119 @@ permissions:
 	}
 }
 
+// TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent verifies that
+// when ORCHESTRATOR.opencode.md is present in the workflow cache, the orchestrator
+// agent prompt in opencode.json uses the variant content, not the generic content.
+func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	def := model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   workspaceRoot,
+		SkillDir:    "../.agents/skills",
+		CommandDir:  "commands",
+		RulesDir:    "rules",
+		CatalogFile: "AGENTS.md",
+	}
+	r := renderers.NewOpenCodeRenderer(def)
+
+	const genericContent = "# SDD Orchestrator generic\n"
+	const variantContent = "# SDD Orchestrator opencode variant\n"
+
+	wfCacheDir := buildSddWorkflowCache(t, genericContent)
+	// Write the variant file alongside ORCHESTRATOR.md.
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "ORCHESTRATOR.opencode.md"), []byte(variantContent), 0o644); err != nil {
+		t.Fatalf("write variant: %v", err)
+	}
+
+	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workspaceRoot, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
+	}
+	agentSection, ok := cfg["agent"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("opencode.json missing 'agent' section; content:\n%s", string(data))
+	}
+	orch, ok := agentSection["sdd-orchestrator"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("agent section missing 'sdd-orchestrator'; keys: %v", mapKeys(agentSection))
+	}
+	prompt, _ := orch["prompt"].(string)
+
+	// Variant content must appear in the prompt.
+	if !strings.Contains(prompt, "opencode variant") {
+		t.Errorf("expected variant content in orchestrator prompt, got: %q", prompt)
+	}
+	// Generic-only content must NOT appear in the prompt.
+	if strings.Contains(prompt, "generic") {
+		t.Errorf("expected generic content NOT in orchestrator prompt, got: %q", prompt)
+	}
+}
+
+// TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric verifies
+// that when ORCHESTRATOR.opencode.md is absent from the workflow cache, the orchestrator
+// agent prompt in opencode.json uses the generic ORCHESTRATOR.md content.
+func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceRoot := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	def := model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   workspaceRoot,
+		SkillDir:    "../.agents/skills",
+		CommandDir:  "commands",
+		RulesDir:    "rules",
+		CatalogFile: "AGENTS.md",
+	}
+	r := renderers.NewOpenCodeRenderer(def)
+
+	const genericContent = "# SDD Orchestrator generic\n"
+	// No variant file — only the generic ORCHESTRATOR.md is present.
+	wfCacheDir := buildSddWorkflowCache(t, genericContent)
+
+	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workspaceRoot, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
+	}
+	agentSection, ok := cfg["agent"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("opencode.json missing 'agent' section; content:\n%s", string(data))
+	}
+	orch, ok := agentSection["sdd-orchestrator"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("agent section missing 'sdd-orchestrator'; keys: %v", mapKeys(agentSection))
+	}
+	prompt, _ := orch["prompt"].(string)
+
+	// Generic content must appear in the prompt (fallback path).
+	if !strings.Contains(prompt, "generic") {
+		t.Errorf("expected generic content in orchestrator prompt, got: %q", prompt)
+	}
+}
+
 // TestOpenCodeRenderer_RenderSettings_ExistingContentPreserved verifies that
 // existing opencode.json content is preserved and the permission section is merged.
 func TestOpenCodeRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {

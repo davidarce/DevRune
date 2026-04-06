@@ -912,6 +912,101 @@ permissions:
 	}
 }
 
+// TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent verifies that
+// when ORCHESTRATOR.copilot.md is present in the cache, the installed
+// .github/agents/sdd-orchestrator.agent.md contains the variant content (not the generic).
+func TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := copilotParityDef(workspaceRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cachePath := t.TempDir()
+
+	// Write ORCHESTRATOR.md (generic content).
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.md"), []byte("# Generic Orchestrator\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+	// Write ORCHESTRATOR.copilot.md (variant content).
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.copilot.md"), []byte("# Copilot Variant Orchestrator\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.copilot.md: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
+		Components: model.WorkflowComponents{
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-orchestrator", Kind: "orchestrator"},
+			},
+		},
+	}
+
+	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Read the generated .github/agents/sdd-orchestrator.agent.md.
+	agentMDPath := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator.agent.md")
+	content, err := os.ReadFile(agentMDPath)
+	if err != nil {
+		t.Fatalf("read sdd-orchestrator.agent.md: %v", err)
+	}
+	contentStr := string(content)
+
+	// Variant content must be present.
+	if !strings.Contains(contentStr, "Copilot Variant") {
+		t.Errorf("expected variant content in sdd-orchestrator.agent.md; got:\n%s", contentStr)
+	}
+	// Generic-only content must NOT be present.
+	if strings.Contains(contentStr, "Generic") {
+		t.Errorf("generic content must NOT appear in sdd-orchestrator.agent.md when variant is present; got:\n%s", contentStr)
+	}
+}
+
+// TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric verifies that
+// when ORCHESTRATOR.copilot.md is absent, the installed .github/agents/sdd-orchestrator.agent.md
+// contains the generic ORCHESTRATOR.md content.
+func TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := copilotParityDef(workspaceRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cachePath := t.TempDir()
+
+	// Write ONLY ORCHESTRATOR.md (generic content) — no variant file.
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.md"), []byte("# Generic Orchestrator\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
+		Components: model.WorkflowComponents{
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-orchestrator", Kind: "orchestrator"},
+			},
+		},
+	}
+
+	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Read the generated .github/agents/sdd-orchestrator.agent.md.
+	agentMDPath := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator.agent.md")
+	content, err := os.ReadFile(agentMDPath)
+	if err != nil {
+		t.Fatalf("read sdd-orchestrator.agent.md: %v", err)
+	}
+
+	// Generic content must be present (fallback path used).
+	if !strings.Contains(string(content), "Generic") {
+		t.Errorf("expected generic content in sdd-orchestrator.agent.md (fallback); got:\n%s", string(content))
+	}
+}
+
 // TestCopilotRenderer_RenderSettings_ExistingContentPreserved verifies that
 // existing .vscode/settings.json content is preserved when merging.
 func TestCopilotRenderer_RenderSettings_ExistingContentPreserved(t *testing.T) {
