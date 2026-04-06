@@ -18,6 +18,15 @@ import (
 	"github.com/davidarce/devrune/internal/model"
 )
 
+// orchestratorVariantNames is the set of all agent-specific orchestrator variant
+// filenames. Every renderer's scan loop skips ALL entries in this set so that no
+// variant is ever copied as a loose file — each renderer only uses its own variant
+// (resolved via a pre-loop os.Stat probe) and ignores the rest.
+var orchestratorVariantNames = map[string]bool{
+	"ORCHESTRATOR.opencode.md": true,
+	"ORCHESTRATOR.copilot.md":  true,
+}
+
 // WriteManagedBlock writes content between beginMarker and endMarker in filePath.
 // If the markers already exist in the file, the block between them (inclusive) is replaced.
 // If the markers are absent, the managed block is appended to the file.

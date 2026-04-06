@@ -231,6 +231,13 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 			continue // Skip the manifest file itself.
 		}
 
+		// Skip all orchestrator variant files — none should be copied as loose files.
+		// Claude uses the generic ORCHESTRATOR.md entrypoint; agent-specific variants
+		// are for OpenCode and Copilot only.
+		if orchestratorVariantNames[name] {
+			continue
+		}
+
 		if skillsSet[name] {
 			// Install skills at first level so the Skill tool can discover them.
 			dstPath = filepath.Join(workspaceRoot, r.def.SkillDir, name)
