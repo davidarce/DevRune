@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/davidarce/devrune/internal/materialize/matypes"
@@ -39,10 +40,31 @@ var copilotDropFields = []string{
 // copilotSubAgentTools defines role-specific tool sets for Copilot native sub-agents.
 // Keys match the WorkflowRole.Skill field values from workflow.yaml.
 var copilotSubAgentTools = map[string][]string{
-	"sdd-explore":   {"read", "search"},
-	"sdd-plan":      {"read", "search", "edit"},
-	"sdd-implement": {"read", "edit"},
-	"sdd-review":    {"read"},
+	"sdd-explore":   {"read", "search", "edit", "execute"},
+	"sdd-plan":      {"read", "search", "edit", "execute"},
+	"sdd-implement": {"read", "search", "edit", "execute"},
+	"sdd-review":    {"read", "search", "execute"},
+}
+
+// copilotBodyReplacements maps Claude Code MCP shorthand tool calls to Copilot
+// mcp__<server>__<tool>( format. Keys include the opening paren to avoid false
+// positives (e.g. "mem_save_prompt(" won't be matched by the "mem_save(" key).
+// Order of iteration is irrelevant since keys are disjoint prefixes.
+var copilotBodyReplacements = map[string]string{
+	"mem_save(":              "mcp__engram__mem_save(",
+	"mem_search(":            "mcp__engram__mem_search(",
+	"mem_context(":           "mcp__engram__mem_context(",
+	"mem_session_summary(":   "mcp__engram__mem_session_summary(",
+	"mem_get_observation(":   "mcp__engram__mem_get_observation(",
+	"mem_timeline(":          "mcp__engram__mem_timeline(",
+	"mem_save_prompt(":       "mcp__engram__mem_save_prompt(",
+	"mem_stats(":             "mcp__engram__mem_stats(",
+	"mem_update(":            "mcp__engram__mem_update(",
+	"mem_delete(":            "mcp__engram__mem_delete(",
+	"mem_suggest_topic_key(": "mcp__engram__mem_suggest_topic_key(",
+	"mem_capture_passive(":   "mcp__engram__mem_capture_passive(",
+	"mem_session_start(":     "mcp__engram__mem_session_start(",
+	"mem_session_end(":       "mcp__engram__mem_session_end(",
 }
 
 // CopilotRenderer materializes skills for GitHub Copilot custom agents.
@@ -520,6 +542,7 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 	for placeholder, value := range replacements {
 		content = strings.ReplaceAll(content, placeholder, value)
 	}
+	content = transformBodyForCopilot(content)
 
 	// Strip the empty Phase-to-Model Table — Copilot uses native sub-agents and
 	// does not support per-phase model routing, so the table is always empty.
@@ -576,6 +599,7 @@ func (r *CopilotRenderer) generateSubAgentFile(skillSrcDir, dstPath string, role
 	for placeholder, value := range replacements {
 		bodyContent = strings.ReplaceAll(bodyContent, placeholder, value)
 	}
+	bodyContent = transformBodyForCopilot(bodyContent)
 
 	// Determine tool set for this role based on the skill name.
 	tools := copilotSubAgentTools[role.Skill]
@@ -715,6 +739,224 @@ func (r *CopilotRenderer) SettingsManagedPaths(workspaceRoot string) []string {
 func (r *CopilotRenderer) ManagedConfigPaths(workspaceRoot string) []string {
 	mcpConfig := EffectiveMCPConfig(r.agentDef.MCP)
 	return []string{ResolveMCPOutputPath(workspaceRoot, mcpConfig)}
+}
+
+// transformBodyForCopilot applies Claude Code → Copilot body text transformations.
+// It converts tool references, MCP shorthand, shebang lines, and Skill/Task blocks
+// to their Copilot-native equivalents. Safe to call on any markdown body.
+//
+// Transformations applied in order:
+//  1. Shebang conversion: lines matching "- **Label**: !`cmd`" → "Pre-flight Commands" section
+//  2. MCP normalization: mem_save( → mcp__engram__mem_save( etc. (via copilotBodyReplacements)
+//  3. AskUserQuestion replacement: → prose equivalent
+//  4. Skill()/Task() block stripping: → @agent-name prose instructions
+//  5. Tool name replacement: backtick-wrapped Write/Edit/Read/Glob/Grep/Bash → prose
+func transformBodyForCopilot(body string) string {
+	body = transformCopilotShebangs(body)
+	body = transformCopilotMCPCalls(body)
+	body = transformCopilotAskUserQuestion(body)
+	body = transformCopilotSkillTaskBlocks(body)
+	body = transformCopilotToolNames(body)
+	return body
+}
+
+// reCopilotShebang matches Dynamic Context shebang lines of the form:
+//
+//   - **Label**: !`command`
+var reCopilotShebang = regexp.MustCompile("(?m)^(- \\*\\*[^*]+\\*\\*): !`(.+)`$")
+
+// transformCopilotShebangs converts Dynamic Context shebang lines to a
+// "Pre-flight Commands" prose section that Copilot can act on.
+func transformCopilotShebangs(body string) string {
+	matches := reCopilotShebang.FindAllStringSubmatchIndex(body, -1)
+	if len(matches) == 0 {
+		return body
+	}
+
+	// Collect all shebang entries (label + command) and track their span.
+	type shebangEntry struct {
+		label   string
+		command string
+		start   int
+		end     int
+	}
+	var entries []shebangEntry
+	for _, m := range matches {
+		entries = append(entries, shebangEntry{
+			label:   body[m[2]:m[3]],
+			command: body[m[4]:m[5]],
+			start:   m[0],
+			end:     m[1],
+		})
+	}
+
+	// Build the replacement "Pre-flight Commands" section from all matched entries.
+	var sb strings.Builder
+	sb.WriteString("## Pre-flight Commands\n\n")
+	sb.WriteString("Before proceeding, execute these commands and include their output in your context:\n\n")
+	for _, e := range entries {
+		sb.WriteString("- ")
+		sb.WriteString(e.label)
+		sb.WriteString(": run `")
+		sb.WriteString(e.command)
+		sb.WriteString("`\n")
+	}
+
+	// Replace each matched line with an empty string first, then prepend the section.
+	// Work backwards through entries to preserve indices.
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		body = body[:e.start] + body[e.end:]
+	}
+
+	// Insert the pre-flight section before the first non-empty line.
+	idx := strings.Index(body, "\n")
+	if idx < 0 {
+		return sb.String() + "\n" + body
+	}
+	return body[:idx+1] + sb.String() + "\n" + strings.TrimLeft(body[idx+1:], "\n")
+}
+
+// transformCopilotMCPCalls replaces Claude Code MCP shorthand calls (mem_save( etc.)
+// with Copilot mcp__engram__* equivalents using the copilotBodyReplacements map.
+// It is idempotent: already-prefixed occurrences (e.g. mcp__engram__mem_save() are
+// not double-prefixed.
+func transformCopilotMCPCalls(body string) string {
+	const sentinel = "\x00ENGRAM\x00"
+	for old, newVal := range copilotBodyReplacements {
+		// Guard against double-prefixing: temporarily replace already-transformed
+		// occurrences with a sentinel, do the plain substitution, then restore.
+		body = strings.ReplaceAll(body, newVal, sentinel)
+		body = strings.ReplaceAll(body, old, newVal)
+		body = strings.ReplaceAll(body, sentinel, newVal)
+	}
+	return body
+}
+
+// transformCopilotAskUserQuestion replaces AskUserQuestion references with prose.
+func transformCopilotAskUserQuestion(body string) string {
+	// Replace backtick-wrapped variant first (more specific).
+	body = strings.ReplaceAll(body, "`AskUserQuestion`", "ask the user directly")
+	// Replace bare variant.
+	body = strings.ReplaceAll(body, "AskUserQuestion", "ask the user directly (no special tool needed)")
+	return body
+}
+
+// reSkillInline matches inline Skill("name") or Skill(skill: "name") references.
+var reSkillInline = regexp.MustCompile(`Skill\((?:skill:\s*)?"([^"]+)"\)`)
+
+// transformCopilotSkillTaskBlocks replaces Skill() references with @agent-name prose,
+// and strips multi-line Task(...) blocks with a simplified prose instruction.
+func transformCopilotSkillTaskBlocks(body string) string {
+	// Replace inline Skill() references.
+	body = reSkillInline.ReplaceAllStringFunc(body, func(match string) string {
+		sub := reSkillInline.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		return "@" + sub[1] + " agent"
+	})
+
+	// Strip multi-line Task(...) blocks using a line-by-line state machine
+	// that tracks paren depth to find the closing paren.
+	body = stripTaskBlocks(body)
+	return body
+}
+
+// stripTaskBlocks removes multi-line Task(...) call blocks from body text,
+// replacing each with a prose instruction. Uses a paren-depth state machine
+// to handle nested parens robustly.
+func stripTaskBlocks(body string) string {
+	lines := strings.Split(body, "\n")
+	var out []string
+	depth := 0
+	inTask := false
+
+	for _, line := range lines {
+		if !inTask {
+			// Detect start of a Task( block (not inside a code block, just plain text).
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "Task(") || strings.Contains(line, " Task(") {
+				inTask = true
+				depth = strings.Count(line, "(") - strings.Count(line, ")")
+				if depth <= 0 {
+					// Single-line Task() — replace inline.
+					out = append(out, "Invoke the appropriate sub-agent with the context above.")
+					inTask = false
+					depth = 0
+				}
+				// Multi-line: consume the opening line, emit replacement on close.
+				continue
+			}
+			out = append(out, line)
+		} else {
+			// Inside a Task block: track paren depth.
+			depth += strings.Count(line, "(") - strings.Count(line, ")")
+			if depth <= 0 {
+				// Closing line reached — emit replacement prose.
+				out = append(out, "Invoke the appropriate sub-agent with the context above.")
+				inTask = false
+				depth = 0
+			}
+			// Consume the line (don't emit).
+		}
+	}
+
+	// If we hit end-of-body while still in a Task block, emit replacement.
+	if inTask {
+		out = append(out, "Invoke the appropriate sub-agent with the context above.")
+	}
+
+	return strings.Join(out, "\n")
+}
+
+// copilotToolNameReplacements maps backtick-wrapped Claude Code tool names to
+// Copilot-friendly prose equivalents. Only exact backtick-wrapped names are replaced
+// to avoid matching prose words like "Read the file" or "Edit the plan".
+var copilotToolNameReplacements = [][2]string{
+	{"`Write`", "the file write tool"},
+	{"`Edit`", "the file edit tool"},
+	{"`Read`", "the file read tool"},
+	{"`Glob`", "the file search tool"},
+	{"`Grep`", "the content search tool"},
+	{"`Bash`", "the terminal tool"},
+}
+
+// reBacktickToolWithArgs matches backtick-wrapped tool names that include parameters,
+// e.g. `Bash(git:*)` or `Write(path, content)`.
+var reBacktickToolWithArgs = regexp.MustCompile("`(Write|Edit|Read|Glob|Grep|Bash)\\([^`]*\\)`")
+
+// transformCopilotToolNames replaces backtick-wrapped tool name references with
+// Copilot-native prose equivalents. Only exact matches are replaced to avoid
+// mangling prose sentences containing these words.
+func transformCopilotToolNames(body string) string {
+	// Replace parameterized forms first (e.g. `Bash(git:*)`) before the plain form.
+	body = reBacktickToolWithArgs.ReplaceAllStringFunc(body, func(match string) string {
+		sub := reBacktickToolWithArgs.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		switch sub[1] {
+		case "Write":
+			return "the file write tool"
+		case "Edit":
+			return "the file edit tool"
+		case "Read":
+			return "the file read tool"
+		case "Glob":
+			return "the file search tool"
+		case "Grep":
+			return "the content search tool"
+		case "Bash":
+			return "the terminal tool"
+		}
+		return match
+	})
+	// Replace exact backtick-wrapped names.
+	for _, pair := range copilotToolNameReplacements {
+		body = strings.ReplaceAll(body, pair[0], pair[1])
+	}
+	return body
 }
 
 // stripEmptyPhaseToModelTable removes the "## Phase-to-Model Table" section when

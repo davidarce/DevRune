@@ -37,3 +37,7 @@ var ResolveOpenCodeModel = resolveOpenCodeModel
 // CodexTransformFrontmatter re-exports the CodexRenderer.transformFrontmatter method
 // for use by external test packages (package renderers_test).
 var CodexTransformFrontmatter = (*CodexRenderer).transformFrontmatter
+
+// TransformBodyForCopilot re-exports transformBodyForCopilot for use by external
+// test packages (package renderers_test).
+var TransformBodyForCopilot = transformBodyForCopilot

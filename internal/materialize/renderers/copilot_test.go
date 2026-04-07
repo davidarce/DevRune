@@ -1120,3 +1120,581 @@ permissions:
 		t.Errorf("settings.json must contain mcp__context7__*; content:\n%s", contentStr)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// T011–T016: transformBodyForCopilot unit tests
+// ---------------------------------------------------------------------------
+
+// TestTransformBodyForCopilot_MCPNormalization verifies that Claude Code MCP shorthand
+// calls are replaced with mcp__engram__* equivalents, with no false positives.
+func TestTransformBodyForCopilot_MCPNormalization(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           string
+		wantContains    string
+		wantNotContains string
+	}{
+		{
+			name:            "mem_save",
+			input:           "call mem_save(title: \"foo\")",
+			wantContains:    "mcp__engram__mem_save(title: \"foo\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_search",
+			input:           "use mem_search(query: \"bar\")",
+			wantContains:    "mcp__engram__mem_search(query: \"bar\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_context",
+			input:           "run mem_context()",
+			wantContains:    "mcp__engram__mem_context()",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_session_summary",
+			input:           "call mem_session_summary(content: \"x\")",
+			wantContains:    "mcp__engram__mem_session_summary(content: \"x\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_get_observation",
+			input:           "mem_get_observation(id: 42)",
+			wantContains:    "mcp__engram__mem_get_observation(id: 42)",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_timeline",
+			input:           "mem_timeline(observation_id: 1)",
+			wantContains:    "mcp__engram__mem_timeline(observation_id: 1)",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_save_prompt",
+			input:           "mem_save_prompt(content: \"prompt\")",
+			wantContains:    "mcp__engram__mem_save_prompt(content: \"prompt\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_stats",
+			input:           "mem_stats()",
+			wantContains:    "mcp__engram__mem_stats()",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_update",
+			input:           "mem_update(id: 1, title: \"new\")",
+			wantContains:    "mcp__engram__mem_update(id: 1, title: \"new\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_delete",
+			input:           "mem_delete(id: 5)",
+			wantContains:    "mcp__engram__mem_delete(id: 5)",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_suggest_topic_key",
+			input:           "mem_suggest_topic_key(title: \"x\")",
+			wantContains:    "mcp__engram__mem_suggest_topic_key(title: \"x\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_capture_passive",
+			input:           "mem_capture_passive(content: \"y\")",
+			wantContains:    "mcp__engram__mem_capture_passive(content: \"y\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_session_start",
+			input:           "mem_session_start(id: \"s1\")",
+			wantContains:    "mcp__engram__mem_session_start(id: \"s1\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "mem_session_end",
+			input:           "mem_session_end(id: \"s1\")",
+			wantContains:    "mcp__engram__mem_session_end(id: \"s1\")",
+			wantNotContains: "",
+		},
+		{
+			name:            "no false positive on prose",
+			input:           "remember to save your work",
+			wantContains:    "remember to save your work",
+			wantNotContains: "mcp__engram__",
+		},
+		{
+			name:            "already prefixed passes through idempotently",
+			input:           "mcp__engram__mem_save(title: \"x\")",
+			wantContains:    "mcp__engram__mem_save(title: \"x\")",
+			wantNotContains: "mcp__engram__mcp__engram__",
+		},
+		{
+			name:            "mem_save_prompt not matched by mem_save key",
+			input:           "mem_save_prompt(content: \"p\")",
+			wantContains:    "mcp__engram__mem_save_prompt(content: \"p\")",
+			wantNotContains: "mcp__engram__mem_save(",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderers.TransformBodyForCopilot(tt.input)
+			if tt.wantContains != "" && !strings.Contains(got, tt.wantContains) {
+				t.Errorf("output missing %q;\noutput: %q", tt.wantContains, got)
+			}
+			if tt.wantNotContains != "" && strings.Contains(got, tt.wantNotContains) {
+				t.Errorf("output must NOT contain %q;\noutput: %q", tt.wantNotContains, got)
+			}
+		})
+	}
+}
+
+// TestTransformBodyForCopilot_ShebangConversion verifies that Dynamic Context
+// shebang lines (- **Label**: !`cmd`) are converted to a Pre-flight Commands section.
+func TestTransformBodyForCopilot_ShebangConversion(t *testing.T) {
+	t.Run("single shebang", func(t *testing.T) {
+		input := "# My Skill\n\n- **Status**: !`git status --short`\n\nOther content.\n"
+		got := renderers.TransformBodyForCopilot(input)
+		if !strings.Contains(got, "Pre-flight Commands") {
+			t.Errorf("expected 'Pre-flight Commands' section; output:\n%s", got)
+		}
+		if !strings.Contains(got, "git status --short") {
+			t.Errorf("expected command in output; output:\n%s", got)
+		}
+		if strings.Contains(got, "!`git status") {
+			t.Errorf("shebang syntax must be removed from output; output:\n%s", got)
+		}
+	})
+
+	t.Run("multiple shebangs grouped", func(t *testing.T) {
+		input := "# Skill\n\n- **Diff**: !`git diff HEAD`\n- **Status**: !`git status`\n\nContent.\n"
+		got := renderers.TransformBodyForCopilot(input)
+		if !strings.Contains(got, "Pre-flight Commands") {
+			t.Errorf("expected 'Pre-flight Commands' section; output:\n%s", got)
+		}
+		if !strings.Contains(got, "git diff HEAD") {
+			t.Errorf("expected first command in output; output:\n%s", got)
+		}
+		if !strings.Contains(got, "git status") {
+			t.Errorf("expected second command in output; output:\n%s", got)
+		}
+	})
+
+	t.Run("no shebang passes through unchanged", func(t *testing.T) {
+		input := "# Skill\n\nJust normal markdown.\n"
+		got := renderers.TransformBodyForCopilot(input)
+		if strings.Contains(got, "Pre-flight") {
+			t.Errorf("no shebang — output must not contain 'Pre-flight'; output:\n%s", got)
+		}
+		if got != input {
+			t.Errorf("no shebang — output should be identical to input;\nwant: %q\ngot:  %q", input, got)
+		}
+	})
+
+	t.Run("exclamation in prose not treated as shebang", func(t *testing.T) {
+		input := "# Skill\n\nThis is important! Do not skip it.\n"
+		got := renderers.TransformBodyForCopilot(input)
+		if strings.Contains(got, "Pre-flight") {
+			t.Errorf("prose exclamation must not trigger shebang conversion; output:\n%s", got)
+		}
+	})
+}
+
+// TestTransformBodyForCopilot_SkillTaskStripping verifies that Skill() references
+// are replaced with @agent-name prose and Task() blocks are stripped.
+func TestTransformBodyForCopilot_SkillTaskStripping(t *testing.T) {
+	t.Run("inline Skill double-quoted name", func(t *testing.T) {
+		input := `Call Skill("sdd-explore") to start.`
+		got := renderers.TransformBodyForCopilot(input)
+		if !strings.Contains(got, "@sdd-explore agent") {
+			t.Errorf("expected '@sdd-explore agent'; output: %q", got)
+		}
+		if strings.Contains(got, "Skill(") {
+			t.Errorf("Skill() must be removed; output: %q", got)
+		}
+	})
+
+	t.Run("Skill with skill: keyword", func(t *testing.T) {
+		input := `Use Skill(skill: "sdd-plan") here.`
+		got := renderers.TransformBodyForCopilot(input)
+		if !strings.Contains(got, "@sdd-plan agent") {
+			t.Errorf("expected '@sdd-plan agent'; output: %q", got)
+		}
+	})
+
+	t.Run("git-commit skill", func(t *testing.T) {
+		input := `invoke Skill("git-commit") when done`
+		got := renderers.TransformBodyForCopilot(input)
+		if !strings.Contains(got, "@git-commit agent") {
+			t.Errorf("expected '@git-commit agent'; output: %q", got)
+		}
+	})
+
+	t.Run("multi-line Task block stripped", func(t *testing.T) {
+		input := "Before task.\nTask(\n  description: \"explore\",\n  prompt: \"Do it\"\n)\nAfter task.\n"
+		got := renderers.TransformBodyForCopilot(input)
+		if strings.Contains(got, "Task(") {
+			t.Errorf("Task( block must be removed; output: %q", got)
+		}
+		if !strings.Contains(got, "Invoke the appropriate sub-agent") {
+			t.Errorf("expected replacement prose; output: %q", got)
+		}
+		if !strings.Contains(got, "After task.") {
+			t.Errorf("content after task block must be preserved; output: %q", got)
+		}
+	})
+
+	t.Run("prose word Skill not transformed", func(t *testing.T) {
+		// English word "skill" in prose (capitalized but not a function call) should not be transformed.
+		input := "The Skill is important for development."
+		got := renderers.TransformBodyForCopilot(input)
+		if strings.Contains(got, "@") {
+			t.Errorf("prose 'Skill' must not be transformed; output: %q", got)
+		}
+	})
+}
+
+// TestTransformBodyForCopilot_AskUserQuestion verifies that AskUserQuestion references
+// are replaced with Copilot-native prose equivalents.
+func TestTransformBodyForCopilot_AskUserQuestion(t *testing.T) {
+	t.Run("backtick-wrapped replaced", func(t *testing.T) {
+		input := "Use `AskUserQuestion` to present choices."
+		got := renderers.TransformBodyForCopilot(input)
+		if strings.Contains(got, "AskUserQuestion") {
+			t.Errorf("`AskUserQuestion` must be removed; output: %q", got)
+		}
+		if !strings.Contains(got, "ask the user directly") {
+			t.Errorf("expected 'ask the user directly' in output; got: %q", got)
+		}
+	})
+
+	t.Run("bare replaced", func(t *testing.T) {
+		input := "Call AskUserQuestion with the options."
+		got := renderers.TransformBodyForCopilot(input)
+		if strings.Contains(got, "AskUserQuestion") {
+			t.Errorf("bare AskUserQuestion must be removed; output: %q", got)
+		}
+		if !strings.Contains(got, "ask the user directly") {
+			t.Errorf("expected replacement prose; output: %q", got)
+		}
+	})
+
+	t.Run("no false positive on unrelated text", func(t *testing.T) {
+		input := "Ask the user what they want."
+		got := renderers.TransformBodyForCopilot(input)
+		if got != input {
+			t.Errorf("unrelated prose must not be modified; got: %q", got)
+		}
+	})
+}
+
+// TestTransformBodyForCopilot_ToolNameReplacement verifies that backtick-wrapped Claude Code
+// tool names are replaced with Copilot-friendly prose equivalents.
+func TestTransformBodyForCopilot_ToolNameReplacement(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		wantContains   string
+		wantNotContain string
+	}{
+		{"Write replaced", "Use `Write` to create the file.", "the file write tool", "`Write`"},
+		{"Edit replaced", "Call `Edit` to modify it.", "the file edit tool", "`Edit`"},
+		{"Read replaced", "Use `Read` to inspect the file.", "the file read tool", "`Read`"},
+		{"Glob replaced", "Run `Glob` to find files.", "the file search tool", "`Glob`"},
+		{"Grep replaced", "Use `Grep` for searching.", "the content search tool", "`Grep`"},
+		{"Bash replaced", "Run `Bash` commands.", "the terminal tool", "`Bash`"},
+		{"Bash with args replaced", "Use `Bash(git:*)` for git.", "the terminal tool", "`Bash(git:*)`"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := renderers.TransformBodyForCopilot(tc.input)
+			if tc.wantNotContain != "" && strings.Contains(got, tc.wantNotContain) {
+				t.Errorf("output must not contain %q; got: %q", tc.wantNotContain, got)
+			}
+			if !strings.Contains(got, tc.wantContains) {
+				t.Errorf("expected %q in output; got: %q", tc.wantContains, got)
+			}
+		})
+	}
+
+	t.Run("prose Write not transformed", func(t *testing.T) {
+		input := "Write the implementation in a clean way."
+		got := renderers.TransformBodyForCopilot(input)
+		if got != input {
+			t.Errorf("prose 'Write' (no backticks) must not be transformed; got: %q", got)
+		}
+	})
+
+	t.Run("prose Read not transformed", func(t *testing.T) {
+		input := "Read the documentation carefully."
+		got := renderers.TransformBodyForCopilot(input)
+		if got != input {
+			t.Errorf("prose 'Read' (no backticks) must not be transformed; got: %q", got)
+		}
+	})
+}
+
+// TestTransformBodyForCopilot_Integration verifies that a realistic SKILL.md body
+// containing all five pattern types (shebangs, MCP calls, AskUserQuestion, Skill/Task
+// blocks, tool names) produces coherent Copilot output with no Claude Code artifacts.
+func TestTransformBodyForCopilot_Integration(t *testing.T) {
+	input := `# SDD Review Skill
+
+- **Git Status**: ` + "!`git status --short`" + `
+- **Branch**: ` + "!`git branch --show-current`" + `
+
+## Instructions
+
+Call mem_save(title: "review", content: "done") when finished.
+Use mem_search(query: "plan") to find related observations.
+
+If blocked, use ` + "`AskUserQuestion`" + ` to clarify requirements.
+
+Start by calling Skill("sdd-explore") to discover the codebase.
+Then call Skill(skill: "sdd-plan") to plan the implementation.
+
+Use ` + "`Read`" + ` to inspect files and ` + "`Edit`" + ` to make changes.
+Run ` + "`Bash`" + ` to execute commands.
+
+Task(
+  description: "explore",
+  prompt: "Do the work"
+)
+
+After completion, call mem_session_summary(content: "done").
+`
+
+	got := renderers.TransformBodyForCopilot(input)
+
+	// No Claude Code MCP shorthands without mcp__engram__ prefix.
+	if strings.Contains(got, "mem_save(") && !strings.Contains(got, "mcp__engram__mem_save(") {
+		t.Errorf("bare mem_save( must not appear without mcp__engram__ prefix; output:\n%s", got)
+	}
+	if strings.Contains(got, "mem_search(") && !strings.Contains(got, "mcp__engram__mem_search(") {
+		t.Errorf("bare mem_search( must not appear without mcp__engram__ prefix; output:\n%s", got)
+	}
+	if strings.Contains(got, "mem_session_summary(") && !strings.Contains(got, "mcp__engram__mem_session_summary(") {
+		t.Errorf("bare mem_session_summary( must not appear; output:\n%s", got)
+	}
+
+	// No AskUserQuestion.
+	if strings.Contains(got, "AskUserQuestion") {
+		t.Errorf("AskUserQuestion must be replaced; output:\n%s", got)
+	}
+
+	// No Skill() call syntax.
+	if strings.Contains(got, "Skill(") {
+		t.Errorf("Skill() must be replaced; output:\n%s", got)
+	}
+
+	// No Task() block.
+	if strings.Contains(got, "Task(") {
+		t.Errorf("Task() block must be replaced; output:\n%s", got)
+	}
+
+	// Shebang lines converted to Pre-flight Commands section.
+	if !strings.Contains(got, "Pre-flight Commands") {
+		t.Errorf("expected Pre-flight Commands section; output:\n%s", got)
+	}
+	if strings.Contains(got, "!`git") {
+		t.Errorf("shebang !` must be replaced; output:\n%s", got)
+	}
+
+	// No backtick-wrapped tool names.
+	if strings.Contains(got, "`Read`") || strings.Contains(got, "`Edit`") || strings.Contains(got, "`Bash`") {
+		t.Errorf("backtick-wrapped tool names must be replaced; output:\n%s", got)
+	}
+
+	// Agent references in output.
+	if !strings.Contains(got, "@sdd-explore") {
+		t.Errorf("expected @sdd-explore agent reference; output:\n%s", got)
+	}
+	if !strings.Contains(got, "@sdd-plan") {
+		t.Errorf("expected @sdd-plan agent reference; output:\n%s", got)
+	}
+}
+
+// TestCopilotRenderer_SubAgentToolSets verifies that the four SDD sub-agent roles
+// receive the correct tool sets in their generated .agent.md files.
+//
+// Expected tool sets (from copilotSubAgentTools):
+//   - sdd-explore:   ["read", "search", "edit", "execute"]
+//   - sdd-plan:      ["read", "search", "edit", "execute"]
+//   - sdd-implement: ["read", "search", "edit", "execute"]
+//   - sdd-review:    ["read", "search", "execute"]
+func TestCopilotRenderer_SubAgentToolSets(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := copilotParityDef(workspaceRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cachePath := t.TempDir()
+
+	// Create SKILL.md for each sub-agent role.
+	subAgentSkills := []string{"sdd-explore", "sdd-plan", "sdd-implement", "sdd-review"}
+	for _, skill := range subAgentSkills {
+		skillDir := filepath.Join(cachePath, skill)
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", skill, err)
+		}
+		content := "---\nname: " + skill + "\ndescription: " + skill + " sub-agent\n---\nBody content for " + skill + ".\n"
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s/SKILL.md: %v", skill, err)
+		}
+	}
+
+	// Write ORCHESTRATOR.md.
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.md"), []byte("# SDD Orchestrator\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
+		Components: model.WorkflowComponents{
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-orchestrator", Kind: "orchestrator"},
+				{Name: "sdd-explorer", Kind: "subagent", Skill: "sdd-explore"},
+				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan"},
+				{Name: "sdd-implementer", Kind: "subagent", Skill: "sdd-implement"},
+				{Name: "sdd-reviewer", Kind: "subagent", Skill: "sdd-review"},
+			},
+		},
+	}
+
+	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Helper: read tools from a generated .agent.md frontmatter.
+	readTools := func(agentName string) map[string]bool {
+		t.Helper()
+		agentPath := filepath.Join(workspaceRoot, "agents", agentName+".agent.md")
+		data, err := os.ReadFile(agentPath)
+		if err != nil {
+			t.Fatalf("read %s.agent.md: %v", agentName, err)
+		}
+		fm, _, err := parse.ParseFrontmatter(data)
+		if err != nil {
+			t.Fatalf("parse frontmatter for %s.agent.md: %v", agentName, err)
+		}
+		toolsVal, ok := fm["tools"]
+		if !ok {
+			t.Fatalf("%s.agent.md: 'tools' key missing from frontmatter", agentName)
+		}
+		toolsList, ok := toolsVal.([]interface{})
+		if !ok {
+			t.Fatalf("%s.agent.md: 'tools' is %T, want []interface{}", agentName, toolsVal)
+		}
+		result := make(map[string]bool)
+		for _, v := range toolsList {
+			if s, ok := v.(string); ok {
+				result[s] = true
+			}
+		}
+		return result
+	}
+
+	// sdd-explorer: expects read, search, edit, execute
+	explorerTools := readTools("sdd-explorer")
+	for _, want := range []string{"read", "search", "edit", "execute"} {
+		if !explorerTools[want] {
+			t.Errorf("sdd-explorer: expected tool %q; got tools: %v", want, explorerTools)
+		}
+	}
+
+	// sdd-planner: expects read, search, edit, execute
+	plannerTools := readTools("sdd-planner")
+	for _, want := range []string{"read", "search", "edit", "execute"} {
+		if !plannerTools[want] {
+			t.Errorf("sdd-planner: expected tool %q; got tools: %v", want, plannerTools)
+		}
+	}
+
+	// sdd-implementer: expects read, search, edit, execute
+	implementerTools := readTools("sdd-implementer")
+	for _, want := range []string{"read", "search", "edit", "execute"} {
+		if !implementerTools[want] {
+			t.Errorf("sdd-implementer: expected tool %q; got tools: %v", want, implementerTools)
+		}
+	}
+	if implementerTools["search"] && implementerTools["edit"] && !implementerTools["read"] {
+		t.Error("sdd-implementer: expected 'read' tool to be present")
+	}
+
+	// sdd-reviewer: expects read, search, execute — NOT edit
+	reviewerTools := readTools("sdd-reviewer")
+	for _, want := range []string{"read", "search", "execute"} {
+		if !reviewerTools[want] {
+			t.Errorf("sdd-reviewer: expected tool %q; got tools: %v", want, reviewerTools)
+		}
+	}
+	if reviewerTools["edit"] {
+		t.Errorf("sdd-reviewer: must NOT have 'edit' tool; got tools: %v", reviewerTools)
+	}
+}
+
+// TestCopilotRenderer_OrchestratorBodyTransform_MCPNormalized verifies that when
+// ORCHESTRATOR.copilot.md contains mem_save() calls, the installed .agent.md
+// has them normalized to mcp__engram__mem_save() format.
+func TestCopilotRenderer_OrchestratorBodyTransform_MCPNormalized(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := copilotParityDef(workspaceRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cachePath := t.TempDir()
+
+	// ORCHESTRATOR.copilot.md with mem_save( and AskUserQuestion references.
+	copilotVariantContent := `# Copilot Orchestrator
+
+Call mem_save(title: "state", content: "active") after each phase.
+Use mem_search(query: "sdd") to find prior context.
+When blocked, use ` + "`AskUserQuestion`" + ` to clarify.
+`
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.md"), []byte("# Generic\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.copilot.md"), []byte(copilotVariantContent), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.copilot.md: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
+		Components: model.WorkflowComponents{
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-orchestrator", Kind: "orchestrator"},
+			},
+		},
+	}
+
+	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	agentMDPath := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator.agent.md")
+	content, err := os.ReadFile(agentMDPath)
+	if err != nil {
+		t.Fatalf("read sdd-orchestrator.agent.md: %v", err)
+	}
+	contentStr := string(content)
+
+	// mem_save( must be normalized.
+	if strings.Contains(contentStr, "mem_save(") && !strings.Contains(contentStr, "mcp__engram__mem_save(") {
+		t.Errorf("mem_save( must be normalized to mcp__engram__mem_save(; got:\n%s", contentStr)
+	}
+	// mem_search( must be normalized.
+	if strings.Contains(contentStr, "mem_search(") && !strings.Contains(contentStr, "mcp__engram__mem_search(") {
+		t.Errorf("mem_search( must be normalized to mcp__engram__mem_search(; got:\n%s", contentStr)
+	}
+	// AskUserQuestion must be replaced.
+	if strings.Contains(contentStr, "AskUserQuestion") {
+		t.Errorf("AskUserQuestion must be replaced in orchestrator body; got:\n%s", contentStr)
+	}
+	// Variant content must still be present (not the generic content).
+	if !strings.Contains(contentStr, "Copilot Orchestrator") {
+		t.Errorf("copilot variant content must be present; got:\n%s", contentStr)
+	}
+}
