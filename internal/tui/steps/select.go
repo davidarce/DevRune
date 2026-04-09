@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/davidarce/devrune/internal/model"
+	"github.com/davidarce/devrune/internal/recommend"
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
@@ -24,6 +25,10 @@ type ScannedRepoInput struct {
 	Tools             []model.ToolDef          // available tool definitions
 	Descs             map[string]string        // item name → description
 	MCPFiles          map[string]string        // MCP name → filename (e.g. "engram" → "engram.yaml")
+	// SkillHeaders marks which skill items are non-interactive tech header labels
+	// (e.g. "Spring Boot", "Java"). Headers are not selectable and do not count
+	// toward selected totals. Only applies to the Skills category.
+	SkillHeaders map[string]bool
 }
 
 // SelectionResult holds the final user selection after the select step.
@@ -50,13 +55,33 @@ type CategorySelection struct {
 	IsOn     bool              // category-level toggle (default: true)
 	Descs    map[string]string // item name → description (optional)
 	Badges   map[string]string // item name → badge text (e.g. "Recommended"), optional
+	// Headers marks which items are non-interactive section header labels.
+	// Headers are not selectable, not counted in selectedCount, and
+	// not toggled by select-all. They are rendered as plain text labels.
+	Headers map[string]bool
 }
 
 // selectedCount returns how many individual items are selected.
+// Header items (non-interactive labels) are excluded from the count.
 func (c *CategorySelection) selectedCount() int {
 	count := 0
 	for _, item := range c.Items {
+		if c.Headers[item] {
+			continue // skip non-interactive header labels
+		}
 		if c.Selected[item] {
+			count++
+		}
+	}
+	return count
+}
+
+// selectableCount returns the number of items that can actually be selected
+// (excludes header labels).
+func (c *CategorySelection) selectableCount() int {
+	count := 0
+	for _, item := range c.Items {
+		if !c.Headers[item] {
 			count++
 		}
 	}
@@ -102,6 +127,19 @@ func (m *SelectModel) flatLen() int {
 	return len(m.repos)*5 + buttons
 }
 
+// isEmptyCategory reports whether the given flat cursor index corresponds to
+// a category with zero selectable items (hidden by the empty-category filter).
+func (m *SelectModel) isEmptyCategory(cursor int) bool {
+	if m.isConfirmRow(cursor) {
+		return false
+	}
+	ri, ci := repoAndCat(cursor)
+	if ri >= len(m.repos) || ci >= len(m.repos[ri].Categories) {
+		return false
+	}
+	return m.repos[ri].Categories[ci].selectableCount() == 0
+}
+
 // isConfirmRow reports whether the given flat cursor index is the confirm button.
 func (m *SelectModel) isConfirmRow(cursor int) bool {
 	return cursor >= len(m.repos)*5
@@ -135,7 +173,7 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 			}
 		}
 		categories := [5]CategorySelection{
-			buildCategoryWithDescs("Skills", r.Skills, descs),
+			buildCategoryWithDescsAndHeaders("Skills", r.Skills, descs, r.SkillHeaders),
 			buildCategoryWithDescs("Rules", r.Rules, descs),
 			buildCategoryWithDescs("MCPs", r.MCPs, descs),
 			buildCategoryWithDescs("Workflows", r.Workflows, descs),
@@ -208,9 +246,21 @@ func toStringSet(items []string) map[string]bool {
 
 // buildCategoryWithDescs creates a CategorySelection with all items selected by default.
 func buildCategoryWithDescs(kind string, items []string, descs map[string]string) CategorySelection {
+	return buildCategoryWithDescsAndHeaders(kind, items, descs, nil)
+}
+
+// buildCategoryWithDescsAndHeaders creates a CategorySelection with all selectable items
+// selected by default. Header items (marked in headers map) are not added to
+// the Selected map and do not count toward selection totals.
+func buildCategoryWithDescsAndHeaders(kind string, items []string, descs map[string]string, headers map[string]bool) CategorySelection {
 	sel := make(map[string]bool, len(items))
 	catDescs := make(map[string]string)
+	catHeaders := make(map[string]bool)
 	for _, item := range items {
+		if headers[item] {
+			catHeaders[item] = true
+			continue // headers are not selectable
+		}
 		sel[item] = true
 		if d, ok := descs[item]; ok {
 			catDescs[item] = d
@@ -223,6 +273,7 @@ func buildCategoryWithDescs(kind string, items []string, descs map[string]string
 		IsOn:     true,
 		Descs:    catDescs,
 		Badges:   map[string]string{},
+		Headers:  catHeaders,
 	}
 }
 
@@ -319,11 +370,19 @@ func (m SelectModel) updateCollapsed(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
+			// Skip empty categories (hidden by empty-category filter).
+			for m.cursor > 0 && m.isEmptyCategory(m.cursor) {
+				m.cursor--
+			}
 		}
 
 	case "down", "j":
 		if m.cursor < m.flatLen()-1 {
 			m.cursor++
+			// Skip empty categories (hidden by empty-category filter).
+			for m.cursor < m.flatLen()-1 && m.isEmptyCategory(m.cursor) {
+				m.cursor++
+			}
 		}
 
 	case "left", "h":
@@ -440,32 +499,59 @@ func (m SelectModel) updateExpanded(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if exp.cursor > 0 {
 			exp.cursor--
+			// Skip non-interactive header rows.
+			for exp.cursor > 0 {
+				idx := exp.cursor - 1
+				if idx < len(filteredItems) && cat.Headers[filteredItems[idx]] {
+					exp.cursor--
+				} else {
+					break
+				}
+			}
 		}
 
 	case "down", "j":
 		if exp.cursor < len(filteredItems) {
 			// +1 for the "select all" row.
 			exp.cursor++
+			// Skip non-interactive header rows.
+			for exp.cursor > 0 && exp.cursor <= len(filteredItems) {
+				idx := exp.cursor - 1
+				if idx < len(filteredItems) && cat.Headers[filteredItems[idx]] {
+					exp.cursor++
+				} else {
+					break
+				}
+			}
 		}
 
 	case " ", "space":
 		if exp.cursor == 0 {
-			// Toggle "select all".
+			// Toggle "select all" — skip header items.
 			allOn := true
 			for _, item := range filteredItems {
+				if cat.Headers[item] {
+					continue // headers are not selectable
+				}
 				if !cat.Selected[item] {
 					allOn = false
 					break
 				}
 			}
 			for _, item := range filteredItems {
+				if cat.Headers[item] {
+					continue // headers are not togglable
+				}
 				cat.Selected[item] = !allOn
 			}
 		} else {
 			idx := exp.cursor - 1
 			if idx < len(filteredItems) {
 				item := filteredItems[idx]
-				cat.Selected[item] = !cat.Selected[item]
+				// Do not toggle header items — they are non-interactive labels.
+				if !cat.Headers[item] {
+					cat.Selected[item] = !cat.Selected[item]
+				}
 			}
 		}
 
@@ -517,6 +603,13 @@ func (m *SelectModel) renderCollapsed() string {
 		sb.WriteString("\n")
 
 		for ci, cat := range repo.Categories {
+			// Empty-category filter: skip categories with zero selectable items.
+			// This applies to ALL sources — starter-catalog repos with no workflows,
+			// skills.sh groups with only Skills, etc.
+			if cat.selectableCount() == 0 {
+				continue
+			}
+
 			flatIdx := ri*5 + ci
 			isFocused := m.cursor == flatIdx
 
@@ -526,8 +619,9 @@ func (m *SelectModel) renderCollapsed() string {
 			}
 
 			sel := cat.selectedCount()
+			selectable := cat.selectableCount()
 			var checkBox string
-			if sel == len(cat.Items) && sel > 0 {
+			if sel == selectable && sel > 0 {
 				checkBox = tuistyles.StyleSuccess.Render("[x]")
 			} else if sel > 0 {
 				checkBox = tuistyles.StyleHighlight.Render("[-]")
@@ -535,12 +629,7 @@ func (m *SelectModel) renderCollapsed() string {
 				checkBox = tuistyles.StyleError.Render("[ ]")
 			}
 
-			var count string
-			if len(cat.Items) == 0 {
-				count = tuistyles.StyleInfo.Render("(none)")
-			} else {
-				count = tuistyles.StyleInfo.Render(fmt.Sprintf("(%d/%d)", sel, len(cat.Items)))
-			}
+			count := tuistyles.StyleInfo.Render(fmt.Sprintf("(%d/%d)", sel, selectable))
 
 			line := fmt.Sprintf("│  %s%s %s %s", cursor, checkBox, cat.Kind, count)
 
@@ -629,9 +718,15 @@ func (m *SelectModel) renderExpanded() string {
 		sb.WriteString("\n")
 	}
 
-	// "Select all" row.
-	allOn := len(filteredItems) > 0
+	// "Select all" row — headers are excluded from the all-on check.
+	selectableFiltered := make([]string, 0, len(filteredItems))
 	for _, item := range filteredItems {
+		if !cat.Headers[item] {
+			selectableFiltered = append(selectableFiltered, item)
+		}
+	}
+	allOn := len(selectableFiltered) > 0
+	for _, item := range selectableFiltered {
 		if !cat.Selected[item] {
 			allOn = false
 			break
@@ -674,6 +769,14 @@ func (m *SelectModel) renderExpanded() string {
 	for idx := start; idx < end; idx++ {
 		item := filteredItems[idx]
 		isFocused := (exp.cursor == idx+1)
+
+		// Header items are non-interactive tech labels (e.g. "Spring Boot", "Java").
+		// Render them as plain indented text — no checkbox, no cursor, not selectable.
+		if cat.Headers[item] {
+			sb.WriteString(tuistyles.StyleInfo.Render(fmt.Sprintf("│    %s", item)))
+			sb.WriteString("\n")
+			continue
+		}
 
 		itemCheck := tuistyles.StyleError.Render("[ ]")
 		if cat.Selected[item] {
@@ -744,9 +847,63 @@ type SelectModelResult struct {
 	UseRecommendations bool
 }
 
+// buildSkillsShInput constructs a ScannedRepoInput for the Skills.sh Curated catalog
+// from a slice of DetectedTech values. All detected tech skills are merged into a
+// single Skills category. Within the category, tech names act as non-interactive
+// header labels grouping their respective skills.
+//
+// Returns nil if detected is empty or contains no skills.
+func BuildSkillsShInput(detected []recommend.DetectedTech) *ScannedRepoInput {
+	if len(detected) == 0 {
+		return nil
+	}
+
+	var skillItems []string
+	headers := make(map[string]bool)
+	descs := make(map[string]string)
+
+	for _, tech := range detected {
+		if len(tech.Skills) == 0 {
+			continue
+		}
+		// Emit tech name as a non-interactive header label.
+		skillItems = append(skillItems, tech.Framework)
+		headers[tech.Framework] = true
+
+		// Emit each skill under this tech.
+		for _, ref := range tech.Skills {
+			name := recommend.SkillName(ref.Path)
+			skillItems = append(skillItems, name)
+			if ref.Description != "" {
+				descs[name] = ref.Description
+			}
+		}
+	}
+
+	if len(skillItems) == 0 {
+		return nil
+	}
+
+	return &ScannedRepoInput{
+		Source:       "Skills.sh Curated",
+		Skills:       skillItems,
+		Descs:        descs,
+		SkillHeaders: headers,
+	}
+}
+
 // RunSelectModel runs the Bubbletea selection model and returns the result.
 // previousSelection, if non-nil, restores the user's prior selections (for go-back support).
-func RunSelectModel(repos []ScannedRepoInput, enableRecommendations bool, previousSelection ...SelectionResult) (SelectModelResult, error) {
+//
+// projectDir is the root directory of the project being configured. It is used
+// to detect the tech stack for skills.sh curated skill injection. Pass an empty
+// string to skip detection (useful in tests or when the directory is unknown).
+//
+// Before building the model, RunSelectModel detects the project's tech stack
+// via detect.Analyze and appends a Skills.sh Curated catalog entry to the repo
+// list when matching skills are found. If detection fails or returns no matches,
+// the TUI is shown without the skills.sh section.
+func RunSelectModel(repos []ScannedRepoInput, enableRecommendations bool, projectDir string, previousSelection ...SelectionResult) (SelectModelResult, error) {
 	if len(repos) == 0 {
 		return SelectModelResult{}, nil
 	}

@@ -18,9 +18,16 @@ type knownSource struct {
 	value string // raw source ref string (e.g. "github:owner/repo")
 }
 
+// SkillsShCuratedValue is the sentinel value used to identify the Skills.sh
+// Curated Catalog in the repository source selection. It is not a real git
+// source ref — the TUI select step intercepts it and injects the static
+// skills registry instead of scanning a remote repository.
+const SkillsShCuratedValue = "skillssh:curated"
+
 // knownSources lists predefined repository catalog sources.
 var knownSources = []knownSource{
 	{label: "DevRune Starter Catalog", value: "github:davidarce/devrune-starter-catalog"},
+	{label: "Skills.sh Curated Catalog", value: SkillsShCuratedValue},
 }
 
 // EnterRepositories presents predefined repository catalog sources for selection,

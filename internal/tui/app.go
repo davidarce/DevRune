@@ -11,7 +11,9 @@ import (
 	"charm.land/huh/v2"
 	"gopkg.in/yaml.v3"
 
+	"github.com/davidarce/devrune/internal/detect"
 	"github.com/davidarce/devrune/internal/model"
+	"github.com/davidarce/devrune/internal/recommend"
 	"github.com/davidarce/devrune/internal/tui/steps"
 )
 
@@ -50,6 +52,10 @@ type ExistingConfig struct {
 //	Step 3: Scan + category/item selection
 //	Step 4: Summary + confirmation
 //
+// projectDir is the root directory of the project being configured. It is passed
+// to RunSelectModel for tech-stack detection and skills.sh curated skill injection.
+// Pass an empty string to skip detection.
+//
 // catalogSources contains source ref strings from the catalogs: key in devrune.yaml
 // or from --catalog CLI flags. They appear as pre-selected options
 // alongside the built-in known sources in Step 2. Pass nil or an empty slice when
@@ -61,7 +67,7 @@ type ExistingConfig struct {
 //
 // If the user aborts at any step (Ctrl-C or declining confirmation) the
 // function returns huh.ErrUserAborted.
-func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
+func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 	// Determine preselected agents and sources from existing config.
 	var preselectedAgents []string
 	var preselectedSources []string
@@ -114,36 +120,84 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 	var scanned []steps.ScanResult
 	var inputs []steps.ScannedRepoInput
 
-	if len(sources) > 0 {
+	// Separate the skills.sh sentinel from real repo sources before scanning.
+	skillsShEnabled := false
+	realSources := make([]string, 0, len(sources))
+	for _, s := range sources {
+		if s == steps.SkillsShCuratedValue {
+			skillsShEnabled = true
+		} else {
+			realSources = append(realSources, s)
+		}
+	}
+
+	if len(realSources) > 0 || skillsShEnabled {
 		cp := cachePath()
 
-		// Wrap ScanRepositories so the steps package can call it without
-		// importing the tui package (avoids import cycle).
+		// skillsShInput captures the skills.sh ScannedRepoInput built inside
+		// the scan function (which runs under the spinner alt-screen).
+		var skillsShInput *steps.ScannedRepoInput
+
+		// The scan function runs inside the bubbletea alt-screen spinner.
+		// It scans real repos AND detects the tech stack for skills.sh — all
+		// under the same spinner so the user never sees a blank terminal.
 		scanFn := func(ctx context.Context, srcs []string, cachePath string) ([]steps.ScanResult, error) {
-			s, err := ScanRepositories(ctx, srcs, cachePath)
-			if err != nil {
-				return nil, err
-			}
-			out := make([]steps.ScanResult, len(s))
-			for i, r := range s {
-				out[i] = steps.ScanResult{
-					Source:            r.Source,
-					Skills:            r.Skills,
-					Rules:             r.Rules,
-					MCPs:              r.MCPs,
-					Workflows:         r.Workflows,
-					WorkflowManifests: r.WorkflowManifests,
-					Descs:             r.Descs,
-					MCPFiles:          r.MCPFiles,
-					Tools:             r.Tools,
-					Error:             r.Error,
+			var repoResults []steps.ScanResult
+
+			// Scan real repos (skip the skills.sh display entry).
+			realSrcs := make([]string, 0, len(srcs))
+			for _, s := range srcs {
+				if s != "Skills.sh Curated" {
+					realSrcs = append(realSrcs, s)
 				}
 			}
-			return out, nil
+
+			if len(realSrcs) > 0 {
+				s, scanErr := ScanRepositories(ctx, realSrcs, cachePath)
+				if scanErr != nil {
+					return nil, scanErr
+				}
+				repoResults = make([]steps.ScanResult, len(s))
+				for i, r := range s {
+					repoResults[i] = steps.ScanResult{
+						Source:            r.Source,
+						Skills:            r.Skills,
+						Rules:             r.Rules,
+						MCPs:              r.MCPs,
+						Workflows:         r.Workflows,
+						WorkflowManifests: r.WorkflowManifests,
+						Descs:             r.Descs,
+						MCPFiles:          r.MCPFiles,
+						Tools:             r.Tools,
+						Error:             r.Error,
+					}
+				}
+			}
+
+			// Detect tech stack for skills.sh (runs inside the spinner).
+			// The result is captured via closure — it needs SkillHeaders which
+			// ScanResult cannot carry.
+			if skillsShEnabled && projectDir != "" {
+				if profile, detectErr := detect.Analyze(projectDir); detectErr == nil {
+					catalog := recommend.StaticCatalog{}
+					if detected, fetchErr := catalog.FetchByProfile(profile); fetchErr == nil {
+						skillsShInput = steps.BuildSkillsShInput(detected)
+					}
+				}
+			}
+
+			return repoResults, nil
+		}
+
+		// Build the list of sources to show in the spinner.
+		scanSources := make([]string, len(realSources))
+		copy(scanSources, realSources)
+		if skillsShEnabled {
+			scanSources = append(scanSources, "Skills.sh Curated")
 		}
 
 		var warnings []string
-		scanned, warnings, err = steps.RunScanModel(sources, scanFn, cp)
+		scanned, warnings, err = steps.RunScanModel(scanSources, scanFn, cp)
 		if err != nil {
 			return RunResult{}, fmt.Errorf("scan repositories: %w", err)
 		}
@@ -171,6 +225,11 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 			}
 		}
 
+		// Append skills.sh input (with SkillHeaders preserved).
+		if skillsShInput != nil {
+			inputs = append(inputs, *skillsShInput)
+		}
+
 		if len(inputs) > 0 {
 			// Loop: select → (optional) AI recommendations → back to select if user declines.
 			var prevSelection *steps.SelectionResult // preserves state on go-back
@@ -178,9 +237,9 @@ func Run(catalogSources []string, existing *ExistingConfig) (RunResult, error) {
 				var selectResult steps.SelectModelResult
 				var err error
 				if prevSelection != nil {
-					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, *prevSelection)
+					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, projectDir, *prevSelection)
 				} else {
-					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled)
+					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, projectDir)
 				}
 				if err != nil {
 					return RunResult{}, mapErr(err)

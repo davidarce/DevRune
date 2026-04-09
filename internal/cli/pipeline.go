@@ -13,9 +13,16 @@ import (
 	"github.com/davidarce/devrune/internal/materialize"
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
+	"github.com/davidarce/devrune/internal/recommend"
 	"github.com/davidarce/devrune/internal/resolve"
 	"github.com/davidarce/devrune/internal/state"
 )
+
+// skillsShCuratedSource is the sentinel Source value written into the manifest by
+// buildManifestFromSelection when the user selects skills from the Skills.sh
+// Curated catalog. RunResolve detects this sentinel and expands the entry into
+// proper github: PackageRefs before passing the manifest to the resolver.
+const skillsShCuratedSource = "Skills.sh Curated"
 
 // RunResolve executes the resolve pipeline: reads the manifest, fetches all
 // referenced packages, and writes devrune.lock. It returns the Lockfile on
@@ -44,6 +51,11 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 	if err != nil {
 		return model.Lockfile{}, fmt.Errorf("parse manifest: %w", err)
 	}
+
+	// Expand any Skills.sh Curated sentinel entries into proper github: PackageRefs.
+	// These sentinels are written by buildManifestFromSelection when the user
+	// selects skills from the static skills.sh catalog in the TUI.
+	manifest.Packages = expandSkillsShPackages(manifest.Packages)
 
 	cacheDir := cachePath()
 	if verbose {
@@ -175,6 +187,53 @@ func extractWorkflowModels(manifest model.UserManifest) map[string]map[string]st
 		}
 	}
 	return merged
+}
+
+// expandSkillsShPackages scans the given PackageRef slice for entries with
+// Source == skillsShCuratedSource (the sentinel written by buildManifestFromSelection)
+// and replaces each such entry with the proper github: PackageRefs derived from
+// the selected skill names and the static SkillsRegistry.
+//
+// Each selected skill name (e.g. "vercel-react-best-practices") is looked up in
+// the registry to recover its full path (e.g. "vercel-labs/agent-skills/vercel-react-best-practices"),
+// then converted to a PackageRef via recommend.SkillRefToPackageRef. Skills that
+// cannot be found in the registry are silently skipped.
+//
+// PackageRefs without the sentinel source are returned unchanged.
+func expandSkillsShPackages(packages []model.PackageRef) []model.PackageRef {
+	// Build a reverse index: short skill name → SkillRef (with full path).
+	// The short name is the last path segment (same logic as skillName in select.go).
+	nameToRef := make(map[string]recommend.SkillRef)
+	for _, entry := range recommend.SkillsRegistry {
+		for _, ref := range entry.Skills {
+			short := recommend.SkillName(ref.Path)
+			nameToRef[short] = ref
+		}
+	}
+
+	result := make([]model.PackageRef, 0, len(packages))
+	for _, pkg := range packages {
+		if pkg.Source != skillsShCuratedSource {
+			result = append(result, pkg)
+			continue
+		}
+
+		// This is a Skills.sh Curated sentinel entry.
+		// Expand each selected skill name into its own PackageRef.
+		if pkg.Select == nil || len(pkg.Select.Skills) == 0 {
+			// Nothing selected — drop the sentinel entry.
+			continue
+		}
+		for _, skillShortName := range pkg.Select.Skills {
+			ref, ok := nameToRef[skillShortName]
+			if !ok {
+				// Unknown skill name — skip silently.
+				continue
+			}
+			result = append(result, recommend.SkillRefToPackageRef(ref))
+		}
+	}
+	return result
 }
 
 // countContents tallies skills and rules across all packages in a lockfile.

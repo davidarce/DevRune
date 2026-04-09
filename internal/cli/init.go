@@ -135,7 +135,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if !nonInteractive && !hasFlags {
 		// Interactive mode: launch TUI wizard with preselection from existing config (if any).
-		result, err := tui.Run(catalogSources, existing)
+		result, err := tui.Run(wd, catalogSources, existing)
 		if err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				_, _ = fmt.Fprintln(out, "Aborted.")
