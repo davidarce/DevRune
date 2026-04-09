@@ -28,8 +28,8 @@ func TestMerge_AddsRecommendedItems(t *testing.T) {
 	prev := makePrevSelection([]string{"git-commit"}, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Confidence: 0.92},
-		{Name: "unit-test-adviser", Kind: "skill", Confidence: 0.85},
+		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
+		{Name: "unit-test-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.85},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -55,7 +55,7 @@ func TestMerge_BelowThresholdNotAdded(t *testing.T) {
 	prev := makePrevSelection(nil, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Confidence: 0.45},
+		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.45},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -70,7 +70,7 @@ func TestMerge_NoDuplicates(t *testing.T) {
 	prev := makePrevSelection([]string{"architect-adviser"}, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Confidence: 0.92},
+		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -85,7 +85,7 @@ func TestMerge_PreservesOriginalSelection(t *testing.T) {
 	prev := makePrevSelection([]string{"git-commit"}, []string{"clean-architecture"})
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Confidence: 0.92},
+		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -120,8 +120,8 @@ func TestMerge_DefaultThreshold(t *testing.T) {
 	prev := makePrevSelection(nil, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "above", Kind: "skill", Confidence: 0.92},
-		{Name: "below", Kind: "skill", Confidence: 0.5},
+		{Name: "above", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
+		{Name: "below", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.5},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0)

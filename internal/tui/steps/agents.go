@@ -52,6 +52,8 @@ func SelectAgents(preselected []string) ([]string, error) {
 					return nil
 				}).
 				Value(&selected),
+			huh.NewNote().
+				Description(tuistyles.StyleHighlight.Render("⚠️  Selecting more than 1 agent may cause conflicts in instructions and workflows.")),
 		),
 	).WithTheme(tuistyles.DevRuneThemeFunc).
 		WithViewHook(func(v tea.View) tea.View {

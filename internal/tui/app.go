@@ -231,15 +231,20 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		}
 
 		if len(inputs) > 0 {
+			// Detect whether an AI agent (claude/opencode) is available on PATH.
+			// This is fast (exec.LookPath) and safe to call before the select loop.
+			_, _, agentDetectErr := recommend.DetectAgent()
+			agentAvailable := agentDetectErr == nil
+
 			// Loop: select → (optional) AI recommendations → back to select if user declines.
 			var prevSelection *steps.SelectionResult // preserves state on go-back
 			for {
 				var selectResult steps.SelectModelResult
 				var err error
 				if prevSelection != nil {
-					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, projectDir, *prevSelection)
+					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, agentAvailable, projectDir, *prevSelection)
 				} else {
-					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, projectDir)
+					selectResult, err = steps.RunSelectModel(inputs, recommendEnabled, agentAvailable, projectDir)
 				}
 				if err != nil {
 					return RunResult{}, mapErr(err)

@@ -115,13 +115,31 @@ type SelectModel struct {
 
 	// Recommendation support.
 	recEnabled         bool // show the "Confirm with AI recommendations" button
+	recDisabled        bool // true when rec button is visible but not interactive (no agent on PATH)
 	useRecommendations bool // true if user chose "Confirm with AI recommendations"
+
+	// Validation.
+	errorMsg string // non-empty when a validation error should be shown
+}
+
+// totalSelectedCount returns the total number of selected items across all repos and categories.
+// Header items are excluded from the count.
+func (m *SelectModel) totalSelectedCount() int {
+	total := 0
+	for ri := range m.repos {
+		for ci := range m.repos[ri].Categories {
+			total += m.repos[ri].Categories[ci].selectedCount()
+		}
+	}
+	return total
 }
 
 // flatLen returns the total number of navigable rows (categories + confirm buttons).
+// When the rec button is disabled (recDisabled), it is visible but not navigable,
+// so it is excluded from the flat length.
 func (m *SelectModel) flatLen() int {
 	buttons := 1
-	if m.recEnabled {
+	if m.recEnabled && !m.recDisabled {
 		buttons = 2
 	}
 	return len(m.repos)*5 + buttons
@@ -179,6 +197,32 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 			buildCategoryWithDescs("Workflows", r.Workflows, descs),
 			buildCategoryWithDescs("Tools", toolNames, descs),
 		}
+
+		// Mark SDD workflow items with a "Recommended" badge and pre-select them.
+		wfCat := &categories[3]
+		for _, item := range wfCat.Items {
+			lower := strings.ToLower(item)
+			if lower == "sdd" || strings.HasPrefix(lower, "sdd-") || strings.HasPrefix(lower, "sdd ") {
+				wfCat.Badges[item] = "Recommended"
+				wfCat.Selected[item] = true
+				if !wfCat.IsOn {
+					wfCat.IsOn = true
+				}
+			}
+		}
+
+		// Pre-select engram MCP (important for SDD workflow).
+		mcpCat := &categories[2]
+		for _, item := range mcpCat.Items {
+			if strings.ToLower(item) == "engram" {
+				mcpCat.Selected[item] = true
+				if !mcpCat.IsOn {
+					mcpCat.IsOn = true
+				}
+				break
+			}
+		}
+
 		selections[i] = RepoSelection{
 			Source:     r.Source,
 			Categories: categories,
@@ -198,6 +242,14 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 // EnableRecommendations enables the "Confirm with AI recommendations" button.
 func (m *SelectModel) EnableRecommendations() {
 	m.recEnabled = true
+}
+
+// DisableRecommendations shows the AI button in a disabled/greyed-out state.
+// The button is visible but not interactive — the cursor skips it and Enter
+// does nothing on it. Use this when no AI agent is available on PATH.
+func (m *SelectModel) DisableRecommendations() {
+	m.recEnabled = true
+	m.recDisabled = true
 }
 
 // restoreSelection sets each item's Selected state from a previous SelectionResult.
@@ -261,7 +313,7 @@ func buildCategoryWithDescsAndHeaders(kind string, items []string, descs map[str
 			catHeaders[item] = true
 			continue // headers are not selectable
 		}
-		sel[item] = true
+		sel[item] = false
 		if d, ok := descs[item]; ok {
 			catDescs[item] = d
 		}
@@ -270,7 +322,7 @@ func buildCategoryWithDescsAndHeaders(kind string, items []string, descs map[str
 		Kind:     kind,
 		Items:    items,
 		Selected: sel,
-		IsOn:     true,
+		IsOn:     false,
 		Descs:    catDescs,
 		Badges:   map[string]string{},
 		Headers:  catHeaders,
@@ -288,6 +340,9 @@ func (m *SelectModel) Result() SelectionResult {
 		skills := repo.Categories[0]
 		if skills.IsOn {
 			for _, item := range skills.Items {
+				if skills.Headers[item] {
+					continue // skip non-interactive header labels
+				}
 				if skills.Selected[item] {
 					rr.SelectedSkills = append(rr.SelectedSkills, item)
 				}
@@ -411,9 +466,13 @@ func (m SelectModel) updateCollapsed(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// If any item is selected, deselect all. Otherwise, select all.
 			anySelected := cat.selectedCount() > 0
 			for _, item := range cat.Items {
+				if cat.Headers[item] {
+					continue // headers are not selectable
+				}
 				cat.Selected[item] = !anySelected
 			}
 			cat.IsOn = !anySelected
+			m.errorMsg = "" // clear validation error on any toggle
 		}
 
 	case "enter":
@@ -424,7 +483,11 @@ func (m SelectModel) updateCollapsed(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if m.isConfirmRow(m.cursor) {
-			// "Confirm selection" button pressed.
+			// "Confirm selection" button pressed — validate at least 1 item selected.
+			if m.totalSelectedCount() == 0 {
+				m.errorMsg = "Please select at least 1 item"
+				return m, nil
+			}
 			m.done = true
 			return m, tea.Quit
 		}
@@ -544,6 +607,7 @@ func (m SelectModel) updateExpanded(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 				cat.Selected[item] = !allOn
 			}
+			m.errorMsg = "" // clear validation error on any toggle
 		} else {
 			idx := exp.cursor - 1
 			if idx < len(filteredItems) {
@@ -551,6 +615,7 @@ func (m SelectModel) updateExpanded(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				// Do not toggle header items — they are non-interactive labels.
 				if !cat.Headers[item] {
 					cat.Selected[item] = !cat.Selected[item]
+					m.errorMsg = "" // clear validation error on any toggle
 				}
 			}
 		}
@@ -596,6 +661,9 @@ func (m *SelectModel) renderCollapsed() string {
 	sb.WriteString("\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleInfo.Render("↑/↓ navigate  Space toggle  Enter expand/confirm"))
+	sb.WriteString("\n")
+	sb.WriteString("  ")
+	sb.WriteString(tuistyles.StyleSuccess.Render("★ SDD workflow is recommended for spec-driven development"))
 	sb.WriteString("\n\n")
 
 	for ri, repo := range m.repos {
@@ -622,7 +690,7 @@ func (m *SelectModel) renderCollapsed() string {
 			selectable := cat.selectableCount()
 			var checkBox string
 			if sel == selectable && sel > 0 {
-				checkBox = tuistyles.StyleSuccess.Render("[x]")
+				checkBox = tuistyles.StyleSuccess.Render("[•]")
 			} else if sel > 0 {
 				checkBox = tuistyles.StyleHighlight.Render("[-]")
 			} else {
@@ -678,11 +746,31 @@ func (m *SelectModel) renderCollapsed() string {
 	if m.recEnabled {
 		recIdx := confirmIdx + 1
 		sb.WriteString("  ")
-		if m.cursor == recIdx {
+		if m.recDisabled {
+			// Disabled: visible but not interactive — render with dim/info style.
+			disabledBtn := lipgloss.NewStyle().
+				Foreground(tuistyles.ColorDim).
+				Padding(0, 2)
+			sb.WriteString(disabledBtn.Render(aiLabel))
+		} else if m.cursor == recIdx {
 			sb.WriteString(focusedBtn.Render(aiLabel))
 		} else {
 			sb.WriteString(blurredBtn.Render(aiLabel))
 		}
+	}
+
+	sb.WriteString("\n")
+
+	if m.recEnabled && m.recDisabled {
+		sb.WriteString("  ")
+		sb.WriteString(tuistyles.StyleInfo.Render("Requires Claude or OpenCode on PATH"))
+		sb.WriteString("\n")
+	}
+
+	if m.errorMsg != "" {
+		sb.WriteString("\n")
+		sb.WriteString("  ")
+		sb.WriteString(tuistyles.StyleError.Render("⚠ " + m.errorMsg))
 	}
 
 	sb.WriteString("\n\n")
@@ -735,7 +823,7 @@ func (m *SelectModel) renderExpanded() string {
 
 	allCheck := tuistyles.StyleError.Render("[ ]")
 	if allOn {
-		allCheck = tuistyles.StyleSuccess.Render("[x]")
+		allCheck = tuistyles.StyleSuccess.Render("[•]")
 	}
 
 	allCursor := "  "
@@ -780,7 +868,7 @@ func (m *SelectModel) renderExpanded() string {
 
 		itemCheck := tuistyles.StyleError.Render("[ ]")
 		if cat.Selected[item] {
-			itemCheck = tuistyles.StyleSuccess.Render("[x]")
+			itemCheck = tuistyles.StyleSuccess.Render("[•]")
 		}
 
 		itemCursor := "  "
@@ -903,14 +991,18 @@ func BuildSkillsShInput(detected []recommend.DetectedTech) *ScannedRepoInput {
 // via detect.Analyze and appends a Skills.sh Curated catalog entry to the repo
 // list when matching skills are found. If detection fails or returns no matches,
 // the TUI is shown without the skills.sh section.
-func RunSelectModel(repos []ScannedRepoInput, enableRecommendations bool, projectDir string, previousSelection ...SelectionResult) (SelectModelResult, error) {
+func RunSelectModel(repos []ScannedRepoInput, enableRecommendations bool, agentAvailable bool, projectDir string, previousSelection ...SelectionResult) (SelectModelResult, error) {
 	if len(repos) == 0 {
 		return SelectModelResult{}, nil
 	}
 
 	m := NewSelectModel(repos)
 	if enableRecommendations {
-		m.EnableRecommendations()
+		if agentAvailable {
+			m.EnableRecommendations()
+		} else {
+			m.DisableRecommendations()
+		}
 	}
 
 	// Restore previous selection state (for go-back loop).

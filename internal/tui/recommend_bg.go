@@ -80,11 +80,22 @@ func (r *RecommendRunner) Start(ctx context.Context, dir string) {
 		}
 
 		// Step 4: Convert scanned repos to catalog items.
+		// Filter out skill headers (non-interactive labels like "Go")
+		// so the AI doesn't recommend them as installable skills.
 		sources := make([]recommend.ScannedSource, 0, len(repos))
 		for _, repo := range repos {
+			skills := repo.Skills
+			if len(repo.SkillHeaders) > 0 {
+				skills = make([]string, 0, len(repo.Skills))
+				for _, s := range repo.Skills {
+					if !repo.SkillHeaders[s] {
+						skills = append(skills, s)
+					}
+				}
+			}
 			sources = append(sources, recommend.ScannedSource{
 				Source:    repo.Source,
-				Skills:    repo.Skills,
+				Skills:    skills,
 				Rules:     repo.Rules,
 				MCPs:      repo.MCPs,
 				Workflows: repo.Workflows,
