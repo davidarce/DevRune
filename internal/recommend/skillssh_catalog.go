@@ -29,10 +29,7 @@ func (c StaticCatalog) FetchByFrameworks(frameworks []string) ([]DetectedTech, e
 	var result []DetectedTech
 	for _, entry := range SkillsRegistry {
 		if _, ok := want[entry.Framework]; ok {
-			result = append(result, DetectedTech{
-				Framework: entry.Framework,
-				Skills:    entry.Skills,
-			})
+			result = append(result, DetectedTech(entry))
 		}
 	}
 	return result, nil
@@ -74,10 +71,7 @@ func (c StaticCatalog) FetchByProfile(profile *detect.ProjectProfile) ([]Detecte
 			continue
 		}
 		seen[entry.Framework] = struct{}{}
-		result = append(result, DetectedTech{
-			Framework: entry.Framework,
-			Skills:    entry.Skills,
-		})
+		result = append(result, DetectedTech(entry))
 	}
 	return result, nil
 }

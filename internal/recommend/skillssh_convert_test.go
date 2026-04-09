@@ -90,6 +90,6 @@ func TestSkillRefToPackageRef_ReturnsCorrectType(t *testing.T) {
 	ref := SkillRef{Path: "owner/repo/skill", Description: "desc"}
 	got := SkillRefToPackageRef(ref)
 
-	// Verify the return type is model.PackageRef (compile-time check, also runtime)
-	var _ model.PackageRef = got
+	// Verify the return type is model.PackageRef (compile-time check).
+	_ = model.PackageRef(got)
 }
