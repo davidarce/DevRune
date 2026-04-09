@@ -157,8 +157,7 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 		// Skills.sh Curated repos use a sentinel source that is expanded later
 		// in the pipeline (expandSkillsShPackages), so they are included here.
 		if len(repo.SelectedSkills) > 0 || len(repo.SelectedRules) > 0 {
-			var sel *model.SelectFilter
-			sel = &model.SelectFilter{
+			sel := &model.SelectFilter{
 				Skills: repo.SelectedSkills,
 				Rules:  repo.SelectedRules,
 			}
