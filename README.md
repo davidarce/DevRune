@@ -198,6 +198,36 @@ When you choose AI Recommendations, DevRune:
 
 > The AI recommendation feature is optional — the wizard works exactly the same without it. If no AI agent is installed, only the "Confirm selection" button appears.
 
+## Skills.sh Curated Catalog
+
+DevRune integrates with [skills.sh](https://skills.sh) — the open agent skills directory — through a **curated static catalog** of audit-verified skills grouped by technology.
+
+When you run `devrune init`, the TUI wizard shows **Skills.sh Curated Catalog** as a selectable source alongside your other catalogs. If enabled, DevRune detects your project's tech stack (languages, frameworks, and dependencies) and surfaces only the skills that match.
+
+**How it works:**
+
+1. **Tech detection** — uses the same `detect.Analyze()` engine as AI Recommendations to scan your project (package.json, go.mod, pom.xml, build.gradle, etc.)
+2. **Static registry** — a compiled-in Go map of curated skills.sh skill paths, grouped by framework/language (React, Next.js, Spring Boot, Java, Go, Python, TypeScript, etc.)
+3. **Audit-verified** — every skill in the registry has been manually verified to pass security audits from all three skills.sh providers (Gen Agent Trust Hub, Socket, Snyk)
+4. **Zero network calls** — the registry is in-memory; actual skill content is fetched only during `devrune resolve` via the existing cached pipeline
+
+**In the TUI:**
+
+Skills appear in Step 3 under a "Skills.sh Curated" group with skills organized by detected technology. You can toggle individual skills on/off just like starter-catalog items.
+
+**Currently supported technologies:**
+
+| Frontend | Backend | Languages |
+|----------|---------|-----------|
+| React | Spring Boot | Java |
+| Next.js | Django | Kotlin |
+| Vue.js | FastAPI | Go |
+| Angular | Astro | Python |
+| Svelte | Remix | TypeScript |
+| Tailwind CSS | | |
+
+> The catalog is team-curated — adding a new technology or skill is a one-line addition to the static registry. All skills must pass the skills.sh security audit before being included.
+
 ## How It Works
 
 DevRune follows a **three-stage pipeline**:

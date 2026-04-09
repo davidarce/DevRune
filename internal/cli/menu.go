@@ -305,7 +305,7 @@ func runInitFromMenu(cmd *cobra.Command) error {
 	}
 
 	// Run TUI wizard.
-	result, err := tui.Run(nil, nil)
+	result, err := tui.Run(wd, nil, nil)
 	if err != nil {
 		if err == huh.ErrUserAborted {
 			return nil
