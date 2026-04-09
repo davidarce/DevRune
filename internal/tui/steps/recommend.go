@@ -169,7 +169,8 @@ func MergeRecommendationsIntoSelection(prev SelectionResult, recs []recommend.Re
 		}
 	}
 
-	// For each repo, add recommended items not already selected.
+	// For each recommendation, add it to the repo whose source matches.
+	// Each recommendation carries a Source field identifying which repo it belongs to.
 	for ri := range merged.Repos {
 		repo := &merged.Repos[ri]
 
@@ -191,7 +192,7 @@ func MergeRecommendationsIntoSelection(prev SelectionResult, recs []recommend.Re
 				existing[item] = true
 			}
 			for _, rec := range recs {
-				if rec.Kind == lr.kind && rec.Confidence >= threshold && !existing[rec.Name] {
+				if rec.Kind == lr.kind && rec.Source == repo.Source && rec.Confidence >= threshold && !existing[rec.Name] {
 					*lr.list = append(*lr.list, rec.Name)
 					existing[rec.Name] = true
 				}
@@ -200,6 +201,36 @@ func MergeRecommendationsIntoSelection(prev SelectionResult, recs []recommend.Re
 	}
 
 	return merged
+}
+
+// reposToSources converts ScannedRepoInput slices to ScannedSource slices,
+// filtering out skill headers (non-interactive labels like "Go", "Spring Boot")
+// so the AI doesn't recommend them as installable skills.
+func reposToSources(repos []ScannedRepoInput) []recommend.ScannedSource {
+	sources := make([]recommend.ScannedSource, 0, len(repos))
+	for _, r := range repos {
+		skills := r.Skills
+		if len(r.SkillHeaders) > 0 {
+			skills = make([]string, 0, len(r.Skills))
+			for _, s := range r.Skills {
+				if !r.SkillHeaders[s] {
+					skills = append(skills, s)
+				}
+			}
+		}
+		sources = append(sources, recommend.ScannedSource{
+			Source: r.Source, Skills: skills, Rules: r.Rules,
+			MCPs: r.MCPs, Workflows: r.Workflows, Descs: r.Descs,
+		})
+	}
+	return sources
+}
+
+// hasValidSourceScheme checks if a repo source has a recognized scheme prefix.
+func hasValidSourceScheme(source string) bool {
+	return strings.HasPrefix(source, "github:") ||
+		strings.HasPrefix(source, "gitlab:") ||
+		strings.HasPrefix(source, "local:")
 }
 
 // RunRecommendStep shows the gate. Accept → merge recommendations into selection.
@@ -294,13 +325,7 @@ func (m recommendFlowModel) doRecommend() tea.Cmd {
 			return recommendFlowDoneMsg{err: err}
 		}
 
-		sources := make([]recommend.ScannedSource, 0, len(repos))
-		for _, r := range repos {
-			sources = append(sources, recommend.ScannedSource{
-				Source: r.Source, Skills: r.Skills, Rules: r.Rules,
-				MCPs: r.MCPs, Workflows: r.Workflows, Descs: r.Descs,
-			})
-		}
+		sources := reposToSources(repos)
 		catalog := recommend.BuildCatalogItems(sources)
 
 		cfg := recommend.RecommendConfig{Threshold: 0.7, Enabled: true, Models: recommend.DefaultAgentModels()}
@@ -434,13 +459,7 @@ type RecommendFlowResult struct {
 func RunRecommendFlow(repos []ScannedRepoInput) RecommendFlowResult {
 	// Quick cache check.
 	dir, _ := os.Getwd()
-	sources := make([]recommend.ScannedSource, 0, len(repos))
-	for _, r := range repos {
-		sources = append(sources, recommend.ScannedSource{
-			Source: r.Source, Skills: r.Skills, Rules: r.Rules,
-			MCPs: r.MCPs, Workflows: r.Workflows, Descs: r.Descs,
-		})
-	}
+	sources := reposToSources(repos)
 	catalog := recommend.BuildCatalogItems(sources)
 	cached := recommend.CheckQuickCache(dir, catalog, 0.7)
 

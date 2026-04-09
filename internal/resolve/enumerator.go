@@ -239,6 +239,9 @@ func normalizeAppliesToValue(v interface{}) string {
 // Matching rules:
 //   - A skill is included if its Name appears in filter.Skills (or filter.Skills is empty).
 //   - A rule is included if its Name appears in filter.Rules (or filter.Rules is empty).
+//   - When one kind has explicit selections and the other is empty, the empty kind
+//     is excluded (not "include all"). This prevents a skills-only filter from
+//     accidentally pulling in all rules from a large repo.
 //   - Prompts are always included (not filterable in MVP).
 func ApplyFilter(items []model.ContentItem, filter *model.SelectFilter) []model.ContentItem {
 	if filter == nil {
@@ -248,15 +251,27 @@ func ApplyFilter(items []model.ContentItem, filter *model.SelectFilter) []model.
 	skillSet := toSet(filter.Skills)
 	ruleSet := toSet(filter.Rules)
 
+	// When one kind has explicit selections and the other is empty,
+	// treat the empty kind as "exclude all" rather than "include all".
+	hasExplicitSkills := len(skillSet) > 0
+	hasExplicitRules := len(ruleSet) > 0
+
 	result := make([]model.ContentItem, 0, len(items))
 	for _, item := range items {
 		switch item.Kind {
 		case model.KindSkill:
-			if len(skillSet) == 0 || skillSet[item.Name] {
+			if !hasExplicitSkills || skillSet[item.Name] {
 				result = append(result, item)
 			}
 		case model.KindRule:
-			if len(ruleSet) == 0 || ruleSet[item.Name] {
+			if !hasExplicitRules {
+				// If no explicit rule selection and no explicit skill selection either,
+				// include all rules (backwards-compatible: nil-like filter).
+				// But if skills are explicitly selected, exclude unselected rules.
+				if !hasExplicitSkills {
+					result = append(result, item)
+				}
+			} else if ruleSet[item.Name] {
 				result = append(result, item)
 			}
 		default:

@@ -149,37 +149,46 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 			continue
 		}
 
+		validScheme := hasValidSourceScheme(repo.Source)
+
 		// Build SelectFilter only if not all items are selected.
 		// For simplicity in MVP, always include a SelectFilter with chosen items.
 		// A nil filter means "all items"; explicit lists mean "only these".
-		var sel *model.SelectFilter
+		// Skills.sh Curated repos use a sentinel source that is expanded later
+		// in the pipeline (expandSkillsShPackages), so they are included here.
 		if len(repo.SelectedSkills) > 0 || len(repo.SelectedRules) > 0 {
+			var sel *model.SelectFilter
 			sel = &model.SelectFilter{
 				Skills: repo.SelectedSkills,
 				Rules:  repo.SelectedRules,
 			}
+			pkgRefs = append(pkgRefs, model.PackageRef{
+				Source: repo.Source,
+				Select: sel,
+			})
+		} else if validScheme {
+			pkgRefs = append(pkgRefs, model.PackageRef{
+				Source: repo.Source,
+			})
 		}
 
-		pkgRefs = append(pkgRefs, model.PackageRef{
-			Source: repo.Source,
-			Select: sel,
-		})
-
-		// MCPs from this repo become separate MCPRef entries.
-		for _, mcp := range repo.SelectedMCPs {
-			mcpSrc := buildMCPSourceRef(repo.Source, mcp, repo.MCPFiles)
-			mcpRefs = append(mcpRefs, model.MCPRef{Source: mcpSrc})
-		}
-
-		// Workflows from this repo become WorkflowEntry values in the map.
-		// The workflow model overrides (workflowModels) are attached to every workflow entry.
-		for _, wf := range repo.SelectedWorkflows {
-			wfSrc := appendSubpath(repo.Source, "workflows/"+wf)
-			entry := model.WorkflowEntry{Source: wfSrc}
-			if len(workflowModels) > 0 {
-				entry.Roles = workflowModels
+		// MCPs and workflows require a valid scheme to form source refs.
+		// Repos without a valid scheme (e.g. "Skills.sh Curated") are skipped
+		// for MCPs/workflows since appendSubpath would produce invalid refs.
+		if validScheme {
+			for _, mcp := range repo.SelectedMCPs {
+				mcpSrc := buildMCPSourceRef(repo.Source, mcp, repo.MCPFiles)
+				mcpRefs = append(mcpRefs, model.MCPRef{Source: mcpSrc})
 			}
-			workflowEntries[wf] = entry
+
+			for _, wf := range repo.SelectedWorkflows {
+				wfSrc := appendSubpath(repo.Source, "workflows/"+wf)
+				entry := model.WorkflowEntry{Source: wfSrc}
+				if len(workflowModels) > 0 {
+					entry.Roles = workflowModels
+				}
+				workflowEntries[wf] = entry
+			}
 		}
 	}
 
@@ -197,6 +206,7 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 		Catalogs:      catalogSources,
 	}
 }
+
 
 // appendSubpath appends a subpath to a source ref string.
 // For remote sources (github/gitlab), it uses the "//" separator convention.

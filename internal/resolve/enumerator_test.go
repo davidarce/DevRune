@@ -243,9 +243,10 @@ func TestApplyFilter_SkillSelection(t *testing.T) {
 
 	result := ApplyFilter(items, filter)
 
-	// Should have git-commit + sdd-explore (skills) + architecture/clean (rule, unfiltered since no rules filter)
-	if len(result) != 3 {
-		t.Errorf("got %d items, want 3; items = %v", len(result), result)
+	// Should have git-commit + sdd-explore (skills only). Rules are excluded
+	// when skills are explicitly selected but rules are not.
+	if len(result) != 2 {
+		t.Errorf("got %d items, want 2; items = %v", len(result), result)
 	}
 
 	skillNames := contentNames(itemsByKind(result, model.KindSkill))
