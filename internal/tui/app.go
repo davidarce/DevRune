@@ -345,8 +345,18 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 	}
 	installedTools := toolResult.Installed
 
+	// Build the full catalog sources list from wizard-selected sources.
+	// This includes both CLI-provided catalogs and user-imported repos from Step 2.
+	// Filter out the Skills.sh sentinel (not a real catalog source).
+	allCatalogSources := make([]string, 0, len(sources))
+	for _, s := range sources {
+		if s != steps.SkillsShCuratedValue {
+			allCatalogSources = append(allCatalogSources, s)
+		}
+	}
+
 	// Final step — summary & confirm (alt screen, step indicator inside form)
-	manifest, err := steps.ConfirmSummary(agents, selection, workflowModels, catalogSources)
+	manifest, err := steps.ConfirmSummary(agents, selection, workflowModels, allCatalogSources)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}

@@ -472,8 +472,18 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 		"tools":       toolsCopy(openCodeAgentTools),
 	}
 
-	if role.Model != "" {
-		entry["model"] = resolveOpenCodeModel(role.Model)
+	// Check TUI-selected model override first, then fall back to role.Model from workflow.yaml.
+	modelValue := ""
+	if r.modelOverrides != nil {
+		if v, ok := r.modelOverrides[role.Name]; ok && v != "" && v != model.ModelInheritOption {
+			modelValue = v
+		}
+	}
+	if modelValue == "" {
+		modelValue = role.Model
+	}
+	if modelValue != "" {
+		entry["model"] = resolveOpenCodeModel(modelValue)
 	}
 
 	return entry
