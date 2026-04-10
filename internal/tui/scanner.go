@@ -68,7 +68,14 @@ func ScanRepositories(ctx context.Context, sources []string, cp string) ([]Scann
 			continue
 		}
 
-		items, err := resolve.EnumerateContents(dir)
+		// If the source ref has a subpath (e.g. //frontend), scan inside
+		// that subdirectory rather than the repo root.
+		scanDir := dir
+		if sourceRef.Subpath != "" {
+			scanDir = filepath.Join(dir, sourceRef.Subpath)
+		}
+
+		items, err := resolve.EnumerateContents(scanDir)
 		if err != nil {
 			repo.Error = fmt.Errorf("enumerate: %w", err)
 			results = append(results, repo)
@@ -80,7 +87,7 @@ func ScanRepositories(ctx context.Context, sources []string, cp string) ([]Scann
 			case model.KindSkill:
 				repo.Skills = append(repo.Skills, item.Name)
 				// Extract description from SKILL.md frontmatter.
-				if desc := readFrontmatterDesc(filepath.Join(dir, item.Path, "SKILL.md")); desc != "" {
+				if desc := readFrontmatterDesc(filepath.Join(scanDir, item.Path, "SKILL.md")); desc != "" {
 					repo.Descs[item.Name] = desc
 				}
 			case model.KindRule:
@@ -89,17 +96,17 @@ func ScanRepositories(ctx context.Context, sources []string, cp string) ([]Scann
 		}
 
 		// Discover MCPs: files in mcps/ directory.
-		repo.MCPs, repo.MCPFiles = discoverMCPs(dir)
+		repo.MCPs, repo.MCPFiles = discoverMCPs(scanDir)
 
 		// Discover workflows: subdirectories containing workflow.yaml.
-		repo.Workflows = discoverWorkflows(dir)
+		repo.Workflows = discoverWorkflows(scanDir)
 
 		// Discover tools: YAML files in tools/ directory.
-		repo.Tools = discoverTools(dir)
+		repo.Tools = discoverTools(scanDir)
 
 		// Parse workflow manifests and read descriptions.
 		for _, wf := range repo.Workflows {
-			wfPath := filepath.Join(dir, "workflows", wf, "workflow.yaml")
+			wfPath := filepath.Join(scanDir, "workflows", wf, "workflow.yaml")
 			if desc := readWorkflowDesc(wfPath); desc != "" {
 				repo.Descs[wf] = desc
 			}
