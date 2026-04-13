@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
@@ -32,9 +33,10 @@ type CacheStore interface {
 //  4. Fetching and caching MCP and workflow sources
 //  5. Computing the manifest hash
 type Resolver struct {
-	fetcher Fetcher
-	cache   CacheStore
-	baseDir string // directory containing devrune.yaml
+	fetcher    Fetcher
+	cache      CacheStore
+	baseDir    string // directory containing devrune.yaml
+	priorIndex map[string]string // CacheKey → content hash from prior lockfile
 }
 
 // NewResolver creates a Resolver that uses the given fetcher and cache.
@@ -46,6 +48,50 @@ func NewResolver(fetcher Fetcher, cache CacheStore, baseDir string) *Resolver {
 		cache:   cache,
 		baseDir: baseDir,
 	}
+}
+
+// SetPriorLockfile builds an index from an existing lockfile so that the resolver
+// can skip network fetches for packages whose content hash is already cached.
+// Local sources are excluded — their content may have changed on disk.
+func (r *Resolver) SetPriorLockfile(lf model.Lockfile) {
+	idx := make(map[string]string)
+	for _, pkg := range lf.Packages {
+		if pkg.Source.Scheme != model.SchemeLocal && pkg.Hash != "" {
+			idx[pkg.Source.CacheKey()] = pkg.Hash
+		}
+	}
+	for _, mcp := range lf.MCPs {
+		if mcp.Source.Scheme != model.SchemeLocal && mcp.Hash != "" {
+			idx[mcp.Source.CacheKey()] = mcp.Hash
+		}
+	}
+	for _, wf := range lf.Workflows {
+		if wf.Source.Scheme != model.SchemeLocal && wf.Hash != "" {
+			idx[wf.Source.CacheKey()] = wf.Hash
+		}
+	}
+	r.priorIndex = idx
+}
+
+// cachedDir checks if a remote source is already cached via the prior lockfile index.
+// Returns the cached directory path and content hash if found, or empty strings if
+// the source must be fetched from the network.
+func (r *Resolver) cachedDir(sourceRef model.SourceRef) (dir, hash string, ok bool) {
+	if r.priorIndex == nil {
+		return "", "", false
+	}
+	// Local sources always re-fetch (content may change on disk).
+	if sourceRef.Scheme == model.SchemeLocal {
+		return "", "", false
+	}
+	priorHash, exists := r.priorIndex[sourceRef.CacheKey()]
+	if !exists {
+		return "", "", false
+	}
+	if d, cached := r.cache.Get(priorHash); cached {
+		return d, priorHash, true
+	}
+	return "", "", false
 }
 
 // Resolve processes a UserManifest and produces a Lockfile.
@@ -90,16 +136,33 @@ func (r *Resolver) Resolve(ctx context.Context, manifest model.UserManifest) (mo
 	}, nil
 }
 
-// resolvePackages fetches, hashes, caches, and enumerates each package reference.
-func (r *Resolver) resolvePackages(ctx context.Context, refs []model.PackageRef) ([]model.LockedPackage, error) {
-	result := make([]model.LockedPackage, 0, len(refs))
+// maxConcurrentFetches limits parallel network requests during resolution.
+const maxConcurrentFetches = 6
 
-	for _, ref := range refs {
-		locked, err := r.resolvePackage(ctx, ref)
+// resolvePackages fetches, hashes, caches, and enumerates each package reference.
+// Remote packages are resolved in parallel (bounded by maxConcurrentFetches).
+func (r *Resolver) resolvePackages(ctx context.Context, refs []model.PackageRef) ([]model.LockedPackage, error) {
+	result := make([]model.LockedPackage, len(refs))
+	errs := make([]error, len(refs))
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentFetches)
+
+	for i, ref := range refs {
+		wg.Add(1)
+		go func(i int, ref model.PackageRef) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			result[i], errs[i] = r.resolvePackage(ctx, ref)
+		}(i, ref)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, locked)
 	}
 	return result, nil
 }
@@ -111,16 +174,21 @@ func (r *Resolver) resolvePackage(ctx context.Context, pkg model.PackageRef) (mo
 		return model.LockedPackage{}, fmt.Errorf("resolve: package %q: parse source ref: %w", pkg.Source, err)
 	}
 
-	data, err := r.fetcher.Fetch(ctx, sourceRef)
-	if err != nil {
-		return model.LockedPackage{}, fmt.Errorf("resolve: package %q: fetch: %w", pkg.Source, err)
-	}
+	var dir, hash string
 
-	hash := HashBytes(data)
-
-	dir, err := r.cache.Store(sourceRef.CacheKey(), data)
-	if err != nil {
-		return model.LockedPackage{}, fmt.Errorf("resolve: package %q: cache: %w", pkg.Source, err)
+	// Cache-first: check if the prior lockfile has a cached hash for this source.
+	if d, h, ok := r.cachedDir(sourceRef); ok {
+		dir, hash = d, h
+	} else {
+		data, err := r.fetcher.Fetch(ctx, sourceRef)
+		if err != nil {
+			return model.LockedPackage{}, fmt.Errorf("resolve: package %q: fetch: %w", pkg.Source, err)
+		}
+		hash = HashBytes(data)
+		dir, err = r.cache.Store(sourceRef.CacheKey(), data)
+		if err != nil {
+			return model.LockedPackage{}, fmt.Errorf("resolve: package %q: cache: %w", pkg.Source, err)
+		}
 	}
 
 	allItems, err := EnumerateContents(dir)
@@ -140,14 +208,27 @@ func (r *Resolver) resolvePackage(ctx context.Context, pkg model.PackageRef) (mo
 // resolveMCPs fetches and hashes each MCP reference.
 // MCP YAML files are small; we store their content in the cache just like packages.
 func (r *Resolver) resolveMCPs(ctx context.Context, refs []model.MCPRef) ([]model.LockedMCP, error) {
-	result := make([]model.LockedMCP, 0, len(refs))
+	result := make([]model.LockedMCP, len(refs))
+	errs := make([]error, len(refs))
 
-	for _, ref := range refs {
-		locked, err := r.resolveMCP(ctx, ref)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentFetches)
+
+	for i, ref := range refs {
+		wg.Add(1)
+		go func(i int, ref model.MCPRef) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			result[i], errs[i] = r.resolveMCP(ctx, ref)
+		}(i, ref)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, locked)
 	}
 	return result, nil
 }
@@ -159,19 +240,22 @@ func (r *Resolver) resolveMCP(ctx context.Context, mcp model.MCPRef) (model.Lock
 		return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: parse source ref: %w", mcp.Source, err)
 	}
 
-	data, err := r.fetcher.Fetch(ctx, sourceRef)
-	if err != nil {
-		return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: fetch: %w", mcp.Source, err)
+	var hash string
+
+	if d, h, ok := r.cachedDir(sourceRef); ok {
+		_ = d // MCP doesn't use dir directly
+		hash = h
+	} else {
+		data, err := r.fetcher.Fetch(ctx, sourceRef)
+		if err != nil {
+			return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: fetch: %w", mcp.Source, err)
+		}
+		if _, err := r.cache.Store(sourceRef.CacheKey(), data); err != nil {
+			return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: cache: %w", mcp.Source, err)
+		}
+		hash = HashBytes(data)
 	}
 
-	// Store in cache so the materializer can read MCP definitions.
-	if _, err := r.cache.Store(sourceRef.CacheKey(), data); err != nil {
-		return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: cache: %w", mcp.Source, err)
-	}
-
-	hash := HashBytes(data)
-
-	// Derive an MCP name and subdir from the source ref.
 	name := mcpName(sourceRef)
 	dir := mcpDir(sourceRef)
 
@@ -196,14 +280,27 @@ func workflowSources(workflows map[string]model.WorkflowEntry) []string {
 // resolveWorkflows fetches and hashes each workflow source.
 // Workflow directories are stored in the cache; their name comes from workflow.yaml.
 func (r *Resolver) resolveWorkflows(ctx context.Context, sources []string) ([]model.LockedWorkflow, error) {
-	result := make([]model.LockedWorkflow, 0, len(sources))
+	result := make([]model.LockedWorkflow, len(sources))
+	errs := make([]error, len(sources))
 
-	for _, wfSource := range sources {
-		locked, err := r.resolveWorkflow(ctx, wfSource)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentFetches)
+
+	for i, wfSource := range sources {
+		wg.Add(1)
+		go func(i int, wfSource string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			result[i], errs[i] = r.resolveWorkflow(ctx, wfSource)
+		}(i, wfSource)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, locked)
 	}
 	return result, nil
 }
@@ -215,22 +312,47 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 		return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: parse source ref: %w", wfSource, err)
 	}
 
-	data, err := r.fetcher.Fetch(ctx, sourceRef)
-	if err != nil {
-		return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: fetch: %w", wfSource, err)
+	var data []byte
+	var hash string
+
+	if d, h, ok := r.cachedDir(sourceRef); ok {
+		_ = d
+		hash = h
+		// Still need data to parse workflow.yaml — read from cache dir.
+		// Re-fetch from cache store is not possible since we only store extracted dirs.
+		// Fall through to fetch path to get raw data for parsing.
+		// Actually, we need the raw archive to call extractAndParseWorkflow.
+		// For workflows with cache hit, read the workflow.yaml from the cached dir.
 	}
 
-	hash := HashBytes(data)
-
-	// Store the workflow archive in the cache so that the install step can find it.
-	if _, err := r.cache.Store(sourceRef.CacheKey(), data); err != nil {
-		return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: cache: %w", wfSource, err)
+	if hash == "" {
+		// No cache hit — fetch from network.
+		data, err = r.fetcher.Fetch(ctx, sourceRef)
+		if err != nil {
+			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: fetch: %w", wfSource, err)
+		}
+		hash = HashBytes(data)
+		if _, err := r.cache.Store(sourceRef.CacheKey(), data); err != nil {
+			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: cache: %w", wfSource, err)
+		}
 	}
 
-	// Parse workflow.yaml to extract the workflow name.
-	wfManifest, wfDir, err := extractAndParseWorkflow(data, wfSource)
-	if err != nil {
-		return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: %w", wfSource, err)
+	// Parse workflow.yaml — try from cache dir first (faster), fall back to archive data.
+	var wfManifest model.WorkflowManifest
+	var wfDir string
+
+	if dir, ok := r.cache.Get(hash); ok {
+		wfManifest, wfDir, err = parseWorkflowFromDir(dir)
+		if err != nil {
+			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: %w", wfSource, err)
+		}
+	} else if data != nil {
+		wfManifest, wfDir, err = extractAndParseWorkflow(data, wfSource)
+		if err != nil {
+			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: %w", wfSource, err)
+		}
+	} else {
+		return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: cached but cannot read workflow.yaml", wfSource)
 	}
 
 	return model.LockedWorkflow{

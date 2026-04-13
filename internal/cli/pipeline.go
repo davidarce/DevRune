@@ -70,6 +70,15 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 
 	resolver := resolve.NewResolver(multiFetcher, cacheStore, workDir)
 
+	// Load existing lockfile (if present) so the resolver can skip network
+	// fetches for unchanged remote packages whose content is already cached.
+	lockPath := filepath.Join(workDir, "devrune.lock")
+	if priorData, err := os.ReadFile(lockPath); err == nil {
+		if priorLF, err := parse.ParseLockfile(priorData); err == nil {
+			resolver.SetPriorLockfile(priorLF)
+		}
+	}
+
 	_, _ = fmt.Fprintf(out, "Resolving packages...")
 
 	lockfile, err := resolver.Resolve(ctx, manifest)
@@ -82,7 +91,6 @@ func RunResolve(ctx context.Context, workDir string, manifestPath string, verbos
 		return model.Lockfile{}, fmt.Errorf("serialize lockfile: %w", err)
 	}
 
-	lockPath := filepath.Join(workDir, "devrune.lock")
 	if err := os.WriteFile(lockPath, lockData, 0o644); err != nil {
 		return model.Lockfile{}, fmt.Errorf("write lockfile %s: %w", lockPath, err)
 	}
