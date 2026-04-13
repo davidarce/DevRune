@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/davidarce/devrune/internal/model"
@@ -98,6 +99,7 @@ func (m *mockFetcher) Supports(scheme model.Scheme) bool {
 type mockCacheStore struct {
 	t       *testing.T
 	baseDir string
+	mu      sync.Mutex
 	stored  map[string]string // hash → dir
 }
 
@@ -111,6 +113,8 @@ func newMockCacheStore(t *testing.T) *mockCacheStore {
 }
 
 func (s *mockCacheStore) Store(key string, data []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	hash := HashBytes(data)
 	if dir, ok := s.stored[hash]; ok {
 		return dir, nil
@@ -124,11 +128,15 @@ func (s *mockCacheStore) Store(key string, data []byte) (string, error) {
 }
 
 func (s *mockCacheStore) Get(hash string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	dir, ok := s.stored[hash]
 	return dir, ok
 }
 
 func (s *mockCacheStore) Has(hash string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, ok := s.stored[hash]
 	return ok
 }

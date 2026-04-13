@@ -5,6 +5,7 @@ package resolve
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/davidarce/devrune/internal/model"
@@ -69,6 +70,42 @@ func extractAndParseWorkflow(data []byte, wfSource string) (model.WorkflowManife
 	}
 
 	return model.WorkflowManifest{}, "", fmt.Errorf("workflow %q: no workflow.yaml found in archive", wfSource)
+}
+
+// parseWorkflowFromDir reads and parses workflow.yaml from an already-extracted
+// cache directory. It searches for workflow.yaml in the top-level and one level
+// deep (to handle the archive prefix directory structure).
+func parseWorkflowFromDir(dir string) (model.WorkflowManifest, string, error) {
+	// Check direct workflow.yaml first.
+	direct := filepath.Join(dir, workflowYAML)
+	if data, err := os.ReadFile(direct); err == nil {
+		wf, err := parse.ParseWorkflow(data)
+		if err != nil {
+			return model.WorkflowManifest{}, "", fmt.Errorf("parse workflow.yaml: %w", err)
+		}
+		return wf, "", nil
+	}
+
+	// Check one level deep (archive prefix directory).
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return model.WorkflowManifest{}, "", fmt.Errorf("read cache dir: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		nested := filepath.Join(dir, entry.Name(), workflowYAML)
+		if data, err := os.ReadFile(nested); err == nil {
+			wf, err := parse.ParseWorkflow(data)
+			if err != nil {
+				return model.WorkflowManifest{}, "", fmt.Errorf("parse workflow.yaml: %w", err)
+			}
+			return wf, entry.Name(), nil
+		}
+	}
+
+	return model.WorkflowManifest{}, "", fmt.Errorf("no workflow.yaml found in cache dir %s", dir)
 }
 
 // stripFirstPathComponent removes the first "/" separated component from path.
