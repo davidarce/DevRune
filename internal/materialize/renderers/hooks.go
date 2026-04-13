@@ -68,7 +68,11 @@ func copyHookScriptAssets(hookData map[string]interface{}, cachePath, workspaceR
 
 		// cleanPath is the destination-relative path (e.g. ".claude/hooks/script.sh").
 		// The source in the cache omits the agent workspace prefix (e.g. "hooks/script.sh").
-		srcRelative := strings.TrimPrefix(cleanPath, agentWorkspace+"/")
+		srcRelative := cleanPath
+		wsPrefix := agentWorkspace + "/"
+		if strings.HasPrefix(srcRelative, wsPrefix) {
+			srcRelative = srcRelative[len(wsPrefix):]
+		}
 
 		srcFile := filepath.Join(cachePath, srcRelative)
 		// workspaceRoot already includes the agent workspace (e.g. ".claude/"),
@@ -135,13 +139,13 @@ func copyFileWithMode(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = in.Close() }()
+	defer in.Close()
 
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
+	defer out.Close()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return err
