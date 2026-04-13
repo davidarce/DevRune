@@ -45,13 +45,4 @@ dist/
 internal/materialize/.gitignore
 internal/materialize/.mcp.json
 
-# >>> devrune managed — do not edit
-.devrune/
-.claude/
-.opencode/
-.github/
-.factory/
-.mcp.json
-.agents/
-# <<< devrune managed
 .SDD (Spec-Driven Development)/

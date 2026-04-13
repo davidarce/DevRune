@@ -468,6 +468,11 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
+		// Skip hook/plugin asset directories — only copied by the agent that declares them.
+		if hookAssetDirNames[name] {
+			continue
+		}
+
 		// Copy everything else (e.g. _shared/) under skillsBase/<orchRoleName>/
 		// so that the orchestrator .agent.md can reference them via paths such as
 		// .github/skills/sdd-orchestrator/_shared/launch-templates.md.

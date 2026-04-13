@@ -289,6 +289,11 @@ func (r *CodexRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath str
 			continue
 		}
 
+		// Skip hook/plugin asset directories — only copied by the agent that declares them.
+		if hookAssetDirNames[name] {
+			continue
+		}
+
 		// Copy everything else (e.g. _shared/) as-is under workflowDir.
 		dstPath := filepath.Join(workflowDir, name)
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {

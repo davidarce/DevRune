@@ -42,11 +42,12 @@ var openCodeAgentTools = map[string]bool{
 //
 // Output location: .opencode/skills/{name}/SKILL.md
 type OpenCodeRenderer struct {
-	def              matypes.AgentPaths
-	agentDef         model.AgentDefinition
-	registryContents map[string]string // keyed by workflow name
-	normalizedMCPs   []normalizedMCP   // MCP entries with agentInstructions for catalog injection
-	modelOverrides   map[string]string // role-name → model-value from TUI SDD model selection
+	def                matypes.AgentPaths
+	agentDef           model.AgentDefinition
+	registryContents   map[string]string // keyed by workflow name
+	normalizedMCPs     []normalizedMCP   // MCP entries with agentInstructions for catalog injection
+	modelOverrides     map[string]string // role-name → model-value from TUI SDD model selection
+	workflowCachePaths map[string]string // keyed by workflow name → cache directory path
 }
 
 // NewOpenCodeRenderer constructs an OpenCodeRenderer from the given agent definition.
@@ -60,8 +61,9 @@ func NewOpenCodeRenderer(agentDef model.AgentDefinition) *OpenCodeRenderer {
 			RulesDir:    agentDef.RulesDir,
 			CatalogFile: agentDef.CatalogFile,
 		},
-		registryContents: make(map[string]string),
-		normalizedMCPs:   nil,
+		registryContents:   make(map[string]string),
+		normalizedMCPs:     nil,
+		workflowCachePaths: make(map[string]string),
 	}
 }
 
@@ -352,6 +354,11 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			continue
 		}
 
+		// Skip hook/plugin asset directories — only copied by the agent that declares them.
+		if hookAssetDirNames[name] {
+			continue
+		}
+
 		// Copy everything else (e.g. _shared/) as-is under workflowDir.
 		// agents/ and commands/ directories are NOT created — OpenCode uses opencode.json.
 		dstPath := filepath.Join(workflowDir, name)
@@ -399,6 +406,31 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: synthesize agents: %w", err)
 		}
 		managedPaths = append(managedPaths, filepath.Join(workspaceRoot, "opencode.json"))
+	}
+
+	// T005: Store cache path so RenderSettings can locate hook JSON definitions.
+	r.workflowCachePaths[wf.Metadata.Name] = cachePath
+
+	// Install hook definitions declared in workflow.yaml for OpenCode.
+	// .ts files → copy to .opencode/plugins/ (auto-loaded by OpenCode).
+	// .json files → handled by RenderSettings (deep-merged into opencode.json).
+	if wf.Components.Hooks != nil {
+		if defs, ok := wf.Components.Hooks.Agents["opencode"]; ok {
+			for _, def := range defs {
+				if strings.HasSuffix(def.Definition, ".ts") {
+					srcFile := filepath.Join(cachePath, def.Definition)
+					pluginsDst := filepath.Join(workspaceRoot, "plugins")
+					if err := os.MkdirAll(pluginsDst, 0o755); err != nil {
+						return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: mkdir plugins: %w", err)
+					}
+					dstFile := filepath.Join(pluginsDst, filepath.Base(def.Definition))
+					if err := copyFileWithMode(srcFile, dstFile, 0o644); err != nil {
+						return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: copy plugin %s: %w", def.Definition, err)
+					}
+					managedPaths = append(managedPaths, pluginsDst)
+				}
+			}
+		}
 	}
 
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil
@@ -568,10 +600,20 @@ func (r *OpenCodeRenderer) ManagedConfigPaths(workspaceRoot string) []string {
 	return []string{ResolveMCPOutputPath(workspaceRoot, mcpConfig)}
 }
 
-// RenderSettings writes MCP permission entries into the opencode.json "permission" section.
-// Returns nil early if no settings block is configured on the agent definition.
+// RenderSettings writes MCP permission entries into the opencode.json "permission" section,
+// and deep-merges opaque hook JSON definitions for OpenCode into opencode.json.
+// Returns nil early if no settings block is configured on the agent definition and no hooks exist.
 func (r *OpenCodeRenderer) RenderSettings(workspaceRoot string, skills []model.ContentItem, workflows []model.WorkflowManifest) error {
-	if r.agentDef.Settings == nil {
+	hasHooks := false
+	for _, wf := range workflows {
+		if wf.Components.Hooks != nil {
+			if _, ok := wf.Components.Hooks.Agents["opencode"]; ok {
+				hasHooks = true
+				break
+			}
+		}
+	}
+	if r.agentDef.Settings == nil && !hasHooks {
 		return nil
 	}
 
@@ -584,26 +626,55 @@ func (r *OpenCodeRenderer) RenderSettings(workspaceRoot string, skills []model.C
 		_ = json.Unmarshal(data, &existing)
 	}
 
-	// Get or create the "permission" section.
-	permSection, _ := existing["permission"].(map[string]interface{})
-	if permSection == nil {
-		permSection = make(map[string]interface{})
-	}
+	if r.agentDef.Settings != nil {
+		// Get or create the "permission" section.
+		permSection, _ := existing["permission"].(map[string]interface{})
+		if permSection == nil {
+			permSection = make(map[string]interface{})
+		}
 
-	// Add MCP permissions: "<name>_*": "<level>" for each MCP that declares a level.
-	for _, mcp := range r.normalizedMCPs {
-		if level, ok := mcp.Permissions["level"]; ok && level != "" {
-			key := fmt.Sprintf("%s_*", mcp.Name)
-			permSection[key] = level
+		// Add MCP permissions: "<name>_*": "<level>" for each MCP that declares a level.
+		for _, mcp := range r.normalizedMCPs {
+			if level, ok := mcp.Permissions["level"]; ok && level != "" {
+				key := fmt.Sprintf("%s_*", mcp.Name)
+				permSection[key] = level
+			}
+		}
+
+		if len(permSection) > 0 {
+			existing["permission"] = permSection
 		}
 	}
 
-	// Only write back if there are permission entries to record.
-	if len(permSection) == 0 {
-		return nil
+	// T005: Deep-merge opaque hook JSON definitions for OpenCode into opencode.json.
+	// DevRune validates JSON syntax but does NOT interpret the content.
+	// The JSON IS the native opencode.json fragment.
+	for _, wf := range workflows {
+		if wf.Components.Hooks == nil {
+			continue
+		}
+		defs, ok := wf.Components.Hooks.Agents["opencode"]
+		if !ok {
+			continue
+		}
+		cachePath := r.workflowCachePaths[wf.Metadata.Name]
+		if cachePath == "" {
+			continue
+		}
+		for _, def := range defs {
+			// .ts plugins are copied by InstallWorkflow, not merged into config.
+			if strings.HasSuffix(def.Definition, ".ts") {
+				continue
+			}
+			jsonPath := filepath.Join(cachePath, def.Definition)
+			hookData, err := ReadAndValidateHookJSON(jsonPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  opencode: invalid hook JSON %s: %v (skipping)\n", def.Definition, err)
+				continue
+			}
+			existing = deepMergeJSON(existing, hookData)
+		}
 	}
-
-	existing["permission"] = permSection
 
 	data, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
