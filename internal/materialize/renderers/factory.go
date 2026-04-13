@@ -32,11 +32,12 @@ var factoryDropFields = []string{
 //   - Registry: captured for catalog injection (not copied as loose file)
 //   - Memory/Engram: MCP agentInstructions injected into AGENTS.md catalog
 type FactoryRenderer struct {
-	def              matypes.AgentPaths
-	agentDef         model.AgentDefinition
-	registryContents map[string]string // keyed by workflow name
-	normalizedMCPs   []normalizedMCP   // MCP entries with agentInstructions for catalog injection
-	modelOverrides   map[string]string // role-name → model-value from TUI SDD model selection
+	def                matypes.AgentPaths
+	agentDef           model.AgentDefinition
+	registryContents   map[string]string // keyed by workflow name
+	normalizedMCPs     []normalizedMCP   // MCP entries with agentInstructions for catalog injection
+	modelOverrides     map[string]string // role-name → model-value from TUI SDD model selection
+	workflowCachePaths map[string]string // keyed by workflow name → cache directory path
 }
 
 // NewFactoryRenderer constructs a FactoryRenderer from the given agent definition.
@@ -50,8 +51,9 @@ func NewFactoryRenderer(agentDef model.AgentDefinition) *FactoryRenderer {
 			RulesDir:    agentDef.RulesDir,
 			CatalogFile: agentDef.CatalogFile,
 		},
-		registryContents: make(map[string]string),
-		normalizedMCPs:   nil,
+		registryContents:   make(map[string]string),
+		normalizedMCPs:     nil,
+		workflowCachePaths: make(map[string]string),
 	}
 }
 
@@ -296,6 +298,11 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
+		// Skip hook/plugin asset directories — only copied by the agent that declares them.
+		if hookAssetDirNames[name] {
+			continue
+		}
+
 		// Copy everything else (e.g. _shared/) as-is under workflowDir.
 		dstPath := filepath.Join(workflowDir, name)
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {
@@ -332,6 +339,29 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// Factory does not support model routing; sub-agents must inherit the session model.
 	if err := removeModelPlaceholderLines(skillsBase); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: remove model placeholder lines: %w", err)
+	}
+
+	// T005: Store cache path so RenderSettings can locate hook JSON definitions.
+	r.workflowCachePaths[wf.Metadata.Name] = cachePath
+
+	// T005: Copy hook script assets for Factory.
+	// For each hook definition, read the JSON and copy any .sh files referenced
+	// (string values ending in .sh) from the workflow cache to the agent workspace
+	// with executable permissions (0o755).
+	if wf.Components.Hooks != nil {
+		if defs, ok := wf.Components.Hooks.Agents["factory"]; ok {
+			for _, def := range defs {
+				jsonPath := filepath.Join(cachePath, def.Definition)
+				hookData, err := ReadAndValidateHookJSON(jsonPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "⚠️  factory: invalid hook JSON %s: %v (skipping asset copy)\n", def.Definition, err)
+					continue
+				}
+				if err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755); err != nil {
+					return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: copy hook script assets for %s: %w", def.Definition, err)
+				}
+			}
+		}
 	}
 
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil
@@ -402,9 +432,43 @@ func (r *FactoryRenderer) RenderSettings(workspaceRoot string, skills []model.Co
 		}
 	}
 
-	// Merge into existing settings map.
+	// Merge into existing settings map. Use empty slices (not nil) so JSON
+	// serializes to [] instead of null — Factory expects arrays.
+	if allowlist == nil {
+		allowlist = []string{}
+	}
+	if denylist == nil {
+		denylist = []string{}
+	}
 	existing["commandAllowlist"] = allowlist
 	existing["commandDenylist"] = denylist
+
+	// T005: Deep-merge opaque hook JSON definitions for Factory into settings.json.
+	// DevRune validates JSON syntax but does NOT interpret the content.
+	// The JSON IS the native settings.json fragment.
+	for _, wf := range workflows {
+		if wf.Components.Hooks == nil {
+			continue
+		}
+		defs, ok := wf.Components.Hooks.Agents["factory"]
+		if !ok {
+			continue
+		}
+		cachePath := r.workflowCachePaths[wf.Metadata.Name]
+		if cachePath == "" {
+			continue
+		}
+		for _, def := range defs {
+			jsonPath := filepath.Join(cachePath, def.Definition)
+			hookData, err := ReadAndValidateHookJSON(jsonPath)
+			if err != nil {
+				// Warn user and skip — invalid hook JSON is non-fatal.
+				fmt.Fprintf(os.Stderr, "⚠️  factory: invalid hook JSON %s: %v (skipping)\n", def.Definition, err)
+				continue
+			}
+			existing = deepMergeJSON(existing, hookData)
+		}
+	}
 
 	data, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {

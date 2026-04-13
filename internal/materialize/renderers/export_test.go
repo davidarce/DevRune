@@ -41,3 +41,6 @@ var CodexTransformFrontmatter = (*CodexRenderer).transformFrontmatter
 // TransformBodyForCopilot re-exports transformBodyForCopilot for use by external
 // test packages (package renderers_test).
 var TransformBodyForCopilot = transformBodyForCopilot
+
+// DeepMergeJSON re-exports deepMergeJSON for use by external test packages.
+var DeepMergeJSON = deepMergeJSON

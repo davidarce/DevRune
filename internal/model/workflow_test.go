@@ -294,6 +294,95 @@ func TestWorkflowManifest_EntrypointIsString(t *testing.T) {
 	}
 }
 
+// TestWorkflowHooksConfig_Validate tests Validate() with WorkflowHooksConfig.
+func TestWorkflowHooksConfig_Validate(t *testing.T) {
+	// T021-1: Valid workflow with hooks config parses and validates successfully.
+	t.Run("valid workflow with hooks config", func(t *testing.T) {
+		wf := WorkflowManifest{
+			APIVersion: "devrune/workflow/v1",
+			Metadata:   WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+			Components: WorkflowComponents{
+				Skills: []string{"sdd-explore"},
+				Hooks: &WorkflowHooksConfig{
+					Agents: map[string][]WorkflowHookDef{
+						"claude": {
+							{Definition: "hooks/claude-precompact.json"},
+						},
+					},
+				},
+			},
+		}
+		if err := wf.Validate(); err != nil {
+			t.Errorf("Validate() unexpected error: %v", err)
+		}
+	})
+
+	// T021-2: Hook with empty Definition path fails validation.
+	t.Run("hook with empty definition path fails validation", func(t *testing.T) {
+		wf := WorkflowManifest{
+			APIVersion: "devrune/workflow/v1",
+			Metadata:   WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+			Components: WorkflowComponents{
+				Skills: []string{"sdd-explore"},
+				Hooks: &WorkflowHooksConfig{
+					Agents: map[string][]WorkflowHookDef{
+						"claude": {
+							{Definition: ""}, // empty — must fail
+						},
+					},
+				},
+			},
+		}
+		err := wf.Validate()
+		if err == nil {
+			t.Error("Validate() expected error for empty hook definition, got nil")
+		}
+		if err != nil && !containsString(err.Error(), "definition must not be empty") {
+			t.Errorf("Validate() error = %q, want message containing %q", err.Error(), "definition must not be empty")
+		}
+	})
+
+	// T021-3: Hooks with multiple agents each having definitions validates successfully.
+	t.Run("multiple agents with definitions validates successfully", func(t *testing.T) {
+		wf := WorkflowManifest{
+			APIVersion: "devrune/workflow/v1",
+			Metadata:   WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+			Components: WorkflowComponents{
+				Skills: []string{"sdd-explore"},
+				Hooks: &WorkflowHooksConfig{
+					Agents: map[string][]WorkflowHookDef{
+						"claude": {
+							{Definition: "hooks/claude-precompact.json"},
+							{Definition: "hooks/claude-session-start.json"},
+						},
+						"opencode": {
+							{Definition: "hooks/opencode-compaction.json"},
+						},
+					},
+				},
+			},
+		}
+		if err := wf.Validate(); err != nil {
+			t.Errorf("Validate() unexpected error with multiple agents: %v", err)
+		}
+	})
+
+	// T021-4: Nil Hooks field validates successfully (hooks are optional).
+	t.Run("nil hooks field validates successfully", func(t *testing.T) {
+		wf := WorkflowManifest{
+			APIVersion: "devrune/workflow/v1",
+			Metadata:   WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+			Components: WorkflowComponents{
+				Skills: []string{"sdd-explore"},
+				Hooks:  nil,
+			},
+		}
+		if err := wf.Validate(); err != nil {
+			t.Errorf("Validate() unexpected error with nil hooks: %v", err)
+		}
+	})
+}
+
 // TestAgentDefinition_Validate tests the Validate method on AgentDefinition.
 func TestAgentDefinition_Validate(t *testing.T) {
 	tests := []struct {

@@ -27,6 +27,15 @@ var orchestratorVariantNames = map[string]bool{
 	"ORCHESTRATOR.copilot.md":  true,
 }
 
+// hookAssetDirNames lists workflow cache directories that contain hook/plugin
+// assets. These are NOT copied by the generic "everything else" loop — they are
+// only installed by the renderer whose agent is explicitly declared in
+// workflow.yaml hooks.agents.<agent>.
+var hookAssetDirNames = map[string]bool{
+	"hooks":   true,
+	"plugins": true,
+}
+
 // WriteManagedBlock writes content between beginMarker and endMarker in filePath.
 // If the markers already exist in the file, the block between them (inclusive) is replaced.
 // If the markers are absent, the managed block is appended to the file.

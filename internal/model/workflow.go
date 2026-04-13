@@ -139,6 +139,12 @@ type WorkflowComponents struct {
 	// directories and artifacts (e.g. ".sdd/" for the SDD workflow). Optional —
 	// workflows that don't produce on-disk artifacts can omit this.
 	Gitignore []string `yaml:"gitignore,omitempty"`
+
+	// Hooks declares opaque hook definitions per agent. DevRune validates JSON
+	// syntax of each definition file but does NOT interpret the content. Renderers
+	// deep-merge the JSON into the agent's settings file (e.g. .claude/settings.json).
+	// Optional — workflows without hooks can omit this.
+	Hooks *WorkflowHooksConfig `yaml:"hooks,omitempty"`
 }
 
 // WorkflowCommand represents a slash command exposed by the workflow in the agent's catalog.
@@ -146,6 +152,18 @@ type WorkflowCommand struct {
 	Name     string `yaml:"name"`               // e.g. "sdd-explore"
 	Action   string `yaml:"action"`             // e.g. "Explore and investigate"
 	Argument string `yaml:"argument,omitempty"` // e.g. "<topic>"
+}
+
+// WorkflowHookDef is an opaque hook definition for a specific agent.
+// DevRune validates JSON syntax but does NOT interpret the content.
+// The JSON file contains the exact native format for that agent.
+type WorkflowHookDef struct {
+	Definition string `yaml:"definition"` // path to JSON file relative to workflow dir
+}
+
+// WorkflowHooksConfig maps agent names to their opaque hook definitions.
+type WorkflowHooksConfig struct {
+	Agents map[string][]WorkflowHookDef `yaml:"agents"` // key = agent name (e.g. "claude", "opencode")
 }
 
 // Validate checks that the WorkflowManifest is well-formed.
@@ -175,6 +193,15 @@ func (w WorkflowManifest) Validate() error {
 		}
 		if role.Kind == "subagent" && role.Skill == "" {
 			return fmt.Errorf("workflow %q: subagent role %q should declare a skill", w.Metadata.Name, role.Name)
+		}
+	}
+	if w.Components.Hooks != nil {
+		for agent, defs := range w.Components.Hooks.Agents {
+			for j, def := range defs {
+				if def.Definition == "" {
+					return fmt.Errorf("workflow %q: hooks.agents[%q][%d].definition must not be empty", w.Metadata.Name, agent, j)
+				}
+			}
 		}
 	}
 	return nil

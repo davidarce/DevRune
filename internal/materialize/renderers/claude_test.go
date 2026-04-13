@@ -952,3 +952,256 @@ func mustReadFile(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+// --- T023: RenderSettings deep-merges hook JSON ---
+
+// TestClaudeRenderer_RenderSettings_HookJSONMerged verifies that RenderSettings
+// deep-merges hook JSON from a workflow's hook definitions into settings.json
+// alongside the existing permissions block.
+func TestClaudeRenderer_RenderSettings_HookJSONMerged(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{
+		Permissions: []string{"Bash(git:*)"},
+	}
+	r := renderers.NewClaudeRenderer(def)
+
+	// Create a minimal workflow cache directory with a hook JSON file.
+	cacheDir := t.TempDir()
+	hooksDir := filepath.Join(cacheDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir hooks dir: %v", err)
+	}
+	hookJSON := `{
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": ".*",
+        "hooks": [{"type": "command", "command": "echo precompact"}]
+      }
+    ]
+  }
+}`
+	hookJSONPath := filepath.Join(hooksDir, "claude-precompact.json")
+	if err := os.WriteFile(hookJSONPath, []byte(hookJSON), 0o644); err != nil {
+		t.Fatalf("write hook JSON: %v", err)
+	}
+
+	// Write a minimal workflow.yaml (required by InstallWorkflow directory walk).
+	wfYAML := "apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\ncomponents:\n  commands:\n    - name: sdd-explore\n      action: Explore\n"
+	if err := os.WriteFile(filepath.Join(cacheDir, "workflow.yaml"), []byte(wfYAML), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{
+			Commands: []model.WorkflowCommand{{Name: "sdd-explore", Action: "Explore"}},
+			Hooks: &model.WorkflowHooksConfig{
+				Agents: map[string][]model.WorkflowHookDef{
+					"claude": {{Definition: "hooks/claude-precompact.json"}},
+				},
+			},
+		},
+	}
+
+	workspaceDir := t.TempDir()
+	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceDir, nil, []model.WorkflowManifest{wf}); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	// permissions must still be present
+	if !strings.Contains(content, `"Bash(git:*)"`) {
+		t.Errorf("settings.json missing base permission; content:\n%s", content)
+	}
+	// hook must have been deep-merged in
+	if !strings.Contains(content, "PreCompact") {
+		t.Errorf("settings.json missing hooks.PreCompact after merge; content:\n%s", content)
+	}
+}
+
+// TestClaudeRenderer_RenderSettings_InvalidHookJSONSkipped verifies that an invalid
+// hook JSON file produces a warning and is skipped — settings.json is still valid
+// and contains the permissions block without any hooks key.
+func TestClaudeRenderer_RenderSettings_InvalidHookJSONSkipped(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{
+		Permissions: []string{"Read"},
+	}
+	r := renderers.NewClaudeRenderer(def)
+
+	cacheDir := t.TempDir()
+	hooksDir := filepath.Join(cacheDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Write malformed JSON.
+	if err := os.WriteFile(filepath.Join(hooksDir, "bad.json"), []byte(`{ "hooks": [`), 0o644); err != nil {
+		t.Fatalf("write bad JSON: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "workflow.yaml"), []byte("apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\ncomponents:\n  commands:\n    - name: run\n      action: Run\n"), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{
+			Commands: []model.WorkflowCommand{{Name: "run", Action: "Run"}},
+			Hooks: &model.WorkflowHooksConfig{
+				Agents: map[string][]model.WorkflowHookDef{
+					"claude": {{Definition: "hooks/bad.json"}},
+				},
+			},
+		},
+	}
+
+	workspaceDir := t.TempDir()
+	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// RenderSettings must succeed despite the invalid hook JSON.
+	if err := r.RenderSettings(workspaceDir, nil, []model.WorkflowManifest{wf}); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	// settings.json must be valid and contain permissions
+	if !strings.Contains(content, `"Read"`) {
+		t.Errorf("settings.json missing Read permission; content:\n%s", content)
+	}
+}
+
+// TestClaudeRenderer_RenderSettings_NoHooksForClaudeAgent verifies that a workflow
+// with no hooks for the "claude" agent produces settings.json without a hooks key.
+func TestClaudeRenderer_RenderSettings_NoHooksForClaudeAgent(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{
+		Permissions: []string{"Edit"},
+	}
+	r := renderers.NewClaudeRenderer(def)
+
+	cacheDir := t.TempDir()
+	hooksDir := filepath.Join(cacheDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Hook only for opencode — claude agent has no hooks.
+	hookJSON := `{"hooks": {"Compact": []}}`
+	if err := os.WriteFile(filepath.Join(hooksDir, "opencode.json"), []byte(hookJSON), 0o644); err != nil {
+		t.Fatalf("write hook JSON: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "workflow.yaml"), []byte("apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\ncomponents:\n  commands:\n    - name: run\n      action: Run\n"), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{
+			Commands: []model.WorkflowCommand{{Name: "run", Action: "Run"}},
+			Hooks: &model.WorkflowHooksConfig{
+				Agents: map[string][]model.WorkflowHookDef{
+					"opencode": {{Definition: "hooks/opencode.json"}},
+					// no "claude" entry
+				},
+			},
+		},
+	}
+
+	workspaceDir := t.TempDir()
+	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceDir, nil, []model.WorkflowManifest{wf}); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	// hooks key must NOT appear (no claude hooks)
+	if strings.Contains(content, `"hooks"`) {
+		t.Errorf("settings.json must not contain hooks key when no claude hooks defined; content:\n%s", content)
+	}
+	if !strings.Contains(content, `"Edit"`) {
+		t.Errorf("settings.json missing Edit permission; content:\n%s", content)
+	}
+}
+
+// TestClaudeRenderer_RenderSettings_MultipleHookFilesForClaudeAgentMerged verifies
+// that multiple hook JSON files for the same agent are merged sequentially into
+// settings.json.
+func TestClaudeRenderer_RenderSettings_MultipleHookFilesForClaudeAgentMerged(t *testing.T) {
+	def := claudeAgentDef()
+	def.Settings = &model.SettingsConfig{
+		Permissions: []string{"Read"},
+	}
+	r := renderers.NewClaudeRenderer(def)
+
+	cacheDir := t.TempDir()
+	hooksDir := filepath.Join(cacheDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	hook1JSON := `{"hooks": {"PreCompact": [{"matcher": ".*", "hooks": [{"type": "command", "command": "pre.sh"}]}]}}`
+	hook2JSON := `{"hooks": {"UserPromptSubmit": [{"matcher": ".*", "hooks": [{"type": "command", "command": "prompt.sh"}]}]}}`
+
+	if err := os.WriteFile(filepath.Join(hooksDir, "precompact.json"), []byte(hook1JSON), 0o644); err != nil {
+		t.Fatalf("write hook1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hooksDir, "userprompt.json"), []byte(hook2JSON), 0o644); err != nil {
+		t.Fatalf("write hook2: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "workflow.yaml"), []byte("apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\ncomponents:\n  commands:\n    - name: run\n      action: Run\n"), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{
+			Commands: []model.WorkflowCommand{{Name: "run", Action: "Run"}},
+			Hooks: &model.WorkflowHooksConfig{
+				Agents: map[string][]model.WorkflowHookDef{
+					"claude": {
+						{Definition: "hooks/precompact.json"},
+						{Definition: "hooks/userprompt.json"},
+					},
+				},
+			},
+		},
+	}
+
+	workspaceDir := t.TempDir()
+	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	if err := r.RenderSettings(workspaceDir, nil, []model.WorkflowManifest{wf}); err != nil {
+		t.Fatalf("RenderSettings: %v", err)
+	}
+
+	data := mustReadFile(t, filepath.Join(workspaceDir, "settings.json"))
+	content := string(data)
+
+	// Both hook events must appear in the merged output.
+	if !strings.Contains(content, "PreCompact") {
+		t.Errorf("settings.json missing PreCompact after sequential merge; content:\n%s", content)
+	}
+	if !strings.Contains(content, "UserPromptSubmit") {
+		t.Errorf("settings.json missing UserPromptSubmit after sequential merge; content:\n%s", content)
+	}
+}

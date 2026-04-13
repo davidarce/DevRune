@@ -38,6 +38,7 @@ type ClaudeRenderer struct {
 	mcpAgentInstructions map[string]string // keyed by MCP name
 	normalizedMCPs       []normalizedMCP   // MCP entries with permissions for settings injection
 	modelOverrides       map[string]string // role-name → model-value from TUI SDD model selection
+	workflowCachePaths   map[string]string // keyed by workflow name → cache directory path
 }
 
 // NewClaudeRenderer constructs a ClaudeRenderer from the given agent definition.
@@ -53,6 +54,7 @@ func NewClaudeRenderer(agentDef model.AgentDefinition) *ClaudeRenderer {
 		},
 		registryContents:     make(map[string]string),
 		mcpAgentInstructions: make(map[string]string),
+		workflowCachePaths:   make(map[string]string),
 	}
 }
 
@@ -265,9 +267,37 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 			continue
 		}
 
+		// Skip hook/plugin asset directories — only copied by the agent that declares them.
+		if hookAssetDirNames[name] {
+			continue
+		}
+
 		// Copy everything else as-is.
 		if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow copy %q: %w", name, err)
+		}
+	}
+
+	// T004: Store cache path so RenderSettings can locate hook JSON definitions.
+	r.workflowCachePaths[wf.Metadata.Name] = cachePath
+
+	// T004: Copy hook script assets for Claude.
+	// For each hook definition, read the JSON and copy any .sh files referenced
+	// (string values ending in .sh) from the workflow cache to the agent workspace
+	// with executable permissions (0o755).
+	if wf.Components.Hooks != nil {
+		if defs, ok := wf.Components.Hooks.Agents["claude"]; ok {
+			for _, def := range defs {
+				jsonPath := filepath.Join(cachePath, def.Definition)
+				hookData, err := ReadAndValidateHookJSON(jsonPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "⚠️  claude: invalid hook JSON %s: %v (skipping asset copy)\n", def.Definition, err)
+					continue
+				}
+				if err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755); err != nil {
+					return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy hook assets for %s: %w", def.Definition, err)
+				}
+			}
 		}
 	}
 
@@ -419,6 +449,33 @@ func (r *ClaudeRenderer) RenderSettings(workspaceRoot string, skills []model.Con
 		"permissions": map[string]interface{}{
 			"allow": permissions,
 		},
+	}
+
+	// T003: Deep-merge opaque hook JSON definitions for Claude into settings.
+	// DevRune validates JSON syntax but does NOT interpret the content.
+	// The JSON IS the native settings.json fragment.
+	for _, wf := range workflows {
+		if wf.Components.Hooks == nil {
+			continue
+		}
+		defs, ok := wf.Components.Hooks.Agents["claude"]
+		if !ok {
+			continue
+		}
+		cachePath := r.workflowCachePaths[wf.Metadata.Name]
+		if cachePath == "" {
+			continue
+		}
+		for _, def := range defs {
+			jsonPath := filepath.Join(cachePath, def.Definition)
+			hookData, err := ReadAndValidateHookJSON(jsonPath)
+			if err != nil {
+				// Warn user and skip — invalid hook JSON is non-fatal.
+				fmt.Fprintf(os.Stderr, "⚠️  claude: invalid hook JSON %s: %v (skipping)\n", def.Definition, err)
+				continue
+			}
+			settings = deepMergeJSON(settings, hookData)
+		}
 	}
 
 	data, err := json.MarshalIndent(settings, "", "  ")
