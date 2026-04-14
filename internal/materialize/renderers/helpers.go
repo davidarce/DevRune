@@ -642,6 +642,7 @@ func buildWorkflowPlaceholderReplacements(
 		"PLANNER":     "{SDD_MODEL_PLAN}",
 		"IMPLEMENTER": "{SDD_MODEL_IMPLEMENT}",
 		"REVIEWER":    "{SDD_MODEL_REVIEW}",
+		"ADVISER":     "{SDD_MODEL_ADVISER}",
 	}
 
 	for _, role := range wf.Components.Roles {
