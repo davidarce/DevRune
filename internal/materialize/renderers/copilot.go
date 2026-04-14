@@ -44,6 +44,14 @@ var copilotSubAgentTools = map[string][]string{
 	"sdd-plan":      {"read", "search", "edit", "execute"},
 	"sdd-implement": {"read", "search", "edit", "execute"},
 	"sdd-review":    {"read", "search", "execute"},
+	// Adviser roles — read and search only; they analyse the plan and their SKILL.md.
+	"architect-adviser":         {"read", "search"},
+	"api-first-adviser":         {"read", "search"},
+	"unit-test-adviser":         {"read", "search"},
+	"integration-test-adviser":  {"read", "search"},
+	"component-adviser":         {"read", "search"},
+	"frontend-test-adviser":     {"read", "search"},
+	"web-accessibility-adviser": {"read", "search"},
 }
 
 // copilotBodyReplacements maps Claude Code MCP shorthand tool calls to Copilot
@@ -485,8 +493,10 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	}
 
 	// T018: Generate native sub-agent .agent.md files for each subagent role.
+	// Skip sentinel roles (e.g. sdd-adviser with skill "*-adviser") — these exist
+	// only for model placeholder generation, not for .agent.md synthesis.
 	for _, role := range wf.Components.Roles {
-		if role.Kind != "subagent" || role.Skill == "" {
+		if role.Kind != "subagent" || role.Skill == "" || strings.Contains(role.Skill, "*") {
 			continue
 		}
 		skillSrcDir := filepath.Join(cachePath, role.Skill)
@@ -495,6 +505,52 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: generate sub-agent %q: %w", role.Name, err)
 		}
 		managedPaths = append(managedPaths, dstPath)
+	}
+
+	// Generate lightweight .agent.md wrappers for adviser skills installed in skillsBase.
+	// Advisers are not workflow roles but need to be invocable as @agent-name in
+	// Copilot's guidance loop. The wrapper references the SKILL.md in skills/ rather
+	// than embedding the full content (avoiding duplication).
+	if adviserEntries, err := os.ReadDir(skillsBase); err == nil {
+		for _, entry := range adviserEntries {
+			if !entry.IsDir() || !strings.HasSuffix(entry.Name(), "-adviser") {
+				continue
+			}
+			adviserName := entry.Name()
+			agentPath := filepath.Join(agentsBase, adviserName+".agent.md")
+			// Skip if already generated as a workflow role.
+			if _, err := os.Stat(agentPath); err == nil {
+				continue
+			}
+			description := skillDescriptionForRole(adviserName)
+			if description == "" {
+				description = adviserName + " specialist adviser"
+			}
+			tools := copilotSubAgentTools[adviserName]
+			if len(tools) == 0 {
+				tools = []string{"read"}
+			}
+			fm := map[string]interface{}{
+				"name":                     adviserName,
+				"description":              description,
+				"tools":                    tools,
+				"user-invocable":           false,
+				"disable-model-invocation": false,
+			}
+			skillPath := filepath.Join(skillsBase, adviserName, "SKILL.md")
+			body := fmt.Sprintf("You are a specialist adviser. Read your skill file at `%s` and follow its instructions.\n", skillPath)
+			out, err := parse.SerializeFrontmatter(fm, body)
+			if err != nil {
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(agentPath), 0o755); err != nil {
+				continue
+			}
+			if err := os.WriteFile(agentPath, out, 0o644); err != nil {
+				continue
+			}
+			managedPaths = append(managedPaths, agentPath)
+		}
 	}
 
 	// Capture registry content for catalog injection; apply shared placeholder replacements.
@@ -650,6 +706,20 @@ func skillDescriptionForRole(skill string) string {
 		return "SDD Implement sub-agent"
 	case "sdd-review":
 		return "SDD Review sub-agent"
+	case "architect-adviser":
+		return "Clean architecture adviser: hexagonal, DDD, ports and adapters"
+	case "api-first-adviser":
+		return "API-first design adviser: OpenAPI, REST conventions, error models"
+	case "unit-test-adviser":
+		return "Unit test adviser: test structure, mocking, Given-When-Then"
+	case "integration-test-adviser":
+		return "Integration test adviser: adapter testing, external service mocking"
+	case "component-adviser":
+		return "React component adviser: composition, hooks, state management"
+	case "frontend-test-adviser":
+		return "Frontend test adviser: React Testing Library, Vitest, Cypress"
+	case "web-accessibility-adviser":
+		return "Web accessibility adviser: WCAG 2.1 AA, ARIA, keyboard navigation"
 	default:
 		return skill + " sub-agent"
 	}
