@@ -537,8 +537,9 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 				"user-invocable":           false,
 				"disable-model-invocation": false,
 			}
-			skillPath := filepath.Join(skillsBase, adviserName, "SKILL.md")
-			body := fmt.Sprintf("You are a specialist adviser. Read your skill file at `%s` and follow its instructions.\n", skillPath)
+			// Use workspace-relative path (not absolute) so the .agent.md is portable.
+			skillRelPath := filepath.Join(workspaceRoot, r.def.SkillDir, adviserName, "SKILL.md")
+			body := fmt.Sprintf("You are a specialist adviser. Read your skill file at `%s` and follow its instructions.\n", skillRelPath)
 			out, err := parse.SerializeFrontmatter(fm, body)
 			if err != nil {
 				continue
