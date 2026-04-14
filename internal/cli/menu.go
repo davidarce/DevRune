@@ -203,15 +203,18 @@ func showStatusInMenu(cmd *cobra.Command) error {
 			sb.WriteString("Status:           manifest not found")
 		} else if m, parseErr := parse.ParseManifest(manifestData); parseErr != nil {
 			sb.WriteString("Status:           manifest parse error")
-		} else if serialized, serErr := parse.SerializeManifest(m); serErr != nil {
-			sb.WriteString("Status:           serialization error")
 		} else {
-			sum := sha256.Sum256(serialized)
-			currentHash := fmt.Sprintf("sha256:%x", sum)
-			if currentHash == s.LockHash {
-				sb.WriteString("Status:           ✓ fresh")
+			m.Packages = expandSkillsShPackages(m.Packages)
+			if serialized, serErr := parse.SerializeManifest(m); serErr != nil {
+				sb.WriteString("Status:           serialization error")
 			} else {
-				sb.WriteString("Status:           ⚠ stale (manifest changed since last install)")
+				sum := sha256.Sum256(serialized)
+				currentHash := fmt.Sprintf("sha256:%x", sum)
+				if currentHash == s.LockHash {
+					sb.WriteString("Status:           ✓ fresh")
+				} else {
+					sb.WriteString("Status:           ⚠ stale (manifest changed since last install)")
+				}
 			}
 		}
 	}

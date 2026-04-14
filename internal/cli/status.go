@@ -84,6 +84,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Expand Skills.sh Curated sentinels before hashing — the resolver does
+	// this expansion before computing manifestHash, so the status check must
+	// match to avoid false "stale" reports.
+	manifest.Packages = expandSkillsShPackages(manifest.Packages)
+
 	// Compute manifest hash the same way the resolver does.
 	serialized, err := parse.SerializeManifest(manifest)
 	if err != nil {
