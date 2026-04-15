@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -420,7 +421,7 @@ func (m modelSelectorModel) View() tea.View {
 	var b strings.Builder
 
 	// Header: banner + step indicator.
-	b.WriteString(stepHeaderString(4, TotalSteps, m.stepLabel))
+	b.WriteString(stepHeaderString(3, TotalSteps, m.stepLabel))
 	b.WriteString("\n\n")
 
 	// Compute usable content width (terminal width minus left indent of 2).
@@ -736,6 +737,7 @@ func RunWorkflowModelSelection(
 	selection SelectionResult,
 	savedModels map[string]map[string]string,
 	workflows []model.WorkflowManifest,
+	sddAutoSelected bool,
 ) (map[string]map[string]string, error) {
 	// Check qualifying agents.
 	var qualifyingAgents []string
@@ -748,12 +750,14 @@ func RunWorkflowModelSelection(
 		return nil, nil
 	}
 
-	// Check that at least one workflow is selected.
-	hasWorkflow := false
-	for _, repo := range selection.Repos {
-		if len(repo.SelectedWorkflows) > 0 {
-			hasWorkflow = true
-			break
+	// Check that at least one workflow is selected (or SDD is auto-selected).
+	hasWorkflow := sddAutoSelected
+	if !hasWorkflow {
+		for _, repo := range selection.Repos {
+			if len(repo.SelectedWorkflows) > 0 {
+				hasWorkflow = true
+				break
+			}
 		}
 	}
 	if !hasWorkflow {
@@ -766,18 +770,28 @@ func RunWorkflowModelSelection(
 	// synthesize roles from the saved model keys so the form always shows and
 	// lets the user review or change their previous selections.
 	if len(roles) == 0 && len(savedModels) > 0 {
+		// Collect unique role names from all agents' saved models.
 		seen := make(map[string]bool)
+		var roleNames []string
 		for _, roleMap := range savedModels {
 			for roleName := range roleMap {
 				if !seen[roleName] {
 					seen[roleName] = true
-					roles = append(roles, model.WorkflowRole{
-						Name:  roleName,
-						Kind:  "subagent",
-						Model: roleName,
-					})
+					roleNames = append(roleNames, roleName)
 				}
 			}
+		}
+		// Sort by canonical SDD phase order (explore → plan → implement → review → adviser),
+		// with unknown roles appended alphabetically at the end.
+		sort.SliceStable(roleNames, func(i, j int) bool {
+			return canonicalPhaseIndex(roleNames[i]) < canonicalPhaseIndex(roleNames[j])
+		})
+		for _, roleName := range roleNames {
+			roles = append(roles, model.WorkflowRole{
+				Name:  roleName,
+				Kind:  "subagent",
+				Model: roleName,
+			})
 		}
 	}
 	if len(roles) == 0 {
@@ -875,6 +889,27 @@ func phaseFromRole(roleKey string) string {
 		return strings.ToUpper(roleKey[:1]) + roleKey[1:]
 	}
 	return roleKey
+}
+
+// canonicalPhaseIndex returns a sort key for SDD role names.
+// Canonical order: explore(0) → plan(1) → implement(2) → review(3) → adviser(4).
+// Unknown roles get index 99 (sorted alphabetically among themselves).
+func canonicalPhaseIndex(roleName string) int {
+	phase := strings.ToLower(phaseFromRole(roleName))
+	switch phase {
+	case "explore", "explorer":
+		return 0
+	case "plan", "planner":
+		return 1
+	case "implement", "implementer":
+		return 2
+	case "review", "reviewer":
+		return 3
+	case "adviser", "advisor":
+		return 4
+	default:
+		return 99
+	}
 }
 
 // groupRolesByPhase groups roles by their phase (from phaseFromRole).

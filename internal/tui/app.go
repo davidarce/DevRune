@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"charm.land/huh/v2"
 	"gopkg.in/yaml.v3"
@@ -82,6 +83,11 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		return RunResult{}, mapErr(err)
 	}
 
+	// Step 2 — SDD workflow info
+	if err := steps.ShowSDDInfoStep(); err != nil {
+		return RunResult{}, mapErr(err)
+	}
+
 	// Determine whether auto-recommend is enabled.
 	var installCfg model.InstallConfig
 	if m := loadExistingManifest(); m != nil {
@@ -92,9 +98,8 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 	// Determine early if the workflow model selection step may be active.
 	// The step requires at least one qualifying agent (in ModelRoutingAgents)
 	// AND at least one workflow selected. We know the agent condition now; workflow
-	// selection is only known after Step 3. Set TotalSteps to 5 if qualifying
-	// agents exist so that Steps 2 and 3 already show the correct total.
-	// After Step 3 we can confirm (or revert to 4) based on the actual selection.
+	// selection is only known after Step 3. Set TotalSteps to 6 if qualifying
+	// agents exist so that Steps 2, 3, and 4 already show the correct total.
 	hasQualifyingAgent := false
 	for _, a := range agents {
 		if model.ModelRoutingAgents[a] {
@@ -102,20 +107,40 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 			break
 		}
 	}
-	baseSteps := 5
+	baseSteps := 6
 	if hasQualifyingAgent {
-		baseSteps = 6
+		baseSteps = 7
 	}
 	steps.TotalSteps = baseSteps
 
-	// Step 2 — repository sources (alt screen, step indicator inside form)
+	// Step 3 (conditional) — SDD model selection, before repositories
+	var workflowModels map[string]map[string]string
+	if hasQualifyingAgent {
+		// Pre-load saved models from existing config for defaults.
+		var savedModels map[string]map[string]string
+		if existing != nil {
+			savedModels = existing.WorkflowModels
+		} else if savedManifest := loadExistingManifest(); savedManifest != nil {
+			savedModels = mergeWorkflowModels(savedManifest.Workflows)
+		}
+		// SDD workflow is always auto-selected — pass sddAutoSelected=true
+		// so model selection does not skip when no scan results exist yet.
+		var emptyManifests []model.WorkflowManifest
+		wm, err := steps.RunWorkflowModelSelection(agents, steps.SelectionResult{}, savedModels, emptyManifests, true)
+		if err != nil {
+			return RunResult{}, mapErr(err)
+		}
+		workflowModels = wm
+	}
+
+	// Step 4 — repository sources (alt screen, step indicator inside form)
 	// Pass catalog-detected sources; EnterRepositories merges them with knownSources.
 	sources, err := steps.EnterRepositories(catalogSources, preselectedSources)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}
 
-	// Step 3 — scan + select (alt screen)
+	// Step 5 — scan + select (alt screen)
 	var selection steps.SelectionResult
 	var scanned []steps.ScanResult
 	var inputs []steps.ScannedRepoInput
@@ -182,6 +207,11 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 					catalog := recommend.StaticCatalog{}
 					if detected, fetchErr := catalog.FetchByProfile(profile); fetchErr == nil {
 						skillsShInput = steps.BuildSkillsShInput(detected)
+						// Filter adviser-kind skills to project-relevant subset.
+						// Only the skills.sh curated path is filtered; user-imported repos are unchanged.
+						if skillsShInput != nil {
+							skillsShInput.Skills = recommend.FilterAdvisersByProfile(profile, skillsShInput.Skills)
+						}
 					}
 				}
 			}
@@ -211,16 +241,18 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		inputs = make([]steps.ScannedRepoInput, 0, len(scanned))
 		for _, r := range scanned {
 			if r.Error == nil {
+				sddWFs, restWFs := partitionSDDWorkflows(r.Workflows)
 				inputs = append(inputs, steps.ScannedRepoInput{
-					Source:            r.Source,
-					Skills:            r.Skills,
-					Rules:             r.Rules,
-					MCPs:              r.MCPs,
-					Workflows:         r.Workflows,
-					WorkflowManifests: r.WorkflowManifests,
-					Tools:             r.Tools,
-					Descs:             r.Descs,
-					MCPFiles:          r.MCPFiles,
+					Source:                r.Source,
+					Skills:                r.Skills,
+					Rules:                 r.Rules,
+					MCPs:                  r.MCPs,
+					Workflows:             restWFs,
+					WorkflowManifests:     r.WorkflowManifests,
+					Tools:                 r.Tools,
+					Descs:                 r.Descs,
+					MCPFiles:              r.MCPFiles,
+					AutoSelectedWorkflows: sddWFs,
 				})
 			}
 		}
@@ -279,52 +311,6 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 				break
 			}
 		}
-	}
-
-	// Collect workflow manifests from all scanned repos for the model selector.
-	var allWorkflowManifests []model.WorkflowManifest
-	for _, r := range scanned {
-		if r.Error == nil {
-			allWorkflowManifests = append(allWorkflowManifests, r.WorkflowManifests...)
-		}
-	}
-
-	// Now that selection is known, confirm whether the workflow model step will actually run.
-	if hasQualifyingAgent {
-		hasWorkflow := false
-		for _, repo := range selection.Repos {
-			if len(repo.SelectedWorkflows) > 0 {
-				hasWorkflow = true
-				break
-			}
-		}
-		if !hasWorkflow {
-			steps.TotalSteps = 5
-		}
-	}
-
-	// Step 4 (optional) — Workflow model selection
-	// Use saved models from ExistingConfig when provided; fall back to disk load.
-	var savedModels map[string]map[string]string
-	if existing != nil {
-		savedModels = existing.WorkflowModels
-	} else {
-		savedManifest := loadExistingManifest()
-		if savedManifest != nil {
-			savedModels = mergeWorkflowModels(savedManifest.Workflows)
-		}
-	}
-
-	workflowModels, err := steps.RunWorkflowModelSelection(agents, selection, savedModels, allWorkflowManifests)
-	if err != nil {
-		return RunResult{}, mapErr(err)
-	}
-
-	// Final confirmation: sync TotalSteps with the actual outcome.
-	if workflowModels != nil {
-		steps.TotalSteps = 6
-	} else {
-		steps.TotalSteps = 5
 	}
 
 	// Collect all tool definitions from scanned repos.
@@ -423,6 +409,21 @@ func mapErr(err error) error {
 		return huh.ErrUserAborted
 	}
 	return err
+}
+
+// partitionSDDWorkflows splits a workflow list into SDD workflows (auto-selected)
+// and non-SDD workflows (user-visible in TUI). The SDD set matches names that are
+// exactly "sdd", have prefix "sdd-", or have prefix "sdd " (case-insensitive).
+func partitionSDDWorkflows(workflows []string) (sdd []string, rest []string) {
+	for _, wf := range workflows {
+		lower := strings.ToLower(wf)
+		if lower == "sdd" || strings.HasPrefix(lower, "sdd-") || strings.HasPrefix(lower, "sdd ") {
+			sdd = append(sdd, wf)
+		} else {
+			rest = append(rest, wf)
+		}
+	}
+	return
 }
 
 // filterToolsBySelection filters tools by the user's category selections and

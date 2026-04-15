@@ -28,8 +28,8 @@ func ansiStyle(color string, bold bool) lipgloss.Style {
 }
 
 // TotalSteps controls the total step count shown in the wizard step indicator.
-// app.go sets this to 6 when the SDD model selection step is active, 5 otherwise.
-var TotalSteps = 5
+// app.go sets this to 7 when the SDD model selection step is active, 6 otherwise.
+var TotalSteps = 6
 
 const (
 	// narrowWidthThreshold is the terminal width below which compact/short variants are used.

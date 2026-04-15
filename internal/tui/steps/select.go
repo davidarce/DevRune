@@ -29,6 +29,10 @@ type ScannedRepoInput struct {
 	// (e.g. "Spring Boot", "Java"). Headers are not selectable and do not count
 	// toward selected totals. Only applies to the Skills category.
 	SkillHeaders map[string]bool
+	// AutoSelectedWorkflows lists workflow names that are automatically included
+	// in the result without being shown in the TUI selection UI.
+	// Used for the SDD workflow from devrune-starter-catalog.
+	AutoSelectedWorkflows []string
 }
 
 // SelectionResult holds the final user selection after the select step.
@@ -90,9 +94,10 @@ func (c *CategorySelection) selectableCount() int {
 
 // RepoSelection holds the selection state for one repository.
 type RepoSelection struct {
-	Source     string
-	Categories [5]CategorySelection // Skills, Rules, MCPs, Workflows, Tools
-	MCPFiles   map[string]string    // MCP name → filename
+	Source       string
+	Categories   [5]CategorySelection // Skills, Rules, MCPs, Workflows, Tools
+	MCPFiles     map[string]string    // MCP name → filename
+	autoSelected []string             // SDD (and future) auto-selected workflow names
 }
 
 // ExpandedView tracks the expanded state for a category.
@@ -190,25 +195,15 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 				descs[td.Name] = td.Description
 			}
 		}
+		// Exclude auto-selected workflows from the visible TUI list.
+		visibleWorkflows := filterOutStrings(r.Workflows, r.AutoSelectedWorkflows)
+
 		categories := [5]CategorySelection{
 			buildCategoryWithDescsAndHeaders("Skills", r.Skills, descs, r.SkillHeaders),
 			buildCategoryWithDescs("Rules", r.Rules, descs),
 			buildCategoryWithDescs("MCPs", r.MCPs, descs),
-			buildCategoryWithDescs("Workflows", r.Workflows, descs),
+			buildCategoryWithDescs("Workflows", visibleWorkflows, descs),
 			buildCategoryWithDescs("Tools", toolNames, descs),
-		}
-
-		// Mark SDD workflow items with a "Recommended" badge and pre-select them.
-		wfCat := &categories[3]
-		for _, item := range wfCat.Items {
-			lower := strings.ToLower(item)
-			if lower == "sdd" || strings.HasPrefix(lower, "sdd-") || strings.HasPrefix(lower, "sdd ") {
-				wfCat.Badges[item] = "Recommended"
-				wfCat.Selected[item] = true
-				if !wfCat.IsOn {
-					wfCat.IsOn = true
-				}
-			}
 		}
 
 		// Pre-select engram MCP (important for SDD workflow).
@@ -224,9 +219,10 @@ func NewSelectModel(repos []ScannedRepoInput) *SelectModel {
 		}
 
 		selections[i] = RepoSelection{
-			Source:     r.Source,
-			Categories: categories,
-			MCPFiles:   r.MCPFiles,
+			Source:       r.Source,
+			Categories:   categories,
+			MCPFiles:     r.MCPFiles,
+			autoSelected: r.AutoSelectedWorkflows,
 		}
 	}
 
@@ -375,6 +371,8 @@ func (m *SelectModel) Result() SelectionResult {
 				}
 			}
 		}
+		// Append auto-selected workflows unconditionally (not user-visible).
+		rr.SelectedWorkflows = append(rr.SelectedWorkflows, repo.autoSelected...)
 
 		tools := repo.Categories[4]
 		if tools.IsOn {
@@ -661,9 +659,6 @@ func (m *SelectModel) renderCollapsed() string {
 	sb.WriteString("\n")
 	sb.WriteString("  ")
 	sb.WriteString(tuistyles.StyleInfo.Render("↑/↓ navigate  Space toggle  Enter expand/confirm"))
-	sb.WriteString("\n")
-	sb.WriteString("  ")
-	sb.WriteString(tuistyles.StyleSuccess.Render("★ SDD workflow is recommended for spec-driven development"))
 	sb.WriteString("\n\n")
 
 	for ri, repo := range m.repos {
@@ -910,6 +905,25 @@ func (m *SelectModel) renderExpanded() string {
 	sb.WriteString("\n")
 
 	return sb.String()
+}
+
+// filterOutStrings returns items with any name in exclude removed.
+// Comparison is case-sensitive and order-preserving.
+func filterOutStrings(items, exclude []string) []string {
+	if len(exclude) == 0 {
+		return items
+	}
+	excludeSet := make(map[string]bool, len(exclude))
+	for _, e := range exclude {
+		excludeSet[e] = true
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if !excludeSet[item] {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // applyFilter filters items by a substring match (case-insensitive).
