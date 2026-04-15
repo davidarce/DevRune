@@ -70,7 +70,7 @@ func EnterRepositories(extraSources []string, preselected []string) ([]string, e
 
 	selectForm := huh.NewForm(
 		huh.NewGroup(
-			stepHeader(2, TotalSteps, "Repository sources"),
+			stepHeader(4, TotalSteps, "Repository sources"),
 			huh.NewMultiSelect[string]().
 				Title("Select repository catalogs").
 				Description(responsiveDescription(
@@ -128,7 +128,7 @@ func EnterRepositories(extraSources []string, preselected []string) ([]string, e
 
 			inputForm := huh.NewForm(
 				huh.NewGroup(
-					stepHeader(2, TotalSteps, "Repository sources"),
+					stepHeader(4, TotalSteps, "Repository sources"),
 					huh.NewInput().
 						Title(prompt).
 						Description(desc).

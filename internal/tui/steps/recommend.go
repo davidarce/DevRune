@@ -27,7 +27,7 @@ func RunRecommendGate(recs []recommend.Recommendation, profile detect.ProjectPro
 
 	form := huh.NewForm(
 		huh.NewGroup(
-			stepHeader(4, TotalSteps, "AI Recommendations"),
+			stepHeader(5, TotalSteps, "AI Recommendations"),
 			huh.NewNote().
 				Title("").
 				Description(desc),
