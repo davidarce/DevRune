@@ -16,12 +16,24 @@ build:
 build-debug:
 	go build -ldflags='-X main.version=$(VERSION) -X main.commit=$(COMMIT)' -o $(BINARY) $(CMD)
 
-## install: Build and install to INSTALL_DIR (default: /usr/local/bin)
+## install: Build and install to INSTALL_DIR (default: ~/.local/bin)
 install: build
 	@mkdir -p $(INSTALL_DIR)
 	@cp $(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@chmod 755 $(INSTALL_DIR)/$(BINARY)
-	@echo "$(BINARY) installed to $(INSTALL_DIR)/$(BINARY)"
+	@echo "✓ $(BINARY) installed to $(INSTALL_DIR)/$(BINARY)"
+	@# PATH check — warn if INSTALL_DIR is not in $PATH.
+	@case ":$$PATH:" in *":$(INSTALL_DIR):"*) ;; \
+		*) printf '\033[33m!\033[0m %s is not in your PATH.\n' "$(INSTALL_DIR)"; \
+		   printf '  Add: \033[2mexport PATH="%s:$$PATH"\033[0m to your shell profile.\n' "$(INSTALL_DIR)" ;; \
+	esac
+	@# Shadow detection — warn if a different devrune binary precedes ours in PATH.
+	@resolved="$$(command -v $(BINARY) 2>/dev/null || true)"; \
+	expected="$(INSTALL_DIR)/$(BINARY)"; \
+	if [ -n "$$resolved" ] && [ "$$resolved" != "$$expected" ]; then \
+		printf '\033[33m!\033[0m Shadow binary: `which $(BINARY)` → %s\n' "$$resolved"; \
+		printf '  That path precedes %s in PATH. Remove it or reorder PATH to use the fresh build.\n' "$(INSTALL_DIR)"; \
+	fi
 
 ## uninstall: Remove binary from INSTALL_DIR
 uninstall:

@@ -83,11 +83,6 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		return RunResult{}, mapErr(err)
 	}
 
-	// Step 2 — SDD workflow info
-	if err := steps.ShowSDDInfoStep(); err != nil {
-		return RunResult{}, mapErr(err)
-	}
-
 	// Determine whether auto-recommend is enabled.
 	var installCfg model.InstallConfig
 	if m := loadExistingManifest(); m != nil {
@@ -95,11 +90,10 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 	}
 	recommendEnabled := autoRecommendEnabled(installCfg)
 
-	// Determine early if the workflow model selection step may be active.
-	// The step requires at least one qualifying agent (in ModelRoutingAgents)
-	// AND at least one workflow selected. We know the agent condition now; workflow
-	// selection is only known after Step 3. Set TotalSteps to 6 if qualifying
-	// agents exist so that Steps 2, 3, and 4 already show the correct total.
+	// Determine the step count BEFORE rendering any subsequent step header
+	// so the "N/Total" indicator is consistent across the whole wizard.
+	// The SDD model selection step (Step 3) is conditional on at least one
+	// qualifying agent (ModelRoutingAgents) being selected.
 	hasQualifyingAgent := false
 	for _, a := range agents {
 		if model.ModelRoutingAgents[a] {
@@ -112,6 +106,11 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		baseSteps = 7
 	}
 	steps.TotalSteps = baseSteps
+
+	// Step 2 — SDD workflow info
+	if err := steps.ShowSDDInfoStep(); err != nil {
+		return RunResult{}, mapErr(err)
+	}
 
 	// Step 3 (conditional) — SDD model selection, before repositories
 	var workflowModels map[string]map[string]string

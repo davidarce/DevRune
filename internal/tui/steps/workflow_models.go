@@ -766,6 +766,18 @@ func RunWorkflowModelSelection(
 
 	// Get subagent roles that define a model.
 	roles := subagentRoles(workflows)
+	// Fresh install with SDD auto-selected but no workflow manifests loaded yet
+	// (model selection runs before the scan step): synthesize the canonical SDD
+	// subagent role list so the form always shows on first install.
+	if len(roles) == 0 && sddAutoSelected && len(savedModels) == 0 {
+		for _, roleName := range []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "sdd-adviser"} {
+			roles = append(roles, model.WorkflowRole{
+				Name:  roleName,
+				Kind:  "subagent",
+				Model: roleName,
+			})
+		}
+	}
 	// When no roles are found from workflow manifests but savedModels has entries,
 	// synthesize roles from the saved model keys so the form always shows and
 	// lets the user review or change their previous selections.
