@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -35,7 +36,7 @@ type CacheStore interface {
 type Resolver struct {
 	fetcher    Fetcher
 	cache      CacheStore
-	baseDir    string // directory containing devrune.yaml
+	baseDir    string            // directory containing devrune.yaml
 	priorIndex map[string]string // CacheKey → content hash from prior lockfile
 }
 
@@ -342,6 +343,12 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 	var wfDir string
 
 	if dir, ok := r.cache.Get(hash); ok {
+		// If the source ref has a subpath (e.g. "//workflows/sdd"), resolve
+		// workflow.yaml relative to that subdirectory within the cached archive
+		// root rather than searching the entire package tree.
+		if sourceRef.Subpath != "" {
+			dir = filepath.Join(dir, filepath.FromSlash(sourceRef.Subpath))
+		}
 		wfManifest, wfDir, err = parseWorkflowFromDir(dir)
 		if err != nil {
 			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: %w", wfSource, err)
