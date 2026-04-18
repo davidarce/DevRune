@@ -346,12 +346,22 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 		// If the source ref has a subpath (e.g. "//workflows/sdd"), resolve
 		// workflow.yaml relative to that subdirectory within the cached archive
 		// root rather than searching the entire package tree.
+		lookupDir := dir
 		if sourceRef.Subpath != "" {
-			dir = filepath.Join(dir, filepath.FromSlash(sourceRef.Subpath))
+			lookupDir = filepath.Join(dir, filepath.FromSlash(sourceRef.Subpath))
 		}
-		wfManifest, wfDir, err = parseWorkflowFromDir(dir)
+		wfManifest, wfDir, err = parseWorkflowFromDir(lookupDir)
 		if err != nil {
 			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: %w", wfSource, err)
+		}
+		// wfDir is relative to lookupDir; reconstruct it relative to the cache
+		// root so the materializer can locate the workflow directory correctly.
+		if sourceRef.Subpath != "" {
+			if wfDir == "" {
+				wfDir = filepath.ToSlash(sourceRef.Subpath)
+			} else {
+				wfDir = filepath.ToSlash(filepath.Join(sourceRef.Subpath, wfDir))
+			}
 		}
 	} else if data != nil {
 		wfManifest, wfDir, err = extractAndParseWorkflow(data, wfSource)
