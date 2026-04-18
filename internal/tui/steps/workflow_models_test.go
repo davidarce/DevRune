@@ -77,7 +77,7 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoAgentSupportsModelRouting(t *
 		},
 	}
 
-	result, err := RunWorkflowModelSelection(agents, selection, nil, nil, false)
+	result, err := RunWorkflowModelSelection(agents, selection, nil, nil, false, 3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoWorkflowsSelected(t *testing.
 		},
 	}
 
-	result, err := RunWorkflowModelSelection(agents, selection, nil, nil, false)
+	result, err := RunWorkflowModelSelection(agents, selection, nil, nil, false, 3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoRepos(t *testing.T) {
 		Repos: []RepoSelectionResult{},
 	}
 
-	result, err := RunWorkflowModelSelection(agents, selection, nil, nil, false)
+	result, err := RunWorkflowModelSelection(agents, selection, nil, nil, false, 3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoRolesHaveModel(t *testing.T) 
 		},
 	}
 
-	result, err := RunWorkflowModelSelection(agents, selection, nil, workflows, false)
+	result, err := RunWorkflowModelSelection(agents, selection, nil, workflows, false, 3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
