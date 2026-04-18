@@ -3,6 +3,7 @@
 package steps
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -20,6 +21,10 @@ import (
 	"github.com/davidarce/devrune/internal/tui/tuistyles"
 )
 
+// ErrModelSelectionCancelled is returned by RunWorkflowModelSelection when the user
+// cancels the model selector without confirming a selection.
+var ErrModelSelectionCancelled = errors.New("model selection cancelled")
+
 // workflowModelSelectHeight is the number of visible rows for each model Select field.
 // Set to show all options without scrolling (inherit sentinel + haiku + sonnet + opus = 4).
 const workflowModelSelectHeight = 7
@@ -28,7 +33,6 @@ const workflowModelSelectHeight = 7
 // groups in a grid layout without clipping. Below this threshold the layout
 // falls back to LayoutColumns(2) which paginates groups at a time.
 const workflowGridMinHeight = 35
-
 
 // colMinWidth is the minimum per-agent column width for the column layout.
 const colMinWidth = 20
@@ -72,14 +76,14 @@ type modelPickedMsg struct {
 // for a single agent card's model options. The form is rendered full-screen
 // using the same alt-screen approach as other steps.
 type huhSelectCommand struct {
-	options  []model.ModelOption
-	current  int
-	title    string
-	stdin    io.Reader
-	stdout   io.Writer
-	stderr   io.Writer
-	chosen   int
-	err      error
+	options []model.ModelOption
+	current int
+	title   string
+	stdin   io.Reader
+	stdout  io.Writer
+	stderr  io.Writer
+	chosen  int
+	err     error
 }
 
 func (c *huhSelectCommand) SetStdin(r io.Reader)  { c.stdin = r }
@@ -122,7 +126,6 @@ func (c *huhSelectCommand) Run() error {
 	c.chosen = chosen
 	return nil
 }
-
 
 // WorkflowModelLayout returns the appropriate huh Layout for the workflow model
 // selection form based on the number of roles and terminal height.
@@ -199,7 +202,7 @@ type phaseRow struct {
 type focusTarget int
 
 const (
-	focusCards   focusTarget = iota // navigating the card grid
+	focusCards  focusTarget = iota // navigating the card grid
 	focusButton                    // navigating the confirm/cancel buttons
 )
 
@@ -223,6 +226,7 @@ type modelSelectorModel struct {
 
 	// Header info.
 	stepLabel string
+	stepNum   int
 
 	// Result state.
 	confirmed bool
@@ -234,6 +238,7 @@ func newModelSelectorModel(
 	roles []model.WorkflowRole,
 	savedModels map[string]map[string]string,
 	stepLabel string,
+	stepNum int,
 ) modelSelectorModel {
 	phases, phaseGroups := groupRolesByPhase(roles)
 
@@ -280,6 +285,7 @@ func newModelSelectorModel(
 	return modelSelectorModel{
 		phases:    phaseRows,
 		stepLabel: stepLabel,
+		stepNum:   stepNum,
 		width:     w,
 		height:    h,
 	}
@@ -399,7 +405,6 @@ func (m modelSelectorModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-
 func (m *modelSelectorModel) clampAgent() {
 	if len(m.phases) == 0 {
 		return
@@ -421,7 +426,7 @@ func (m modelSelectorModel) View() tea.View {
 	var b strings.Builder
 
 	// Header: banner + step indicator.
-	b.WriteString(stepHeaderString(3, TotalSteps, m.stepLabel))
+	b.WriteString(stepHeaderString(m.stepNum, TotalSteps, m.stepLabel))
 	b.WriteString("\n\n")
 
 	// Compute usable content width (terminal width minus left indent of 2).
@@ -581,7 +586,7 @@ func (m modelSelectorModel) renderColumnHeaders(numAgents, contentWidth int) []s
 // with a dim │ separator between each agent column. Agent names are NOT repeated
 // here — they appear once in the column headers rendered by renderColumnHeaders.
 //
-//	  › sonnet ▾              │    claude-sonnet-4.6 ▾
+//	› sonnet ▾              │    claude-sonnet-4.6 ▾
 func (m modelSelectorModel) renderPhaseCardsColumns(pr phaseRow, phaseIdx, contentWidth, numAgents int) []string {
 	numCards := len(pr.cards)
 	if numCards == 0 {
@@ -650,8 +655,8 @@ func (m modelSelectorModel) renderPhaseCardsColumns(pr phaseRow, phaseIdx, conte
 // (stacked) layout: one agent per line pair, separated by a blank line.
 // Used when the terminal is too narrow for the column layout.
 //
-//	  claude: sonnet ▾
-//	  opencode: claude-sonnet-4.6 ▾
+//	claude: sonnet ▾
+//	opencode: claude-sonnet-4.6 ▾
 func (m modelSelectorModel) renderPhaseCardsSequential(pr phaseRow, phaseIdx, contentWidth int) []string {
 	if len(pr.cards) == 0 {
 		return nil
@@ -738,6 +743,7 @@ func RunWorkflowModelSelection(
 	savedModels map[string]map[string]string,
 	workflows []model.WorkflowManifest,
 	sddAutoSelected bool,
+	stepNum int,
 ) (map[string]map[string]string, error) {
 	// Check qualifying agents.
 	var qualifyingAgents []string
@@ -840,7 +846,7 @@ func RunWorkflowModelSelection(
 	}
 
 	// Create and run the custom bubbletea model.
-	mdl := newModelSelectorModel(agentConfigs, roles, savedModels, stepLabel)
+	mdl := newModelSelectorModel(agentConfigs, roles, savedModels, stepLabel, stepNum)
 	p := tea.NewProgram(mdl)
 	finalModel, err := p.Run()
 	if err != nil {
@@ -849,7 +855,7 @@ func RunWorkflowModelSelection(
 
 	final := finalModel.(modelSelectorModel)
 	if final.cancelled {
-		return nil, fmt.Errorf("model selection cancelled")
+		return nil, ErrModelSelectionCancelled
 	}
 
 	// Collect results: map[agentName]map[roleName]modelValue.

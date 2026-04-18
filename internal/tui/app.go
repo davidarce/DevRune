@@ -125,7 +125,7 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		// SDD workflow is always auto-selected — pass sddAutoSelected=true
 		// so model selection does not skip when no scan results exist yet.
 		var emptyManifests []model.WorkflowManifest
-		wm, err := steps.RunWorkflowModelSelection(agents, steps.SelectionResult{}, savedModels, emptyManifests, true)
+		wm, err := steps.RunWorkflowModelSelection(agents, steps.SelectionResult{}, savedModels, emptyManifests, true, 3)
 		if err != nil {
 			return RunResult{}, mapErr(err)
 		}

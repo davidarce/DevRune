@@ -25,13 +25,33 @@ import (
 type menuAction string
 
 const (
-	menuActionInit      menuAction = "init"
-	menuActionSync      menuAction = "sync"
-	menuActionStatus    menuAction = "status"
-	menuActionUpgrade   menuAction = "upgrade"
-	menuActionUninstall menuAction = "uninstall"
-	menuActionQuit      menuAction = "quit"
+	menuActionInit            menuAction = "init"
+	menuActionSync            menuAction = "sync"
+	menuActionStatus          menuAction = "status"
+	menuActionConfigureModels menuAction = "configure-models"
+	menuActionUpgrade         menuAction = "upgrade"
+	menuActionUninstall       menuAction = "uninstall"
+	menuActionQuit            menuAction = "quit"
 )
+
+// hasModelRoutingAgents reports whether any agent in devrune.yaml is a model-routing agent.
+// Returns false if the manifest cannot be read or contains no qualifying agents.
+func hasModelRoutingAgents(wd string) bool {
+	data, err := os.ReadFile(filepath.Join(wd, "devrune.yaml"))
+	if err != nil {
+		return false
+	}
+	m, err := parse.ParseManifest(data)
+	if err != nil {
+		return false
+	}
+	for _, a := range m.Agents {
+		if model.ModelRoutingAgents[a.Name] {
+			return true
+		}
+	}
+	return false
+}
 
 // RunMenu displays the interactive DevRune main menu in a loop.
 // After each action completes, the menu re-displays so the user can
@@ -41,19 +61,26 @@ func RunMenu(cmd *cobra.Command) error {
 	for {
 		var selected menuAction
 
+		menuOptions := []huh.Option[menuAction]{
+			huh.NewOption("Setup", menuActionInit),
+			huh.NewOption("Sync project", menuActionSync),
+		}
+		if hasModelRoutingAgents(workingDir(cmd)) {
+			menuOptions = append(menuOptions, huh.NewOption("Configure role models", menuActionConfigureModels))
+		}
+		menuOptions = append(menuOptions,
+			huh.NewOption("Status", menuActionStatus),
+			huh.NewOption("Upgrade DevRune", menuActionUpgrade),
+			huh.NewOption("Uninstall", menuActionUninstall),
+			huh.NewOption("Quit", menuActionQuit),
+		)
+
 		form := huh.NewForm(
 			huh.NewGroup(
 				steps.BannerNote(),
 				huh.NewSelect[menuAction]().
 					Title("What would you like to do?").
-					Options(
-						huh.NewOption("Setup", menuActionInit),
-						huh.NewOption("Sync project", menuActionSync),
-						huh.NewOption("Status", menuActionStatus),
-						huh.NewOption("Upgrade DevRune", menuActionUpgrade),
-						huh.NewOption("Uninstall", menuActionUninstall),
-						huh.NewOption("Quit", menuActionQuit),
-					).
+					Options(menuOptions...).
 					Value(&selected),
 			),
 		).WithTheme(tuistyles.DevRuneThemeFunc).
@@ -91,6 +118,16 @@ func RunMenu(cmd *cobra.Command) error {
 				_ = showMenuMessage(cmd, "Status Error", err.Error())
 			}
 			// Loop back to menu.
+
+		case menuActionConfigureModels:
+			if err := runConfigureModelsFromMenu(cmd); err == errConfigureCancelled {
+				// User cancelled — loop back silently, no message.
+			} else if err != nil {
+				_ = showMenuMessage(cmd, "Configure Models Failed", err.Error())
+			} else {
+				_ = showMenuMessage(cmd, "Models Updated", "Role models updated and synced successfully.")
+			}
+		// Loop back to menu.
 
 		case menuActionUpgrade:
 			// Upgrade: if user confirms, binary is replaced and we exit.
