@@ -114,10 +114,12 @@ agents:
 
 func TestHasModelRoutingAgents_ReturnsFalseForNonRoutingAgents(t *testing.T) {
 	dir := t.TempDir()
+	// Use only agents that are NOT in ModelRoutingAgents (factory, codex).
+	// Note: copilot is a routing agent as of the copilot-model-routing feature.
 	yaml := `schemaVersion: devrune/v1
 agents:
-  - name: copilot
   - name: factory
+  - name: codex
 `
 	if err := os.WriteFile(filepath.Join(dir, "devrune.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)

@@ -589,8 +589,9 @@ func TestCopilotRenderer_RenderSkill_ToSkillsDir_UsesSKILLmd(t *testing.T) {
 	}
 }
 
-// TestCopilotRenderer_ModelResolution verifies that a short model alias in the skill
-// frontmatter (e.g. "sonnet") is resolved to the full Copilot-compatible model ID.
+// TestCopilotRenderer_ModelResolution verifies that model IDs in skill frontmatter
+// are passed through unchanged — Copilot .agent.md requires bare IDs like "sonnet"
+// or "claude-sonnet-4.6", NOT the "anthropic/..." format that resolveModel() produces.
 func TestCopilotRenderer_ModelResolution(t *testing.T) {
 	tmp := t.TempDir()
 	def := model.AgentDefinition{
@@ -617,12 +618,9 @@ func TestCopilotRenderer_ModelResolution(t *testing.T) {
 		t.Fatalf("parse frontmatter: %v", err)
 	}
 
-	// "sonnet" should resolve to the full model ID.
-	if fm["model"] == "sonnet" {
-		t.Errorf("model short alias %q was not resolved; want full model ID", "sonnet")
-	}
-	if fm["model"] == nil || fm["model"] == "" {
-		t.Error("model field should be present and non-empty after resolution")
+	// Copilot uses identity resolution — model IDs pass through unchanged (no "anthropic/..." expansion).
+	if fm["model"] != "sonnet" {
+		t.Errorf("model = %q, want %q (identity passthrough for Copilot)", fm["model"], "sonnet")
 	}
 }
 

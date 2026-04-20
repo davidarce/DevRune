@@ -72,18 +72,26 @@ type modelPickedMsg struct {
 	err      error
 }
 
+// copilotPlanWarning is the plan-availability warning shown when the user selects
+// a model for a Copilot agent. It reminds the user that not all models are
+// available on every Copilot plan tier.
+const copilotPlanWarning = "Model availability depends on your Copilot plan.\n" +
+	"Selecting a model not in your plan causes sub-agents to fail at runtime.\n" +
+	"See: github.com/features/copilot/plans"
+
 // huhSelectCommand implements tea.ExecCommand and runs a huh.NewSelect form
 // for a single agent card's model options. The form is rendered full-screen
 // using the same alt-screen approach as other steps.
 type huhSelectCommand struct {
-	options []model.ModelOption
-	current int
-	title   string
-	stdin   io.Reader
-	stdout  io.Writer
-	stderr  io.Writer
-	chosen  int
-	err     error
+	options     []model.ModelOption
+	current     int
+	title       string
+	planWarning string // optional warning shown above the selector (e.g. Copilot plan tiers)
+	stdin       io.Reader
+	stdout      io.Writer
+	stderr      io.Writer
+	chosen      int
+	err         error
 }
 
 func (c *huhSelectCommand) SetStdin(r io.Reader)  { c.stdin = r }
@@ -97,14 +105,25 @@ func (c *huhSelectCommand) Run() error {
 	}
 
 	chosen := c.current
+
+	selectField := huh.NewSelect[int]().
+		Title(c.title).
+		Options(huhOpts...).
+		Value(&chosen).
+		Height(workflowModelSelectHeight)
+
+	var groupFields []huh.Field
+	if c.planWarning != "" {
+		groupFields = append(groupFields,
+			huh.NewNote().
+				Title("⚠  Copilot Plan Warning").
+				Description(c.planWarning),
+		)
+	}
+	groupFields = append(groupFields, selectField)
+
 	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[int]().
-				Title(c.title).
-				Options(huhOpts...).
-				Value(&chosen).
-				Height(workflowModelSelectHeight),
-		),
+		huh.NewGroup(groupFields...),
 	).
 		WithTheme(tuistyles.DevRuneThemeFunc).
 		WithViewHook(func(v tea.View) tea.View {
@@ -231,12 +250,16 @@ type modelSelectorModel struct {
 	// Result state.
 	confirmed bool
 	cancelled bool
+
+	// Full unfiltered Copilot options for reactive tier filtering on orchestrator change.
+	allCopilotOptions []model.ModelOption
 }
 
 func newModelSelectorModel(
 	agentConfigs []AgentModelConfig,
 	roles []model.WorkflowRole,
 	savedModels map[string]map[string]string,
+	orchestratorTier float64,
 	stepLabel string,
 	stepNum int,
 ) modelSelectorModel {
@@ -249,14 +272,25 @@ func newModelSelectorModel(
 		for _, role := range phaseRoles {
 			for _, agent := range agentConfigs {
 				// Determine default selection index.
+				// For Copilot phase cards, apply tier-based initial filtering.
+				opts := agent.ModelOptions
+				if agent.Name == "copilot" {
+					opts = filterCopilotOptions(agent.ModelOptions, orchestratorTier)
+				}
 				defaultIdx := 0 // inherit sentinel
 				if savedModels != nil {
 					if agentMap, ok := savedModels[agent.Name]; ok {
 						if saved, ok := agentMap[role.Name]; ok && saved != "" {
-							for i, opt := range agent.ModelOptions {
-								if opt.Value == saved {
-									defaultIdx = i
-									break
+							// Build-time reset: if saved phase value's tier exceeds
+							// orchestratorTier, treat as sentinel (index 0).
+							if agent.Name == "copilot" && model.CopilotTierForModel(saved) > orchestratorTier {
+								// Reset to sentinel — do not restore the out-of-range saved value.
+							} else {
+								for i, opt := range opts {
+									if opt.Value == saved {
+										defaultIdx = i
+										break
+									}
 								}
 							}
 						}
@@ -265,7 +299,7 @@ func newModelSelectorModel(
 				cards = append(cards, cardCell{
 					agentName: agent.Name,
 					roleName:  role.Name,
-					options:   agent.ModelOptions,
+					options:   opts,
 					selected:  defaultIdx,
 				})
 			}
@@ -283,11 +317,12 @@ func newModelSelectorModel(
 	}
 
 	return modelSelectorModel{
-		phases:    phaseRows,
-		stepLabel: stepLabel,
-		stepNum:   stepNum,
-		width:     w,
-		height:    h,
+		phases:            phaseRows,
+		stepLabel:         stepLabel,
+		stepNum:           stepNum,
+		width:             w,
+		height:            h,
+		allCopilotOptions: model.CopilotModelOptionsUpTo(math.MaxFloat64),
 	}
 }
 
@@ -306,6 +341,12 @@ func (m modelSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil && msg.phaseIdx < len(m.phases) &&
 			msg.agentIdx < len(m.phases[msg.phaseIdx].cards) {
 			m.phases[msg.phaseIdx].cards[msg.agentIdx].selected = msg.value
+			// Reactive tier filtering: refilter copilot phase cards when orchestrator changes.
+			card := m.phases[msg.phaseIdx].cards[msg.agentIdx]
+			if card.roleName == "sdd-orchestrator" {
+				newTier := model.CopilotTierForModel(card.options[msg.value].Value)
+				m.refilterCopilotPhaseCards(newTier)
+			}
 		}
 		return m, nil
 
@@ -328,38 +369,50 @@ func (m modelSelectorModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
 		if m.focus == focusButton {
+			// From buttons: go to last card of last phase.
 			m.focus = focusCards
 			m.curPhase = len(m.phases) - 1
-			m.clampAgent()
-		} else if m.curPhase > 0 {
-			m.curPhase--
-			m.clampAgent()
+			if len(m.phases) > 0 {
+				m.curAgent = len(m.phases[m.curPhase].cards) - 1
+				if m.curAgent < 0 {
+					m.curAgent = 0
+				}
+			}
+		} else if len(m.phases) > 0 {
+			// Linear navigation: move to previous card across phase boundaries.
+			if m.curAgent > 0 {
+				m.curAgent--
+			} else if m.curPhase > 0 {
+				m.curPhase--
+				m.curAgent = len(m.phases[m.curPhase].cards) - 1
+				if m.curAgent < 0 {
+					m.curAgent = 0
+				}
+			}
 		}
 	case "down", "j":
-		if m.focus == focusCards {
-			if m.curPhase < len(m.phases)-1 {
+		if m.focus == focusCards && len(m.phases) > 0 {
+			curCards := len(m.phases[m.curPhase].cards)
+			if m.curAgent < curCards-1 {
+				// Next card within same phase.
+				m.curAgent++
+			} else if m.curPhase < len(m.phases)-1 {
+				// First card of next phase.
 				m.curPhase++
-				m.clampAgent()
+				m.curAgent = 0
 			} else {
+				// Last card: move to buttons.
 				m.focus = focusButton
 				m.buttonIdx = 0
 			}
 		}
 	case "left", "h":
-		if m.focus == focusButton {
-			if m.buttonIdx > 0 {
-				m.buttonIdx--
-			}
-		} else if m.curAgent > 0 {
-			m.curAgent--
+		if m.focus == focusButton && m.buttonIdx > 0 {
+			m.buttonIdx--
 		}
 	case "right", "l":
-		if m.focus == focusButton {
-			if m.buttonIdx < 1 {
-				m.buttonIdx++
-			}
-		} else if len(m.phases) > 0 && m.curAgent < len(m.phases[m.curPhase].cards)-1 {
-			m.curAgent++
+		if m.focus == focusButton && m.buttonIdx < 1 {
+			m.buttonIdx++
 		}
 	case "enter", " ":
 		if m.focus == focusButton {
@@ -376,10 +429,15 @@ func (m modelSelectorModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			phaseIdx := m.curPhase
 			agentIdx := m.curAgent
 			title := fmt.Sprintf("Model for %s (%s)", card.roleName, card.agentName)
+			var warning string
+			if card.agentName == "copilot" {
+				warning = copilotPlanWarning
+			}
 			cmd := &huhSelectCommand{
-				options: card.options,
-				current: card.selected,
-				title:   title,
+				options:     card.options,
+				current:     card.selected,
+				title:       title,
+				planWarning: warning,
 			}
 			return m, tea.Exec(cmd, func(err error) tea.Msg {
 				return modelPickedMsg{
@@ -415,6 +473,50 @@ func (m *modelSelectorModel) clampAgent() {
 	}
 	if m.curAgent < 0 {
 		m.curAgent = 0
+	}
+}
+
+// filterCopilotOptions returns options from all with tier <= maxTier.
+// The sentinel (ModelInheritOption) is always included regardless of maxTier.
+func filterCopilotOptions(all []model.ModelOption, maxTier float64) []model.ModelOption {
+	result := make([]model.ModelOption, 0, len(all))
+	for _, opt := range all {
+		if opt.Value == model.ModelInheritOption || opt.Value == "" {
+			result = append(result, opt)
+			continue
+		}
+		if model.CopilotTierForModel(opt.Value) <= maxTier {
+			result = append(result, opt)
+		}
+	}
+	return result
+}
+
+// refilterCopilotPhaseCards rebuilds options for all non-orchestrator copilot cards
+// to include only models with tier <= maxTier, resetting the selection to sentinel
+// when the current value is no longer available.
+func (m *modelSelectorModel) refilterCopilotPhaseCards(maxTier float64) {
+	filtered := filterCopilotOptions(m.allCopilotOptions, maxTier)
+	for pi := range m.phases {
+		for ci := range m.phases[pi].cards {
+			card := &m.phases[pi].cards[ci]
+			if card.agentName != "copilot" || card.roleName == "sdd-orchestrator" {
+				continue
+			}
+			currentVal := card.options[card.selected].Value
+			card.options = filtered
+			found := false
+			for i, opt := range filtered {
+				if opt.Value == currentVal {
+					card.selected = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				card.selected = 0
+			}
+		}
 	}
 }
 
@@ -487,7 +589,7 @@ func (m modelSelectorModel) View() tea.View {
 	if m.focus == focusButton {
 		b.WriteString("  " + helpStyle.Render("←/→ switch button  enter select  tab back to cards"))
 	} else {
-		b.WriteString("  " + helpStyle.Render("←/→ agents  ↑/↓ phases  enter pick model  tab buttons"))
+		b.WriteString("  " + helpStyle.Render("↑/↓ navigate  enter pick model  tab buttons"))
 	}
 
 	v := tea.NewView(b.String())
@@ -816,6 +918,15 @@ func RunWorkflowModelSelection(
 		return nil, nil
 	}
 
+	// Resolve orchestrator tier from saved orchestrator selection (build time).
+	// Defaults to math.MaxFloat64 (no filtering) if no orchestrator model is saved.
+	orchestratorTier := math.MaxFloat64
+	if savedModels != nil {
+		if copilotMap, ok := savedModels["copilot"]; ok {
+			orchestratorTier = model.CopilotTierForModel(copilotMap["sdd-orchestrator"])
+		}
+	}
+
 	// Build AgentModelConfig for each qualifying agent.
 	var agentConfigs []AgentModelConfig
 	for _, a := range qualifyingAgents {
@@ -825,6 +936,8 @@ func RunWorkflowModelSelection(
 			opts = model.ClaudeModelOptions()
 		case "opencode":
 			opts = model.OpenCodeModelOptions(openCodeFallbackModels)
+		case "copilot":
+			opts = model.CopilotModelOptionsUpTo(math.MaxFloat64)
 		default:
 			opts = model.ClaudeModelOptions()
 		}
@@ -845,8 +958,53 @@ func RunWorkflowModelSelection(
 		stepLabel = "Workflow: " + workflowName + " — Model Selection"
 	}
 
+	// sdd-orchestrator is injected as a dedicated first row by the T004 block below;
+	// strip it from roles here to prevent a duplicate when it was previously saved.
+	var filteredRoles []model.WorkflowRole
+	for _, r := range roles {
+		if r.Name != "sdd-orchestrator" {
+			filteredRoles = append(filteredRoles, r)
+		}
+	}
+	roles = filteredRoles
+
 	// Create and run the custom bubbletea model.
-	mdl := newModelSelectorModel(agentConfigs, roles, savedModels, stepLabel, stepNum)
+	mdl := newModelSelectorModel(agentConfigs, roles, savedModels, orchestratorTier, stepLabel, stepNum)
+
+	// T004: Inject orchestrator phaseRow as the first phaseRow for copilot agents.
+	// The orchestrator row uses unfiltered options (all tiers) so the user can pick any model.
+	// roleName = "sdd-orchestrator" ensures the selection is stored in savedModels["copilot"]["sdd-orchestrator"].
+	orchOpts := model.CopilotModelOptionsUpTo(math.MaxFloat64)
+	var orchCards []cardCell
+	for _, a := range qualifyingAgents {
+		if a != "copilot" {
+			continue
+		}
+		// Resolve saved orchestrator value and find its index in the unfiltered options.
+		orchIdx := 0
+		if savedModels != nil {
+			if copilotMap, ok := savedModels["copilot"]; ok {
+				if orchVal := copilotMap["sdd-orchestrator"]; orchVal != "" {
+					for i, opt := range orchOpts {
+						if opt.Value == orchVal {
+							orchIdx = i
+							break
+						}
+					}
+				}
+			}
+		}
+		orchCards = append(orchCards, cardCell{
+			agentName: "copilot",
+			roleName:  "sdd-orchestrator",
+			options:   orchOpts,
+			selected:  orchIdx,
+		})
+	}
+	if len(orchCards) > 0 {
+		mdl.phases = append([]phaseRow{{phase: "Orchestrator", cards: orchCards}}, mdl.phases...)
+	}
+
 	p := tea.NewProgram(mdl)
 	finalModel, err := p.Run()
 	if err != nil {
@@ -910,21 +1068,23 @@ func phaseFromRole(roleKey string) string {
 }
 
 // canonicalPhaseIndex returns a sort key for SDD role names.
-// Canonical order: explore(0) → plan(1) → implement(2) → review(3) → adviser(4).
+// Canonical order: orchestrator(0) → explore(1) → plan(2) → implement(3) → review(4) → adviser(5).
 // Unknown roles get index 99 (sorted alphabetically among themselves).
 func canonicalPhaseIndex(roleName string) int {
 	phase := strings.ToLower(phaseFromRole(roleName))
 	switch phase {
-	case "explore", "explorer":
+	case "orchestrator":
 		return 0
-	case "plan", "planner":
+	case "explore", "explorer":
 		return 1
-	case "implement", "implementer":
+	case "plan", "planner":
 		return 2
-	case "review", "reviewer":
+	case "implement", "implementer":
 		return 3
-	case "adviser", "advisor":
+	case "review", "reviewer":
 		return 4
+	case "adviser", "advisor":
+		return 5
 	default:
 		return 99
 	}

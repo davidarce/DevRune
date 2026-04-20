@@ -196,11 +196,11 @@ func TestAgentModelConfig_ModelRoutingAgents(t *testing.T) {
 	if !model.ModelRoutingAgents["opencode"] {
 		t.Error("opencode should be in ModelRoutingAgents")
 	}
+	if !model.ModelRoutingAgents["copilot"] {
+		t.Error("copilot should be in ModelRoutingAgents")
+	}
 	if model.ModelRoutingAgents["factory"] {
 		t.Error("factory should NOT be in ModelRoutingAgents")
-	}
-	if model.ModelRoutingAgents["copilot"] {
-		t.Error("copilot should NOT be in ModelRoutingAgents")
 	}
 }
 

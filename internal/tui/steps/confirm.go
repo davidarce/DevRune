@@ -94,12 +94,14 @@ func buildSelectionSummary(agents []string, selection SelectionResult, workflowM
 				continue
 			}
 			_, _ = fmt.Fprintf(&b, "  %s:\n", agentName)
-			// Sort role names for deterministic output.
+			// Sort role names in canonical phase order.
 			roleNames := make([]string, 0, len(roleModels))
 			for roleName := range roleModels {
 				roleNames = append(roleNames, roleName)
 			}
-			sort.Strings(roleNames)
+			sort.SliceStable(roleNames, func(i, j int) bool {
+				return canonicalPhaseIndex(roleNames[i]) < canonicalPhaseIndex(roleNames[j])
+			})
 			for _, roleName := range roleNames {
 				if m := roleModels[roleName]; m != "" {
 					_, _ = fmt.Fprintf(&b, "    %s: %s\n", roleName, m)

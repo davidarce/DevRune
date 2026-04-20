@@ -133,8 +133,25 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 	}
 
 	// Step 4 — repository sources (alt screen, step indicator inside form)
-	// Pass catalog-detected sources; EnterRepositories merges them with knownSources.
-	sources, err := steps.EnterRepositories(catalogSources, preselectedSources)
+	// Normalize Skills.sh: the manifest stores the display name "Skills.sh Curated"
+	// but the TUI uses the SkillsShCuratedValue sentinel internally. Filter the display
+	// name from catalog extra-sources (the built-in entry already covers it) and remap
+	// it in preselected sources so the built-in option gets correctly pre-checked.
+	normCatalog := make([]string, 0, len(catalogSources))
+	for _, s := range catalogSources {
+		if s != "Skills.sh Curated" {
+			normCatalog = append(normCatalog, s)
+		}
+	}
+	normPreselected := make([]string, 0, len(preselectedSources))
+	for _, s := range preselectedSources {
+		if s == "Skills.sh Curated" {
+			normPreselected = append(normPreselected, steps.SkillsShCuratedValue)
+		} else {
+			normPreselected = append(normPreselected, s)
+		}
+	}
+	sources, err := steps.EnterRepositories(normCatalog, normPreselected)
 	if err != nil {
 		return RunResult{}, mapErr(err)
 	}
@@ -267,8 +284,15 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 			_, _, agentDetectErr := recommend.DetectAgent()
 			agentAvailable := agentDetectErr == nil
 
-			// Loop: select → (optional) AI recommendations → back to select if user declines.
-			var prevSelection *steps.SelectionResult // preserves state on go-back
+			// Pre-populate selections from the existing manifest so the Select Content
+			// step acts as an update rather than a blank slate.
+			var prevSelection *steps.SelectionResult
+			if m := loadExistingManifest(); m != nil {
+				if sels := buildSelectionsFromManifest(m); len(sels) > 0 {
+					initial := steps.SelectionResult{Repos: sels}
+					prevSelection = &initial
+				}
+			}
 			for {
 				var selectResult steps.SelectModelResult
 				var err error
@@ -408,6 +432,53 @@ func mapErr(err error) error {
 		return huh.ErrUserAborted
 	}
 	return err
+}
+
+// buildSelectionsFromManifest converts a UserManifest's packages and MCPs into
+// RepoSelectionResults for pre-populating the Select Content step on Setup re-run.
+func buildSelectionsFromManifest(m *model.UserManifest) []steps.RepoSelectionResult {
+	bySource := make(map[string]*steps.RepoSelectionResult, len(m.Packages))
+	for _, pkg := range m.Packages {
+		if pkg.Source == "" {
+			continue
+		}
+		r := &steps.RepoSelectionResult{Source: pkg.Source}
+		if pkg.Select != nil {
+			r.SelectedSkills = pkg.Select.Skills
+			r.SelectedRules = pkg.Select.Rules
+		}
+		bySource[pkg.Source] = r
+	}
+	for _, mcp := range m.MCPs {
+		repoSrc, mcpName := parseMCPSourceRef(mcp.Source)
+		if repoSrc == "" || mcpName == "" {
+			continue
+		}
+		r, ok := bySource[repoSrc]
+		if !ok {
+			r = &steps.RepoSelectionResult{Source: repoSrc}
+			bySource[repoSrc] = r
+		}
+		r.SelectedMCPs = append(r.SelectedMCPs, mcpName)
+	}
+	result := make([]steps.RepoSelectionResult, 0, len(bySource))
+	for _, r := range bySource {
+		result = append(result, *r)
+	}
+	return result
+}
+
+// parseMCPSourceRef extracts the repo source and MCP name from a full MCP source ref.
+// e.g. "github:owner/repo//mcps/engram.yaml" → ("github:owner/repo", "engram")
+// e.g. "github:owner/repo//mcps/context7" → ("github:owner/repo", "context7")
+func parseMCPSourceRef(src string) (repoSource, mcpName string) {
+	const sep = "//mcps/"
+	idx := strings.Index(src, sep)
+	if idx < 0 {
+		return "", ""
+	}
+	name := strings.TrimSuffix(src[idx+len(sep):], ".yaml")
+	return src[:idx], name
 }
 
 // partitionSDDWorkflows splits a workflow list into SDD workflows (auto-selected)
