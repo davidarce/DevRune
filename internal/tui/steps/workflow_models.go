@@ -463,18 +463,6 @@ func (m modelSelectorModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *modelSelectorModel) clampAgent() {
-	if len(m.phases) == 0 {
-		return
-	}
-	maxAgent := len(m.phases[m.curPhase].cards) - 1
-	if m.curAgent > maxAgent {
-		m.curAgent = maxAgent
-	}
-	if m.curAgent < 0 {
-		m.curAgent = 0
-	}
-}
 
 // filterCopilotOptions returns options from all with tier <= maxTier.
 // The sentinel (ModelInheritOption) is always included regardless of maxTier.
