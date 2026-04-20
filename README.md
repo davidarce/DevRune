@@ -181,6 +181,8 @@ Long SDD sessions survive context compaction. DevRune installs per-agent hooks t
 
 DevRune's TUI offers a **SDD Phase Models** step where you pick a model for each role (Explore, Plan, Implement, Review, Adviser) per agent. Pick Opus where depth matters; Sonnet where speed does. Reconfigurable anytime via `devrune` main menu → `Configure Models`.
 
+**GitHub Copilot tier constraint** — Copilot sub-agents cannot use a model with a higher cost tier than the orchestrator (VS Code enforces this). The TUI enforces this at selection time: pick the orchestrator model first and the phase cards automatically filter to only show models within that tier. The orchestrator model is written to the `.agent.md` frontmatter so VS Code picks it up directly.
+
 ### Where the SDD logic lives
 
 **DevRune** owns the resolver, renderers, materializer, state tracking, hooks injection, and TUI flow.

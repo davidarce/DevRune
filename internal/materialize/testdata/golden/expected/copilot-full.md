@@ -1,6 +1,6 @@
 ---
 description: Automate git commits following Conventional Commits with JIRA ticket integration.
-model: anthropic/claude-sonnet-4-20250514
+model: sonnet
 name: git-commit
 tools:
     - execute

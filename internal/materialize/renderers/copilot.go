@@ -198,10 +198,11 @@ func (r *CopilotRenderer) transformFrontmatter(fm map[string]interface{}) map[st
 		delete(out, field)
 	}
 
-	// Resolve model short name.
+	// Resolve model short name. Use identity resolver — Copilot frontmatter requires bare IDs
+	// like "claude-sonnet-4.6", not the "anthropic/..." format that resolveModel() produces.
 	if modelVal, ok := out["model"]; ok {
 		if modelStr, ok := modelVal.(string); ok && modelStr != "" {
-			out["model"] = resolveModel(modelStr)
+			out["model"] = copilotModelResolver(modelStr)
 		}
 	}
 
@@ -333,6 +334,12 @@ func (r *CopilotRenderer) MCPAgentInstructions() map[string]string {
 	return result
 }
 
+// copilotModelResolver is a no-op model resolver for the Copilot path.
+// Copilot .agent.md frontmatter uses bare model IDs ("claude-sonnet-4.6"),
+// NOT the "anthropic/claude-sonnet-4-20250514" format produced by resolveModel().
+// The TUI stores bare IDs directly for Copilot, so no transformation is needed.
+func copilotModelResolver(id string) string { return id }
+
 // InstallWorkflow materializes a workflow into the Copilot workspace.
 //
 // Layout (Copilot native sub-agent model):
@@ -393,19 +400,28 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: read workflow dir %q: %w", cachePath, err)
 	}
 
-	// Build shared placeholder replacements for this workflow: {SKILLS_PATH} only.
-	// Copilot does not support model routing in the TUI, so {SDD_MODEL_*} placeholders
-	// are intentionally left unresolved here and removed entirely by
-	// removeModelPlaceholderLines below. Sub-agents inherit the session's active model
-	// via the frontmatter synthesized in installOrchestratorAgent / generateSubAgentFile.
+	// Build shared placeholder replacements for this workflow including model routing.
+	// copilotModelResolver is an identity pass-through: Copilot .agent.md frontmatter
+	// requires bare IDs like "claude-sonnet-4.6", NOT the "anthropic/..." format that
+	// resolveModel() would produce. TUI-selected model overrides (r.modelOverrides) contain
+	// bare IDs stored directly from CopilotModelOptions() values — no transformation needed.
 	//
 	// {SKILLS_PATH} resolves to the skills/ directory (not agents/) because in Copilot's
 	// model, agents/ contains only flat .agent.md files while content (_shared/, templates,
 	// references) lives under skills/. The orchestrator .agent.md references resources via
 	// paths like .github/skills/sdd-orchestrator/_shared/launch-templates.md.
 	skillDirName := r.def.SkillDir
-	replacements := buildWorkflowPathReplacements(wf, workspaceRoot, skillDirName)
+	replacements := buildWorkflowPlaceholderReplacements(
+		wf, workspaceRoot, skillDirName,
+		copilotModelResolver, // identity: bare ID passes through unchanged to .agent.md frontmatter
+		                      // DO NOT use resolveModel here — that produces "anthropic/..." format,
+		                      // which is invalid for Copilot .agent.md frontmatter.
+		r.modelOverrides,     // TUI-selected per-role bare model IDs from CopilotModelOptions()
+		nil,                  // no custom subagent resolver; Copilot uses native @agent-name
+	)
 	// Override subagent placeholders to use role names (Copilot has native .agent.md agents).
+	// buildWorkflowPlaceholderReplacements with subagentResolver=nil defaults subagent entries
+	// to "general"; this loop overwrites them with native Copilot agent names (e.g. "sdd-explorer").
 	for _, role := range wf.Components.Roles {
 		if role.Kind != "subagent" {
 			continue
@@ -458,10 +474,13 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		}
 
 		// T017: Skip SDD workflow sub-agent skills — they are embedded in .agent.md files (T018).
-		// Only non-subagent skills (e.g. adviser skills) go into skills/.
+		// Also skip the orchestrator skill directory: its content is already in the .agent.md
+		// (installed by installOrchestratorAgent above). Rendering it would create a SKILL.md
+		// with Claude Code Task()/Skill() syntax that is invalid for Copilot.
+		// Only non-subagent, non-orchestrator skills (e.g. adviser skills) go into skills/.
 		if skillsSet[name] {
-			if subagentSkillSet[name] {
-				// This skill will be embedded as a native sub-agent — skip skills/ installation.
+			if subagentSkillSet[name] || name == orchRoleName {
+				// Subagent skills are embedded in .agent.md; orchestrator is already installed.
 				continue
 			}
 			// Non-subagent workflow skill: install as SKILL.md backing tree.
@@ -537,6 +556,16 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 				"user-invocable":           false,
 				"disable-model-invocation": false,
 			}
+			// Add model: check for an exact override first, then fall back to the SDD adviser sentinel.
+			// sdd-adviser (skill: "*-adviser") is the sentinel that represents all advisers in the SDD
+			// workflow, so its model override applies to any adviser wrapper without its own override.
+			adviserModel := r.modelOverrides[adviserName]
+			if adviserModel == "" || adviserModel == model.ModelInheritOption {
+				adviserModel = r.modelOverrides["sdd-adviser"]
+			}
+			if adviserModel != "" && adviserModel != model.ModelInheritOption {
+				fm["model"] = adviserModel
+			}
 			// Use workspace-relative path (not absolute) so the .agent.md is portable.
 			skillRelPath := filepath.Join(workspaceRoot, r.def.SkillDir, adviserName, "SKILL.md")
 			body := fmt.Sprintf("You are a specialist adviser. Read your skill file at `%s` and follow its instructions.\n", skillRelPath)
@@ -574,8 +603,9 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders (agents): %w", err)
 	}
 
-	// Remove any lines containing unresolved {SDD_MODEL_*} placeholders.
-	// Copilot does not support model routing; sub-agents must inherit the session model.
+	// Remove any lines containing unresolved {SDD_MODEL_*} or {WORKFLOW_MODEL_*} placeholders.
+	// These correspond to phases where the user selected "inherit from session" (no override).
+	// Lines with resolved model values (e.g. "model: claude-sonnet-4.6") are untouched.
 	// Apply to both skillsBase and agentsBase since agent files are written to agentsBase.
 	if err := removeModelPlaceholderLines(skillsBase); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: remove model placeholder lines (skills): %w", err)
@@ -606,10 +636,6 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 	}
 	content = transformBodyForCopilot(content)
 
-	// Strip the empty Phase-to-Model Table — Copilot uses native sub-agents and
-	// does not support per-phase model routing, so the table is always empty.
-	content = stripEmptyPhaseToModelTable(content)
-
 	// Derive the orchestrator role name from the workflow roles.
 	orchRoleName := wf.Metadata.EffectiveWorkingDir()
 	orchDesc := "SDD Orchestrator — coordinates " + wf.Metadata.EffectiveDisplayName() + " workflow via sub-agents"
@@ -618,11 +644,13 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 	}
 
 	// Build frontmatter for the orchestrator agent.
-	// Orchestrator: no model field (inherits session), no disable-model-invocation.
 	fm := map[string]interface{}{
 		"name":           orchRoleName,
 		"description":    orchDesc,
 		"user-invocable": true,
+	}
+	if orchModel := r.modelOverrides["sdd-orchestrator"]; orchModel != "" && orchModel != model.ModelInheritOption {
+		fm["model"] = orchModel
 	}
 
 	out, err := parse.SerializeFrontmatter(fm, content)
@@ -641,8 +669,8 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 // user-invocable: false, disable-model-invocation: false) and embeds the full
 // skill body (without frontmatter) as the agent instructions.
 //
-// T018: Role tool sets follow the copilotSubAgentTools mapping. Model is resolved
-// from the role.Model field via resolveModel().
+// T018: Role tool sets follow the copilotSubAgentTools mapping. Model is looked up
+// from the replacements map (pre-resolved by copilotModelResolver — bare ID passthrough).
 func (r *CopilotRenderer) generateSubAgentFile(skillSrcDir, dstPath string, role model.WorkflowRole, wf model.WorkflowManifest, replacements map[string]string) error {
 	// Read the skill's SKILL.md to extract its body content.
 	skillFile := filepath.Join(skillSrcDir, "SKILL.md")
@@ -680,9 +708,14 @@ func (r *CopilotRenderer) generateSubAgentFile(skillSrcDir, dstPath string, role
 		"disable-model-invocation": false,
 	}
 
-	// Add model if the role specifies one.
-	if role.Model != "" {
-		fm["model"] = resolveModel(role.Model)
+	// Add model: prefer TUI-selected override from replacements (pre-resolved via copilotModelResolver),
+	// fall back to bare role.Model. Never use resolveModel() — that produces "anthropic/..." format
+	// which is invalid for Copilot .agent.md frontmatter.
+	placeholderKey := "{WORKFLOW_MODEL_" + model.PlaceholderKeyFromRole(wf.Metadata.Name, role.Name, role.Placeholder) + "}"
+	if modelVal, ok := replacements[placeholderKey]; ok && modelVal != "" {
+		fm["model"] = modelVal
+	} else if role.Model != "" {
+		fm["model"] = copilotModelResolver(role.Model)
 	}
 
 	out, err := parse.SerializeFrontmatter(fm, bodyContent)

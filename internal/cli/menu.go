@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
@@ -319,33 +320,35 @@ func runInitFromMenu(cmd *cobra.Command) error {
 	out := cmd.OutOrStdout()
 	destPath := filepath.Join(wd, "devrune.yaml")
 
-	// Check if devrune.yaml already exists and ask to overwrite.
-	if _, statErr := os.Stat(destPath); statErr == nil {
-		var overwrite bool
-		form := huh.NewForm(
-			huh.NewGroup(
-				steps.BannerNote(),
-				huh.NewConfirm().
-					Title("devrune.yaml already exists. Overwrite it?").
-					Affirmative("Yes, overwrite").
-					Negative("Cancel").
-					Value(&overwrite),
-			),
-		).WithTheme(tuistyles.DevRuneThemeFunc).
-			WithViewHook(func(v tea.View) tea.View {
-				v.AltScreen = true
-				return v
-			})
-		if err := form.Run(); err != nil {
-			return err
-		}
-		if !overwrite {
-			return nil
+	// Load existing manifest (if any) to pre-populate wizard selections.
+	var existing *tui.ExistingConfig
+	var catalogSources []string
+	if existingData, err := os.ReadFile(destPath); err == nil {
+		var existingManifest model.UserManifest
+		if err := yaml.Unmarshal(existingData, &existingManifest); err == nil {
+			existingAgents := make([]string, 0, len(existingManifest.Agents))
+			for _, a := range existingManifest.Agents {
+				if a.Name != "" {
+					existingAgents = append(existingAgents, a.Name)
+				}
+			}
+			existingSources := make([]string, 0, len(existingManifest.Packages))
+			for _, p := range existingManifest.Packages {
+				if p.Source != "" {
+					existingSources = append(existingSources, p.Source)
+				}
+			}
+			existing = &tui.ExistingConfig{
+				Agents:         existingAgents,
+				Sources:        existingSources,
+				WorkflowModels: mergeWorkflowModels(existingManifest.Workflows),
+			}
+			catalogSources = existingManifest.Catalogs
 		}
 	}
 
-	// Run TUI wizard.
-	result, err := tui.Run(wd, nil, nil)
+	// Run TUI wizard with preselected values from existing config (if any).
+	result, err := tui.Run(wd, catalogSources, existing)
 	if err != nil {
 		if err == huh.ErrUserAborted {
 			return nil

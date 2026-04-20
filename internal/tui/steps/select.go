@@ -272,14 +272,10 @@ func restoreSelection(m *SelectModel, prev SelectionResult) {
 		for ci := range m.repos[ri].Categories {
 			cat := &m.repos[ri].Categories[ci]
 			prev := prevSelected[ci]
-			allOn := len(cat.Items) > 0
 			for _, item := range cat.Items {
 				cat.Selected[item] = prev[item]
-				if !prev[item] {
-					allOn = false
-				}
 			}
-			cat.IsOn = allOn
+			cat.IsOn = cat.selectedCount() > 0
 		}
 	}
 }
@@ -617,6 +613,8 @@ func (m SelectModel) updateExpanded(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Sync category-level toggle with actual selection state.
+		cat.IsOn = cat.selectedCount() > 0
 
 	case "ctrl+d", "tab":
 		m.expanded = nil
