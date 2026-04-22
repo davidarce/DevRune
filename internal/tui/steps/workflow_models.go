@@ -79,6 +79,14 @@ const copilotPlanWarning = "Model availability depends on your Copilot plan.\n" 
 	"Selecting a model not in your plan causes sub-agents to fail at runtime.\n" +
 	"See: github.com/features/copilot/plans"
 
+// copilotPremiumNote explains the "N×" suffix embedded in every Copilot model
+// label. Rendered once on the main selector screen (above the phase rows) so
+// users can weigh the multiplier while navigating — the inline number alone is
+// useless without the explanation.
+const copilotPremiumNote = "Each call consumes the model's multiplier (N×) against your " +
+	"monthly premium request quota. 0× models don't count against the quota."
+const copilotPremiumURL = "Details: github.com/features/copilot"
+
 // huhSelectCommand implements tea.ExecCommand and runs a huh.NewSelect form
 // for a single agent card's model options. The form is rendered full-screen
 // using the same alt-screen approach as other steps.
@@ -525,6 +533,26 @@ func (m modelSelectorModel) View() tea.View {
 		contentWidth = 40
 	}
 
+	// Copilot-only: premium-request multiplier note. Rendered above the phase
+	// rows so the reader learns what the "N×" in each label means before they
+	// start picking. Badge uses an amber hue matching Copilot's native warning
+	// style; body/URL stay on the accent color so they're legible regardless
+	// of terminal palette — the step ran into contrast problems with a muted
+	// grey in the lib-purchaseai sibling, we skip that mistake here.
+	if m.hasCopilotCards() {
+		warnColor := lipgloss.Color("#E5C07B")
+		badgeStyle := lipgloss.NewStyle().Bold(true).Foreground(warnColor)
+		bodyStyle := lipgloss.NewStyle().Foreground(tuistyles.ColorAccent).Width(contentWidth)
+		urlStyle := lipgloss.NewStyle().Foreground(warnColor)
+
+		b.WriteString("  " + badgeStyle.Render("⚠  Copilot premium requests"))
+		b.WriteString("\n")
+		b.WriteString(bodyStyle.Render("  " + copilotPremiumNote))
+		b.WriteString("\n")
+		b.WriteString("  " + urlStyle.Render(copilotPremiumURL))
+		b.WriteString("\n\n")
+	}
+
 	// Phase label style — bold accent like huh titles.
 	phaseStyle := lipgloss.NewStyle().
 		Foreground(tuistyles.ColorAccent).
@@ -583,6 +611,19 @@ func (m modelSelectorModel) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
+}
+
+// hasCopilotCards reports whether any phase row contains a Copilot card.
+// Used to gate the premium-request multiplier note on the main selector.
+func (m modelSelectorModel) hasCopilotCards() bool {
+	for _, pr := range m.phases {
+		for _, c := range pr.cards {
+			if c.agentName == "copilot" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // useColumnLayout reports whether the column layout (with │ separators) should

@@ -50,7 +50,8 @@ func ClaudeModelOptions() []ModelOption {
 	return opts
 }
 
-// CopilotModelEntry pairs a VS Code display name with its provider and Copilot plan availability.
+// CopilotModelEntry pairs a VS Code display name with its provider, Copilot plan
+// availability, capability tier and premium-request multiplier.
 // DisplayName is the exact string VS Code Copilot recognises in .agent.md `model:` frontmatter
 // (e.g. "Claude Sonnet 4.6"). API slugs (e.g. "claude-sonnet-4.6") are NOT accepted by VS Code.
 type CopilotModelEntry struct {
@@ -58,32 +59,52 @@ type CopilotModelEntry struct {
 	Provider     string
 	Availability string
 	Tier         float64 // capability/cost tier used for sub-agent filtering
+	Multiplier   float64 // Copilot premium-request multiplier (0 = free, >=1 counts against monthly quota)
 }
 
 // copilotModelEntries is the ordered canonical list of Copilot model choices for the TUI.
 // Source: docs.github.com/en/copilot/reference/ai-models/supported-models (April 2026)
+// Premium request multipliers: github.com/features/copilot#models
 // DisplayName values are written verbatim to .agent.md frontmatter — VS Code requires the
 // display-name format (e.g. "Claude Sonnet 4.6"), NOT API slugs or "anthropic/..." prefixes.
 // IMPORTANT: Non-Anthropic display names are best-effort — verify via VS Code Copilot model picker.
 //
 // Ordering: inherit sentinel first (added by CopilotModelOptions), then providers alphabetically
-// (Anthropic → Google → OpenAI → xAI), then within each provider by capability tier
-// (haiku < sonnet < opus; mini < standard < codex).
+// (Anthropic → Google → OpenAI → xAI); within each provider newest-first for versioned siblings
+// (Opus 4.7 before Opus 4.6) and by capability tier (haiku < sonnet < opus; mini < standard < codex).
 var copilotModelEntries = []CopilotModelEntry{
 	// Anthropic
-	{DisplayName: "Claude Haiku 4.5", Provider: "Anthropic", Availability: "Free · Pro · Pro+ · Business · Enterprise", Tier: 1.0},
-	{DisplayName: "Claude Sonnet 4.6", Provider: "Anthropic", Availability: "Pro · Pro+ · Business · Enterprise", Tier: 2.0},
-	{DisplayName: "Claude Opus 4.7", Provider: "Anthropic", Availability: "Pro+ · Business · Enterprise", Tier: 3.0},
+	{DisplayName: "Claude Haiku 4.5", Provider: "Anthropic", Availability: "Free · Pro · Pro+ · Business · Enterprise", Tier: 1.0, Multiplier: 0.33},
+	{DisplayName: "Claude Sonnet 4.6", Provider: "Anthropic", Availability: "Pro · Pro+ · Business · Enterprise", Tier: 2.0, Multiplier: 1.0},
+	{DisplayName: "Claude Opus 4.7", Provider: "Anthropic", Availability: "Pro+ · Business · Enterprise", Tier: 3.0, Multiplier: 7.5},
+	{DisplayName: "Claude Opus 4.6", Provider: "Anthropic", Availability: "Pro+ · Business · Enterprise", Tier: 3.0, Multiplier: 3.0},
 	// Google
-	{DisplayName: "Gemini 2.5 Pro", Provider: "Google", Availability: "Pro and above", Tier: 2.0},
-	{DisplayName: "Gemini 3.1 Pro (Preview)", Provider: "Google", Availability: "Pro and above", Tier: 2.0},
-	{DisplayName: "Gemini 3 Flash (Preview)", Provider: "Google", Availability: "Pro and above", Tier: 2.0},
+	{DisplayName: "Gemini 2.5 Pro", Provider: "Google", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
+	{DisplayName: "Gemini 3.1 Pro (Preview)", Provider: "Google", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
+	{DisplayName: "Gemini 3 Flash (Preview)", Provider: "Google", Availability: "Pro and above", Tier: 2.0, Multiplier: 0.33},
 	// OpenAI
-	{DisplayName: "GPT-5 mini", Provider: "OpenAI", Availability: "Free · All plans", Tier: 1.0},
-	{DisplayName: "GPT-5.4", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0},
-	{DisplayName: "GPT-5.3-Codex", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0},
+	{DisplayName: "GPT-5 mini", Provider: "OpenAI", Availability: "Free · All plans", Tier: 1.0, Multiplier: 0.0},
+	{DisplayName: "GPT-5.4", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
+	{DisplayName: "GPT-5.3-Codex", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
 	// xAI
-	{DisplayName: "Grok Code Fast 1", Provider: "xAI", Availability: "Pro and above", Tier: 2.0},
+	{DisplayName: "Grok Code Fast 1", Provider: "xAI", Availability: "Pro and above", Tier: 2.0, Multiplier: 0.25},
+}
+
+// formatMultiplier renders a Copilot premium-request multiplier identically to
+// VS Code Copilot's native model picker: integers drop the decimal (`1×`,
+// `3×`, `7×`), fractional values keep the two significant digits the picker
+// uses (`0.33×`, `0.25×`), zero becomes `0×`.
+func formatMultiplier(m float64) string {
+	if m == 0 {
+		return "0×"
+	}
+	if m == float64(int(m)) {
+		return fmt.Sprintf("%d×", int(m))
+	}
+	s := fmt.Sprintf("%.2f", m)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s + "×"
 }
 
 // CopilotTierForModel returns the Tier for the given DisplayName.
@@ -104,13 +125,17 @@ func CopilotTierForModel(displayName string) float64 {
 // CopilotModelOptionsUpTo returns model choices filtered to Tier <= maxTier.
 // The inherit sentinel is always included as the first option regardless of maxTier.
 // Pass math.MaxFloat64 to include all models (no filtering).
+//
+// Each label embeds the premium-request multiplier inline so users see the
+// cost-per-call next to the model name, matching VS Code Copilot's native
+// picker: "Anthropic · Claude Opus 4.7  (7.5× · Pro+ · Business · Enterprise)".
 func CopilotModelOptionsUpTo(maxTier float64) []ModelOption {
 	opts := make([]ModelOption, 0, len(copilotModelEntries)+1)
 	opts = append(opts, ModelOption{Label: ModelInheritOption, Value: ModelInheritOption})
 	for _, e := range copilotModelEntries {
 		if e.Tier <= maxTier {
 			opts = append(opts, ModelOption{
-				Label: fmt.Sprintf("%s · %s  (%s)", e.Provider, e.DisplayName, e.Availability),
+				Label: fmt.Sprintf("%s · %s  (%s · %s)", e.Provider, e.DisplayName, formatMultiplier(e.Multiplier), e.Availability),
 				Value: e.DisplayName,
 			})
 		}
