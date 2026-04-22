@@ -76,14 +76,14 @@ func TestBackwardCompatAliases(t *testing.T) {
 
 // TestCopilotModelOptions verifies the options list for Copilot agents.
 // It checks count, sentinel, ordering, bare IDs (no "anthropic/" prefix),
-// provider labels, and plan-availability strings.
+// provider labels, plan-availability strings, and premium-request multipliers.
 func TestCopilotModelOptions(t *testing.T) {
 	opts := CopilotModelOptions()
 
-	// Must return exactly 11 options: sentinel + 10 models.
-	const wantTotal = 11
+	// Must return exactly 12 options: sentinel + 11 models (Opus 4.6 added in v2.11.x).
+	const wantTotal = 12
 	if len(opts) != wantTotal {
-		t.Fatalf("CopilotModelOptions() returned %d options, want %d (1 sentinel + 10 models)", len(opts), wantTotal)
+		t.Fatalf("CopilotModelOptions() returned %d options, want %d (1 sentinel + 11 models)", len(opts), wantTotal)
 	}
 
 	// First option must be the inherit sentinel.
@@ -94,19 +94,21 @@ func TestCopilotModelOptions(t *testing.T) {
 		t.Errorf("opts[0].Label = %q, want %q (sentinel)", opts[0].Label, ModelInheritOption)
 	}
 
-	// Expected display-name order (provider-grouped: Anthropic → Google → OpenAI → xAI).
+	// Expected display-name order: Anthropic haiku → sonnet → opus-4.7 → opus-4.6
+	// (newest Opus first), then Google → OpenAI → xAI.
 	// Values are VS Code display names, NOT API slugs.
 	wantValues := []string{
-		"Claude Haiku 4.5",  // Anthropic, pos 1
-		"Claude Sonnet 4.6", // Anthropic, pos 2
-		"Claude Opus 4.7",   // Anthropic, pos 3
-		"Gemini 2.5 Pro",          // Google,    pos 4
-		"Gemini 3.1 Pro (Preview)", // Google,    pos 5
-		"Gemini 3 Flash (Preview)", // Google,    pos 6
-		"GPT-5 mini",              // OpenAI,    pos 7
-		"GPT-5.4",                 // OpenAI,    pos 8
-		"GPT-5.3-Codex",           // OpenAI,    pos 9
-		"Grok Code Fast 1",  // xAI,       pos 10
+		"Claude Haiku 4.5",         // Anthropic, pos 1
+		"Claude Sonnet 4.6",        // Anthropic, pos 2
+		"Claude Opus 4.7",          // Anthropic, pos 3
+		"Claude Opus 4.6",          // Anthropic, pos 4
+		"Gemini 2.5 Pro",           // Google,    pos 5
+		"Gemini 3.1 Pro (Preview)", // Google,    pos 6
+		"Gemini 3 Flash (Preview)", // Google,    pos 7
+		"GPT-5 mini",               // OpenAI,    pos 8
+		"GPT-5.4",                  // OpenAI,    pos 9
+		"GPT-5.3-Codex",            // OpenAI,    pos 10
+		"Grok Code Fast 1",         // xAI,       pos 11
 	}
 	for i, want := range wantValues {
 		got := opts[i+1]
@@ -132,13 +134,14 @@ func TestCopilotModelOptions(t *testing.T) {
 		{1, "Claude Haiku 4.5", "Anthropic"},
 		{2, "Claude Sonnet 4.6", "Anthropic"},
 		{3, "Claude Opus 4.7", "Anthropic"},
-		{4, "Gemini 2.5 Pro", "Google"},
-		{5, "Gemini 3.1 Pro (Preview)", "Google"},
-		{6, "Gemini 3 Flash (Preview)", "Google"},
-		{7, "GPT-5 mini", "OpenAI"},
-		{8, "GPT-5.4", "OpenAI"},
-		{9, "GPT-5.3-Codex", "OpenAI"},
-		{10, "Grok Code Fast 1", "xAI"},
+		{4, "Claude Opus 4.6", "Anthropic"},
+		{5, "Gemini 2.5 Pro", "Google"},
+		{6, "Gemini 3.1 Pro (Preview)", "Google"},
+		{7, "Gemini 3 Flash (Preview)", "Google"},
+		{8, "GPT-5 mini", "OpenAI"},
+		{9, "GPT-5.4", "OpenAI"},
+		{10, "GPT-5.3-Codex", "OpenAI"},
+		{11, "Grok Code Fast 1", "xAI"},
 	}
 	for _, c := range providerChecks {
 		label := opts[c.idx].Label
@@ -155,8 +158,9 @@ func TestCopilotModelOptions(t *testing.T) {
 	}{
 		{1, "claude-haiku-4.5", "Free"},
 		{3, "claude-opus-4.7", "Pro+"},
-		{5, "gemini-3.1-pro", "Preview"},
-		{6, "gemini-3-flash", "Preview"},
+		{4, "claude-opus-4.6", "Pro+"},
+		{6, "gemini-3.1-pro", "Preview"},
+		{7, "gemini-3-flash", "Preview"},
 	}
 	for _, c := range availChecks {
 		label := opts[c.idx].Label
@@ -165,8 +169,29 @@ func TestCopilotModelOptions(t *testing.T) {
 		}
 	}
 
-	// Provider-ordering: positions 1-3 Anthropic, 4-6 Google, 7-9 OpenAI, 10 xAI.
-	anthropicIDs := []string{"Claude Haiku 4.5", "Claude Sonnet 4.6", "Claude Opus 4.7"}
+	// Premium-request multiplier checks: every label must embed the "N×" string
+	// exactly as Copilot's native picker renders it.
+	multiplierChecks := []struct {
+		idx     int
+		modelID string
+		substr  string
+	}{
+		{1, "claude-haiku-4.5", "0.33×"},
+		{2, "claude-sonnet-4.6", "1×"},
+		{3, "claude-opus-4.7", "7.5×"},
+		{4, "claude-opus-4.6", "3×"},
+		{8, "gpt-5-mini", "0×"},
+		{11, "grok-code-fast-1", "0.25×"},
+	}
+	for _, c := range multiplierChecks {
+		label := opts[c.idx].Label
+		if !strings.Contains(label, c.substr) {
+			t.Errorf("opts[%d] (%s) label = %q; want it to embed multiplier %q", c.idx, c.modelID, label, c.substr)
+		}
+	}
+
+	// Provider-ordering: Anthropic (4), Google (3), OpenAI (3), xAI (1).
+	anthropicIDs := []string{"Claude Haiku 4.5", "Claude Sonnet 4.6", "Claude Opus 4.7", "Claude Opus 4.6"}
 	for i, want := range anthropicIDs {
 		if opts[i+1].Value != want {
 			t.Errorf("Anthropic position %d: got %q, want %q", i+1, opts[i+1].Value, want)
@@ -174,18 +199,47 @@ func TestCopilotModelOptions(t *testing.T) {
 	}
 	googleIDs := []string{"Gemini 2.5 Pro", "Gemini 3.1 Pro (Preview)", "Gemini 3 Flash (Preview)"}
 	for i, want := range googleIDs {
-		if opts[i+4].Value != want {
-			t.Errorf("Google position %d: got %q, want %q", i+4, opts[i+4].Value, want)
+		if opts[i+5].Value != want {
+			t.Errorf("Google position %d: got %q, want %q", i+5, opts[i+5].Value, want)
 		}
 	}
 	openaiIDs := []string{"GPT-5 mini", "GPT-5.4", "GPT-5.3-Codex"}
 	for i, want := range openaiIDs {
-		if opts[i+7].Value != want {
-			t.Errorf("OpenAI position %d: got %q, want %q", i+7, opts[i+7].Value, want)
+		if opts[i+8].Value != want {
+			t.Errorf("OpenAI position %d: got %q, want %q", i+8, opts[i+8].Value, want)
 		}
 	}
-	if opts[10].Value != "Grok Code Fast 1" {
-		t.Errorf("xAI position 10: got %q, want %q", opts[10].Value, "Grok Code Fast 1")
+	if opts[11].Value != "Grok Code Fast 1" {
+		t.Errorf("xAI position 11: got %q, want %q", opts[11].Value, "Grok Code Fast 1")
+	}
+}
+
+// TestFormatMultiplier locks in the rendering rules for premium-request
+// multipliers so integer/decimal/zero cases keep matching Copilot's native picker.
+func TestFormatMultiplier(t *testing.T) {
+	cases := []struct {
+		in   float64
+		want string
+	}{
+		{0, "0×"},
+		{1, "1×"},
+		{3, "3×"},
+		{7.5, "7.5×"},
+		{0.25, "0.25×"},
+		{0.33, "0.33×"},
+	}
+	for _, c := range cases {
+		if got := formatMultiplier(c.in); got != c.want {
+			t.Errorf("formatMultiplier(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestCopilotTierForModel_Opus46 verifies Opus 4.6 is registered at the same
+// tier as Opus 4.7 so the reactive tier filter treats them equivalently.
+func TestCopilotTierForModel_Opus46(t *testing.T) {
+	if got := CopilotTierForModel("Claude Opus 4.6"); got != 3.0 {
+		t.Errorf("CopilotTierForModel(\"Claude Opus 4.6\") = %v, want 3.0", got)
 	}
 }
 
@@ -198,11 +252,11 @@ func TestModelRoutingAgents_IncludesCopilot(t *testing.T) {
 
 // TestCopilotModelOptionsUpTo verifies tier-based filtering of Copilot model options.
 func TestCopilotModelOptionsUpTo(t *testing.T) {
-	// MaxFloat64 → same result as CopilotModelOptions() — sentinel + all 10 models.
+	// MaxFloat64 → same result as CopilotModelOptions() — sentinel + all 11 models.
 	optsAll := CopilotModelOptionsUpTo(math.MaxFloat64)
-	const wantTotal = 11
+	const wantTotal = 12
 	if len(optsAll) != wantTotal {
-		t.Errorf("CopilotModelOptionsUpTo(MaxFloat64) returned %d options, want %d (sentinel + 10 models)", len(optsAll), wantTotal)
+		t.Errorf("CopilotModelOptionsUpTo(MaxFloat64) returned %d options, want %d (sentinel + 11 models)", len(optsAll), wantTotal)
 	}
 	if optsAll[0].Value != ModelInheritOption {
 		t.Errorf("CopilotModelOptionsUpTo(MaxFloat64): first option = %q, want sentinel %q", optsAll[0].Value, ModelInheritOption)
@@ -224,7 +278,7 @@ func TestCopilotModelOptionsUpTo(t *testing.T) {
 		}
 	}
 
-	// Tier 2.0 → sentinel + all except Claude Opus 4.7 (tier 3.0) = 10 options.
+	// Tier 2.0 → sentinel + all except both Opus (tier 3.0) = 10 options.
 	opts2 := CopilotModelOptionsUpTo(2.0)
 	if len(opts2) != 10 {
 		t.Errorf("CopilotModelOptionsUpTo(2.0) returned %d options, want 10 (sentinel + 9 tier-1/2 models)", len(opts2))
@@ -232,20 +286,34 @@ func TestCopilotModelOptionsUpTo(t *testing.T) {
 	if opts2[0].Value != ModelInheritOption {
 		t.Errorf("CopilotModelOptionsUpTo(2.0): first option = %q, want sentinel %q", opts2[0].Value, ModelInheritOption)
 	}
-	// Opus 4.7 must NOT appear.
+	// Both Opus entries must be excluded at maxTier=2.0.
 	for _, opt := range opts2 {
 		if opt.Value == "Claude Opus 4.7" {
 			t.Errorf("CopilotModelOptionsUpTo(2.0) unexpectedly contains Claude Opus 4.7 (tier 3.0)")
 		}
+		if opt.Value == "Claude Opus 4.6" {
+			t.Errorf("CopilotModelOptionsUpTo(2.0) unexpectedly contains Claude Opus 4.6 (tier 3.0)")
+		}
 	}
 
-	// Tier 3.0 → sentinel + all 10 models = 11 options (same as MaxFloat64).
+	// Tier 3.0 → sentinel + all 11 models = 12 options (same as MaxFloat64).
 	opts3 := CopilotModelOptionsUpTo(3.0)
 	if len(opts3) != wantTotal {
-		t.Errorf("CopilotModelOptionsUpTo(3.0) returned %d options, want %d (sentinel + 10 models)", len(opts3), wantTotal)
+		t.Errorf("CopilotModelOptionsUpTo(3.0) returned %d options, want %d (sentinel + 11 models)", len(opts3), wantTotal)
 	}
 	if opts3[0].Value != ModelInheritOption {
 		t.Errorf("CopilotModelOptionsUpTo(3.0): first option = %q, want sentinel %q", opts3[0].Value, ModelInheritOption)
+	}
+	// Opus 4.6 must appear at maxTier=3.0.
+	opus46Found := false
+	for _, opt := range opts3 {
+		if opt.Value == "Claude Opus 4.6" {
+			opus46Found = true
+			break
+		}
+	}
+	if !opus46Found {
+		t.Error("CopilotModelOptionsUpTo(3.0) missing Claude Opus 4.6")
 	}
 
 	// Tier 0.5 → sentinel only (no models with tier <= 0.5).
