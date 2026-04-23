@@ -77,12 +77,27 @@ func (r *Resolver) SetPriorLockfile(lf model.Lockfile) {
 // cachedDir checks if a remote source is already cached via the prior lockfile index.
 // Returns the cached directory path and content hash if found, or empty strings if
 // the source must be fetched from the network.
+//
+// Mutable refs bypass the cache so a `devrune sync` picks up upstream changes:
+// an empty ref (implicit HEAD) or the literal "HEAD" both track whatever the
+// default branch points at right now, so reusing a prior content hash would
+// silently hide new commits. Immutable refs (tags, full commit SHAs, explicitly
+// named branches) still reuse the cache — the user opted in by pinning.
 func (r *Resolver) cachedDir(sourceRef model.SourceRef) (dir, hash string, ok bool) {
 	if r.priorIndex == nil {
 		return "", "", false
 	}
 	// Local sources always re-fetch (content may change on disk).
 	if sourceRef.Scheme == model.SchemeLocal {
+		return "", "", false
+	}
+	// Mutable ref (HEAD) always re-fetches — the bug this guards against:
+	// first resolve cached the tarball, subsequent `devrune sync` runs saw
+	// the ref unchanged (still empty), the CacheKey matched the prior hash,
+	// and we reused the cache without ever re-contacting the remote. Upstream
+	// merges were invisible until the user deleted `~/Library/Caches/devrune/
+	// packages/<hash>/` by hand.
+	if isMutableRef(sourceRef.Ref) {
 		return "", "", false
 	}
 	priorHash, exists := r.priorIndex[sourceRef.CacheKey()]
@@ -93,6 +108,20 @@ func (r *Resolver) cachedDir(sourceRef model.SourceRef) (dir, hash string, ok bo
 		return d, priorHash, true
 	}
 	return "", "", false
+}
+
+// isMutableRef reports whether a SourceRef's ref component names a moving
+// target (HEAD) rather than a pinned revision.
+//
+// Only the empty ref and the literal "HEAD" are treated as mutable here.
+// Branch names like "main" or "develop" are technically mutable too, but the
+// user typed them explicitly — treating every named ref as mutable would
+// defeat the cache for tag-based pinning, which is the common immutable case.
+// A follow-up could compare the branch tip SHA via a HEAD API call to get
+// both safety AND cache reuse for explicit branch refs, but the reported bug
+// is purely about the `ref: ""` default so this minimal guard closes it.
+func isMutableRef(ref string) bool {
+	return ref == "" || ref == "HEAD"
 }
 
 // Resolve processes a UserManifest and produces a Lockfile.
