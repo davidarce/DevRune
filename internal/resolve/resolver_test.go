@@ -621,7 +621,13 @@ func TestResolver_EmptyRefBypassesCache(t *testing.T) {
 		}
 	})
 
-	t.Run("pinned tag reuses cache", func(t *testing.T) {
+	t.Run("pinned tag without prior revision refetches (backward-compat migration)", func(t *testing.T) {
+		// An old lockfile that predates the Revision field. The uniform
+		// SHA-check path has no prior SHA to compare against for the tag,
+		// so it conservatively refetches to populate Revision for the next
+		// sync. This is the only path where a pinned tag triggers a network
+		// fetch; subsequent syncs take the fast path (see
+		// TestResolver_MutableRefSHARevalidation/pinned_tag_with_matching_SHA).
 		archive := buildTarGz(t, "owner-repo-v100", map[string]string{
 			"skills/git-commit/SKILL.md": "# pinned",
 		})
@@ -630,10 +636,11 @@ func TestResolver_EmptyRefBypassesCache(t *testing.T) {
 			inner: mockFetcher{archives: map[string][]byte{
 				"github:owner/repo@v1.0.0": archive,
 			}},
+			revisions: map[string]string{
+				"github:owner/repo@v1.0.0": "tagsha",
+			},
 		}
 		cache := newMockCacheStore(t)
-
-		// Prime the cache so the prior-lockfile shortcut can fire.
 		if _, err := cache.Store("github:owner/repo@v1.0.0", archive); err != nil {
 			t.Fatalf("seed cache: %v", err)
 		}
@@ -649,16 +656,20 @@ func TestResolver_EmptyRefBypassesCache(t *testing.T) {
 						Ref:    "v1.0.0",
 					},
 					Hash: HashBytes(archive),
+					// Revision intentionally empty: pre-revision-field lockfile.
 				},
 			},
 		})
 
-		manifest := buildMinimalManifest("github:owner/repo@v1.0.0")
-		if _, err := r.Resolve(context.Background(), manifest); err != nil {
+		lf, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo@v1.0.0"))
+		if err != nil {
 			t.Fatalf("Resolve() error = %v, want nil", err)
 		}
-		if got := f.calls["github:owner/repo@v1.0.0"]; got != 0 {
-			t.Errorf("Fetch called %d times for pinned tag, want 0 (cache shortcut must apply for immutable refs)", got)
+		if got := f.calls["github:owner/repo@v1.0.0"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (no prior revision → refetch to populate)", got)
+		}
+		if lf.Packages[0].Revision != "tagsha" {
+			t.Errorf("Revision = %q, want %q (captured after fetch)", lf.Packages[0].Revision, "tagsha")
 		}
 	})
 
@@ -931,8 +942,14 @@ func TestResolver_MutableRefSHARevalidation(t *testing.T) {
 		}
 	})
 
-	t.Run("pinned tag does not trigger any ResolveRevision call", func(t *testing.T) {
-		archive := buildTarGz(t, "owner-repo-v1", map[string]string{
+	t.Run("pinned tag with matching SHA reuses cache (uniform SHA path)", func(t *testing.T) {
+		// With the uniform SHA-revalidation path, a pinned tag goes through
+		// the same check as HEAD or a branch: one cheap ResolveRevision call,
+		// compare to the prior revision, reuse the cache on match. The cost
+		// is ~100ms per tag-pinned source per sync; the benefit is that
+		// moved tags (bad practice but it happens in the wild) are detected
+		// automatically.
+		archive := buildTarGz(t, "owner-repo-v1-pinned", map[string]string{
 			"skills/x/SKILL.md": "# content",
 		})
 
@@ -959,7 +976,8 @@ func TestResolver_MutableRefSHARevalidation(t *testing.T) {
 						Repo:   "repo",
 						Ref:    "v1.0.0",
 					},
-					Hash: HashBytes(archive),
+					Hash:     HashBytes(archive),
+					Revision: "tagsha",
 				},
 			},
 		})
@@ -968,10 +986,162 @@ func TestResolver_MutableRefSHARevalidation(t *testing.T) {
 			t.Fatalf("Resolve() error = %v, want nil", err)
 		}
 		if got := f.calls["github:owner/repo@v1.0.0"]; got != 0 {
-			t.Errorf("Fetch calls = %d, want 0 (pinned tag is immutable)", got)
+			t.Errorf("Fetch calls = %d, want 0 (SHA matched, cache reused)", got)
 		}
-		if got := f.revisionCalls["github:owner/repo@v1.0.0"]; got != 0 {
-			t.Errorf("ResolveRevision calls = %d, want 0 (pinned tag doesn't need SHA check)", got)
+		if got := f.revisionCalls["github:owner/repo@v1.0.0"]; got != 1 {
+			t.Errorf("ResolveRevision calls = %d, want 1 (uniform SHA check applies to all refs)", got)
+		}
+	})
+
+	t.Run("moved tag triggers refetch (uniform SHA path catches bad-practice tag rewrites)", func(t *testing.T) {
+		// Tags should be immutable by convention, but they do get rewritten
+		// in the wild (release rollbacks, typo fixes). With the uniform SHA
+		// path we notice and re-fetch automatically instead of silently
+		// serving the old tarball.
+		oldArchive := buildTarGz(t, "owner-repo-v1-old", map[string]string{
+			"skills/x/SKILL.md": "# old",
+		})
+		newArchive := buildTarGz(t, "owner-repo-v1-new", map[string]string{
+			"skills/x/SKILL.md": "# new",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@v1.0.0": newArchive,
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@v1.0.0": "newsha",
+			},
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@v1.0.0", oldArchive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+						Ref:    "v1.0.0",
+					},
+					Hash:     HashBytes(oldArchive),
+					Revision: "oldsha",
+				},
+			},
+		})
+
+		lf, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo@v1.0.0"))
+		if err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@v1.0.0"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (moved tag triggers refetch)", got)
+		}
+		if lf.Packages[0].Revision != "newsha" {
+			t.Errorf("Revision = %q, want %q (new SHA recorded)", lf.Packages[0].Revision, "newsha")
+		}
+	})
+
+	t.Run("branch ref @main with matching SHA reuses cache (the whole point of going uniform)", func(t *testing.T) {
+		// The reason this PR dropped the isMutableRef gate: users who write
+		// `source: github:org/repo@main` expect HEAD-of-main tracking. The
+		// initial fix (6bed877) only covered empty/HEAD refs, so @main
+		// silently kept the stale cache. With uniform SHA revalidation the
+		// branch ref is handled exactly like any other.
+		archive := buildTarGz(t, "owner-repo-main", map[string]string{
+			"skills/x/SKILL.md": "# content",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@main": archive,
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@main": "mainsha",
+			},
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@main", archive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+						Ref:    "main",
+					},
+					Hash:     HashBytes(archive),
+					Revision: "mainsha",
+				},
+			},
+		})
+
+		if _, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo@main")); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@main"]; got != 0 {
+			t.Errorf("Fetch calls = %d, want 0 (@main matched prior SHA, cache reused)", got)
+		}
+		if got := f.revisionCalls["github:owner/repo@main"]; got != 1 {
+			t.Errorf("ResolveRevision calls = %d, want 1", got)
+		}
+	})
+
+	t.Run("branch ref @main with moved SHA refetches", func(t *testing.T) {
+		oldArchive := buildTarGz(t, "owner-repo-main-old", map[string]string{
+			"skills/x/SKILL.md": "# old",
+		})
+		newArchive := buildTarGz(t, "owner-repo-main-new", map[string]string{
+			"skills/x/SKILL.md": "# new",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@main": newArchive,
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@main": "newmainsha",
+			},
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@main", oldArchive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+						Ref:    "main",
+					},
+					Hash:     HashBytes(oldArchive),
+					Revision: "oldmainsha",
+				},
+			},
+		})
+
+		lf, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo@main"))
+		if err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@main"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (@main moved)", got)
+		}
+		if lf.Packages[0].Revision != "newmainsha" {
+			t.Errorf("Revision = %q, want %q", lf.Packages[0].Revision, "newmainsha")
 		}
 	})
 }

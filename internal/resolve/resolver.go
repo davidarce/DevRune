@@ -83,23 +83,35 @@ func (r *Resolver) SetPriorLockfile(lf model.Lockfile) {
 }
 
 // cachedDir decides whether a remote source can reuse its prior-lockfile
-// cache entry. Returns the cached directory, content hash and the commit
-// SHA that was recorded for it (empty when the prior lockfile predates the
-// revision field) when the cache is valid. Returns ok=false when the caller
-// must re-fetch from the network.
+// cache entry. Returns the cached directory, content hash, and the commit
+// SHA recorded for it (empty when the prior lockfile predates the revision
+// field) when the cache is valid. Returns ok=false when the caller must
+// re-fetch from the network.
 //
-// Cache decision matrix:
+// The decision is SHA-driven, not ref-kind-driven. Whenever the fetcher
+// can cheaply resolve a ref to a commit SHA (via RevisionResolver), we do
+// the check for EVERY remote ref — empty, HEAD, branch names, tags, full
+// commit SHAs. The ref string itself never has to be classified as
+// mutable or immutable because the SHA is the ground truth: if it matches
+// the prior-lockfile revision the underlying commit hasn't moved and the
+// cached archive is still valid.
+//
+// Decision matrix:
 //
 //  1. No prior index, or local scheme → always re-fetch.
 //  2. No prior entry for this CacheKey → always re-fetch (first resolve).
-//  3. Immutable ref (pinned tag, commit SHA, explicit branch name) → reuse
-//     cache if the content hash is still materialised.
-//  4. Mutable ref (empty or literal HEAD):
-//     a. Prior lockfile has a recorded revision AND the fetcher supports
-//        RevisionResolver → cheap GET to compare SHAs. Match reuses the
-//        cache; mismatch or lookup failure falls through to re-fetch.
-//     b. No prior revision, or fetcher can't resolve revisions → re-fetch
-//        (the safe fallback established by the HEAD-bypass fix).
+//  3. Fetcher implements RevisionResolver:
+//     a. Prior revision recorded → cheap GET, compare SHAs. Match reuses
+//        the cache; mismatch/error/missing-cache-dir all fall through to
+//        re-fetch.
+//     b. No prior revision (old lockfile schema) → re-fetch so the next
+//        lockfile captures the SHA.
+//  4. Fetcher does NOT implement RevisionResolver (legacy backend; today
+//     only the local scheme but kept defensively for future backends):
+//     a. Mutable ref (HEAD / empty) → re-fetch. This preserves the safety
+//        guarantee of the HEAD-bypass fix (6bed877) — without an SHA
+//        check, trusting the cache would silently hide upstream moves.
+//     b. Immutable-looking ref (everything else) → reuse cache by hash.
 func (r *Resolver) cachedDir(ctx context.Context, sourceRef model.SourceRef) (dir, hash, revision string, ok bool) {
 	if r.priorIndex == nil {
 		return "", "", "", false
@@ -113,28 +125,20 @@ func (r *Resolver) cachedDir(ctx context.Context, sourceRef model.SourceRef) (di
 		return "", "", "", false
 	}
 
-	// Mutable ref path: try the cheap SHA re-validation before trusting the
-	// cached archive. When that check succeeds we can keep the prior hash
-	// and skip a multi-MB tarball download.
-	if isMutableRef(sourceRef.Ref) {
+	// Preferred path: the fetcher can cheaply resolve the ref to a commit
+	// SHA, so trust the SHA instead of the ref's name to decide cache
+	// validity. This is the uniform path regardless of ref kind.
+	if rr, canResolve := r.fetcher.(RevisionResolver); canResolve {
 		if prior.revision == "" {
-			// Prior lockfile predates the revision field (or was produced by
-			// a resolver that couldn't record one). Fall back to the always-
-			// refetch behaviour that the HEAD-bypass fix installed.
-			return "", "", "", false
-		}
-		rr, canResolve := r.fetcher.(RevisionResolver)
-		if !canResolve {
-			// Fetcher doesn't know how to cheaply resolve refs (e.g. a legacy
-			// backend). Fall back to refetch.
+			// Old lockfile without the revision field — can't compare, so
+			// refetch to populate it. Next sync hits the fast path.
 			return "", "", "", false
 		}
 		currentSHA, err := rr.ResolveRevision(ctx, sourceRef)
 		if err != nil {
-			// Network hiccup, missing permissions, or the source simply
-			// doesn't support revision lookup (ErrRevisionUnsupported). Treat
-			// all of these as "cache invalid, re-fetch" — we'd rather eat a
-			// tarball download than silently serve stale content.
+			// Network hiccup, missing permissions, or ErrRevisionUnsupported.
+			// Prefer a tarball download over serving potentially stale
+			// content — correctness beats cache reuse on error paths.
 			return "", "", "", false
 		}
 		if currentSHA != prior.revision {
@@ -148,7 +152,15 @@ func (r *Resolver) cachedDir(ctx context.Context, sourceRef model.SourceRef) (di
 		return "", "", "", false
 	}
 
-	// Immutable ref — reuse the cache if the extracted dir is still there.
+	// Fallback path: fetcher can't resolve revisions. Preserve the post-
+	// 6bed877 safety for mutable refs (always refetch) and the original
+	// hash-based cache reuse for immutable refs. In practice today this
+	// branch is only reached by the local scheme, which we already short-
+	// circuited above, so this exists purely to keep future RevisionResolver-
+	// less backends safe.
+	if isMutableRef(sourceRef.Ref) {
+		return "", "", "", false
+	}
 	if d, cached := r.cache.Get(prior.hash); cached {
 		return d, prior.hash, prior.revision, true
 	}
@@ -156,27 +168,24 @@ func (r *Resolver) cachedDir(ctx context.Context, sourceRef model.SourceRef) (di
 }
 
 // isMutableRef reports whether a SourceRef's ref component names a moving
-// target (HEAD) rather than a pinned revision.
+// target (empty or literal HEAD) rather than a pinned-looking revision.
 //
-// Only the empty ref and the literal "HEAD" are treated as mutable here.
-// Branch names like "main" or "develop" are technically mutable too, but the
-// user typed them explicitly — treating every named ref as mutable would
-// defeat the cache for tag-based pinning, which is the common immutable case.
-// A follow-up could compare the branch tip SHA via a HEAD API call to get
-// both safety AND cache reuse for explicit branch refs, but the reported bug
-// is purely about the `ref: ""` default so this minimal guard closes it.
+// This is a name-based heuristic and is ONLY consulted in the fallback
+// path of cachedDir — when the fetcher can't resolve revisions. In the
+// preferred path we don't care about ref kinds at all because the commit
+// SHA is the source of truth. The function stays here for backends that
+// don't implement RevisionResolver yet.
 func isMutableRef(ref string) bool {
 	return ref == "" || ref == "HEAD"
 }
 
-// revisionForFetch captures the commit SHA for a freshly-fetched mutable-ref
-// source so the next resolve can cheap-check it. Returns "" silently for any
-// error or for immutable refs (where the lockfile Revision field is not
-// required for caching correctness).
+// revisionForFetch captures the commit SHA for a freshly-fetched remote
+// source so the next resolve can cheap-check it and reuse the cache when
+// upstream hasn't moved. Called for every remote ref — empty, HEAD, branch,
+// tag, or commit SHA — because the SHA check is now the uniform path.
+// Returns "" silently for local sources, fetchers without RevisionResolver,
+// and any ResolveRevision error.
 func (r *Resolver) revisionForFetch(ctx context.Context, sourceRef model.SourceRef) string {
-	if !isMutableRef(sourceRef.Ref) {
-		return ""
-	}
 	if sourceRef.Scheme == model.SchemeLocal {
 		return ""
 	}
