@@ -21,24 +21,27 @@ type Lockfile struct {
 // LockedPackage is a fully resolved package entry in the lockfile.
 type LockedPackage struct {
 	Source   SourceRef     `yaml:"source"`
-	Hash     string        `yaml:"hash"`     // SHA256 of fetched archive (e.g. "sha256:abc123...")
-	Contents []ContentItem `yaml:"contents"` // enumerated content after select filtering
+	Hash     string        `yaml:"hash"`               // SHA256 of fetched archive (e.g. "sha256:abc123...")
+	Revision string        `yaml:"revision,omitempty"` // commit SHA the ref pointed at when fetched; enables cheap re-validation of mutable refs (HEAD, branches) on the next resolve without redownloading the archive
+	Contents []ContentItem `yaml:"contents"`           // enumerated content after select filtering
 }
 
 // LockedMCP is a fully resolved MCP server definition in the lockfile.
 type LockedMCP struct {
-	Source SourceRef `yaml:"source"`
-	Hash   string    `yaml:"hash"`
-	Name   string    `yaml:"name"`
-	Dir    string    `yaml:"dir,omitempty"` // relative path to MCP definition file or directory within cached archive (empty = root)
+	Source   SourceRef `yaml:"source"`
+	Hash     string    `yaml:"hash"`
+	Revision string    `yaml:"revision,omitempty"` // see LockedPackage.Revision
+	Name     string    `yaml:"name"`
+	Dir      string    `yaml:"dir,omitempty"` // relative path to MCP definition file or directory within cached archive (empty = root)
 }
 
 // LockedWorkflow is a fully resolved workflow entry in the lockfile.
 type LockedWorkflow struct {
-	Source SourceRef `yaml:"source"`
-	Hash   string    `yaml:"hash"`
-	Name   string    `yaml:"name"`          // workflow name from workflow.yaml metadata.name
-	Dir    string    `yaml:"dir,omitempty"` // relative path to workflow root within the cached archive dir (empty = root)
+	Source   SourceRef `yaml:"source"`
+	Hash     string    `yaml:"hash"`
+	Revision string    `yaml:"revision,omitempty"` // see LockedPackage.Revision
+	Name     string    `yaml:"name"`               // workflow name from workflow.yaml metadata.name
+	Dir      string    `yaml:"dir,omitempty"`      // relative path to workflow root within the cached archive dir (empty = root)
 }
 
 // Validate checks that the Lockfile has all required fields and is consistent.

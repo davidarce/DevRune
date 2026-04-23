@@ -4,6 +4,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/davidarce/devrune/internal/model"
@@ -16,6 +17,17 @@ type fetcher interface {
 	Fetch(ctx context.Context, ref model.SourceRef) ([]byte, error)
 	Supports(scheme model.Scheme) bool
 }
+
+// revisionResolver mirrors resolve.RevisionResolver locally for the same
+// reason as `fetcher` above — no import cycle with the resolve package.
+type revisionResolver interface {
+	ResolveRevision(ctx context.Context, ref model.SourceRef) (string, error)
+}
+
+// ErrRevisionUnsupported mirrors resolve.ErrRevisionUnsupported so this
+// package can signal "no SHA check available" without depending on the
+// resolve package. Callers typically errors.Is against either sentinel.
+var ErrRevisionUnsupported = errors.New("cache: revision lookup not supported for this source")
 
 // MultiFetcher dispatches Fetch calls to the appropriate scheme-specific Fetcher.
 // It satisfies the resolve.Fetcher interface (structurally compatible) and acts
@@ -57,4 +69,23 @@ func (m *MultiFetcher) Fetch(ctx context.Context, ref model.SourceRef) ([]byte, 
 		return nil, fmt.Errorf("multi fetcher: no fetcher registered for scheme %q", ref.Scheme)
 	}
 	return f.Fetch(ctx, ref)
+}
+
+// ResolveRevision delegates to the scheme-specific fetcher when that fetcher
+// implements revisionResolver (GitHub, GitLab). Otherwise returns
+// ErrRevisionUnsupported so the caller knows to fall back to always-refetch
+// for mutable refs (LocalFetcher takes this path — no commit concept).
+//
+// This method also makes MultiFetcher structurally satisfy
+// resolve.RevisionResolver so the resolver can type-assert it.
+func (m *MultiFetcher) ResolveRevision(ctx context.Context, ref model.SourceRef) (string, error) {
+	f, ok := m.fetchers[ref.Scheme]
+	if !ok {
+		return "", fmt.Errorf("multi fetcher: no fetcher registered for scheme %q", ref.Scheme)
+	}
+	rr, ok := f.(revisionResolver)
+	if !ok {
+		return "", ErrRevisionUnsupported
+	}
+	return rr.ResolveRevision(ctx, ref)
 }
