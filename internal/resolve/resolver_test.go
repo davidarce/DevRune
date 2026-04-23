@@ -508,3 +508,154 @@ func TestResolver_InvalidWorkflowSourceRef(t *testing.T) {
 		t.Fatal("Resolve() expected error for invalid workflow source, got nil")
 	}
 }
+
+// countingFetcher wraps mockFetcher to count how many times Fetch is called
+// per CacheKey. Used by the mutable-ref cache-bypass regression test to
+// distinguish a cache hit (no additional fetch) from a cache miss that
+// re-hits the network.
+type countingFetcher struct {
+	inner mockFetcher
+	calls map[string]int
+}
+
+func (f *countingFetcher) Fetch(ctx context.Context, ref model.SourceRef) ([]byte, error) {
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls[ref.CacheKey()]++
+	return f.inner.Fetch(ctx, ref)
+}
+
+func (f *countingFetcher) Supports(scheme model.Scheme) bool { return f.inner.Supports(scheme) }
+
+// TestResolver_EmptyRefBypassesCache is the regression test for the silent
+// "sync doesn't pull upstream changes" bug reported against `devrune sync`.
+//
+// Scenario: the user pins a package with an empty ref (e.g.
+// `github:org/repo` without an `@ref` suffix), which resolves to the remote's
+// HEAD. On the first resolve the tarball is fetched, hashed, and cached. On
+// subsequent resolves, the prior lockfile carries that content hash under the
+// CacheKey `github:org/repo@` — if the resolver blindly trusts the CacheKey
+// mapping, upstream commits on the default branch are invisible because the
+// resolver never re-contacts the remote.
+//
+// The fix: empty-ref (and literal "HEAD") sources skip the cache shortcut,
+// forcing a fetch every resolve so the new content hash (and therefore the
+// new cached tree) lands in the updated lockfile. Pinned refs (tags, commit
+// SHAs, explicit branch names) are unaffected — they still reuse the cache.
+func TestResolver_EmptyRefBypassesCache(t *testing.T) {
+	t.Run("empty ref re-fetches even when prior lockfile has a hash", func(t *testing.T) {
+		archiveV1 := buildTarGz(t, "owner-repo-head-v1", map[string]string{
+			"skills/git-commit/SKILL.md": "# v1",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@": archiveV1,
+			}},
+		}
+		cache := newMockCacheStore(t)
+		r := NewResolver(f, cache, "")
+
+		// Seed a prior lockfile whose CacheKey matches an empty ref. If the
+		// resolver honours the cache shortcut for this (buggy) case it won't
+		// call Fetch; the counter proves it does.
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+					},
+					Hash: HashBytes(archiveV1),
+				},
+			},
+		})
+
+		manifest := buildMinimalManifest("github:owner/repo")
+		if _, err := r.Resolve(context.Background(), manifest); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@"]; got != 1 {
+			t.Errorf("Fetch called %d times for empty-ref source, want 1 (cache shortcut must NOT apply for mutable HEAD)", got)
+		}
+	})
+
+	t.Run("pinned tag reuses cache", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-v100", map[string]string{
+			"skills/git-commit/SKILL.md": "# pinned",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@v1.0.0": archive,
+			}},
+		}
+		cache := newMockCacheStore(t)
+
+		// Prime the cache so the prior-lockfile shortcut can fire.
+		if _, err := cache.Store("github:owner/repo@v1.0.0", archive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+						Ref:    "v1.0.0",
+					},
+					Hash: HashBytes(archive),
+				},
+			},
+		})
+
+		manifest := buildMinimalManifest("github:owner/repo@v1.0.0")
+		if _, err := r.Resolve(context.Background(), manifest); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@v1.0.0"]; got != 0 {
+			t.Errorf("Fetch called %d times for pinned tag, want 0 (cache shortcut must apply for immutable refs)", got)
+		}
+	})
+
+	t.Run("literal HEAD ref is treated as mutable", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-head-literal", map[string]string{
+			"skills/x/SKILL.md": "# head",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@HEAD": archive,
+			}},
+		}
+		cache := newMockCacheStore(t)
+		r := NewResolver(f, cache, "")
+
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+						Ref:    "HEAD",
+					},
+					Hash: HashBytes(archive),
+				},
+			},
+		})
+
+		manifest := buildMinimalManifest("github:owner/repo@HEAD")
+		if _, err := r.Resolve(context.Background(), manifest); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@HEAD"]; got != 1 {
+			t.Errorf("Fetch called %d times for literal HEAD ref, want 1 (HEAD is mutable)", got)
+		}
+	})
+}
