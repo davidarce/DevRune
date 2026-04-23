@@ -514,8 +514,11 @@ func TestResolver_InvalidWorkflowSourceRef(t *testing.T) {
 // distinguish a cache hit (no additional fetch) from a cache miss that
 // re-hits the network.
 type countingFetcher struct {
-	inner mockFetcher
-	calls map[string]int
+	inner         mockFetcher
+	calls         map[string]int
+	revisions     map[string]string // CacheKey → SHA to return from ResolveRevision
+	revisionCalls map[string]int    // CacheKey → ResolveRevision call count
+	revisionErr   error             // when non-nil, ResolveRevision fails
 }
 
 func (f *countingFetcher) Fetch(ctx context.Context, ref model.SourceRef) ([]byte, error) {
@@ -527,6 +530,42 @@ func (f *countingFetcher) Fetch(ctx context.Context, ref model.SourceRef) ([]byt
 }
 
 func (f *countingFetcher) Supports(scheme model.Scheme) bool { return f.inner.Supports(scheme) }
+
+// ResolveRevision satisfies RevisionResolver so countingFetcher can drive the
+// SHA-check path. Tests that want to simulate a fetcher WITHOUT revision
+// support should use plainFetcher (below) instead.
+func (f *countingFetcher) ResolveRevision(_ context.Context, ref model.SourceRef) (string, error) {
+	if f.revisionCalls == nil {
+		f.revisionCalls = map[string]int{}
+	}
+	f.revisionCalls[ref.CacheKey()]++
+	if f.revisionErr != nil {
+		return "", f.revisionErr
+	}
+	sha, ok := f.revisions[ref.CacheKey()]
+	if !ok {
+		return "", fmt.Errorf("counting fetcher: no revision for %q", ref.CacheKey())
+	}
+	return sha, nil
+}
+
+// plainFetcher is a Fetcher that deliberately does NOT implement
+// RevisionResolver. Used to verify the fallback path (re-fetch mutable refs
+// when the fetcher can't cheap-check the SHA).
+type plainFetcher struct {
+	inner mockFetcher
+	calls map[string]int
+}
+
+func (f *plainFetcher) Fetch(ctx context.Context, ref model.SourceRef) ([]byte, error) {
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls[ref.CacheKey()]++
+	return f.inner.Fetch(ctx, ref)
+}
+
+func (f *plainFetcher) Supports(scheme model.Scheme) bool { return f.inner.Supports(scheme) }
 
 // TestResolver_EmptyRefBypassesCache is the regression test for the silent
 // "sync doesn't pull upstream changes" bug reported against `devrune sync`.
@@ -656,6 +695,283 @@ func TestResolver_EmptyRefBypassesCache(t *testing.T) {
 		}
 		if got := f.calls["github:owner/repo@HEAD"]; got != 1 {
 			t.Errorf("Fetch called %d times for literal HEAD ref, want 1 (HEAD is mutable)", got)
+		}
+	})
+}
+
+// TestResolver_MutableRefSHARevalidation covers the SHA-check optimisation
+// that avoids downloading the full tarball on every sync when the upstream
+// default branch hasn't moved. The previous mutable-ref bypass always
+// re-fetched; this path keeps correctness while restoring cache reuse.
+func TestResolver_MutableRefSHARevalidation(t *testing.T) {
+	t.Run("matching SHA keeps cache (no Fetch, one ResolveRevision)", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-head", map[string]string{
+			"skills/git-commit/SKILL.md": "# cached content",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@": archive,
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@": "abc123def456",
+			},
+		}
+		cache := newMockCacheStore(t)
+
+		// Seed the cache so a hit can actually find the extracted dir.
+		if _, err := cache.Store("github:owner/repo@", archive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+					},
+					Hash:     HashBytes(archive),
+					Revision: "abc123def456",
+				},
+			},
+		})
+
+		lf, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo"))
+		if err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@"]; got != 0 {
+			t.Errorf("Fetch calls = %d, want 0 (SHA matched, cache reused)", got)
+		}
+		if got := f.revisionCalls["github:owner/repo@"]; got != 1 {
+			t.Errorf("ResolveRevision calls = %d, want 1 (one cheap HEAD check)", got)
+		}
+		if len(lf.Packages) != 1 {
+			t.Fatalf("packages = %d, want 1", len(lf.Packages))
+		}
+		if lf.Packages[0].Revision != "abc123def456" {
+			t.Errorf("Revision = %q, want %q (preserved from prior lockfile)", lf.Packages[0].Revision, "abc123def456")
+		}
+	})
+
+	t.Run("mismatched SHA forces re-fetch and records new revision", func(t *testing.T) {
+		oldArchive := buildTarGz(t, "owner-repo-old", map[string]string{
+			"skills/x/SKILL.md": "# old",
+		})
+		newArchive := buildTarGz(t, "owner-repo-new", map[string]string{
+			"skills/x/SKILL.md": "# new",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@": newArchive, // upstream moved
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@": "newsha00000", // remote HEAD points here now
+			},
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@", oldArchive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+					},
+					Hash:     HashBytes(oldArchive),
+					Revision: "oldsha00000",
+				},
+			},
+		})
+
+		lf, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo"))
+		if err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (SHA changed, tarball re-fetched)", got)
+		}
+		if lf.Packages[0].Hash != HashBytes(newArchive) {
+			t.Errorf("Hash = %q, want new archive hash (upstream moved)", lf.Packages[0].Hash)
+		}
+		if lf.Packages[0].Revision != "newsha00000" {
+			t.Errorf("Revision = %q, want %q (new SHA recorded)", lf.Packages[0].Revision, "newsha00000")
+		}
+	})
+
+	t.Run("missing prior revision falls back to re-fetch (backward compat with pre-revision lockfiles)", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-migrate", map[string]string{
+			"skills/x/SKILL.md": "# content",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@": archive,
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@": "firstsha00000",
+			},
+		}
+		cache := newMockCacheStore(t)
+		r := NewResolver(f, cache, "")
+
+		// Prior lockfile entry exists but has no Revision (old schema).
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+					},
+					Hash: HashBytes(archive),
+					// Revision intentionally empty
+				},
+			},
+		})
+
+		lf, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo"))
+		if err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (no prior revision → refetch)", got)
+		}
+		if got := f.revisionCalls["github:owner/repo@"]; got != 1 {
+			t.Errorf("ResolveRevision calls = %d, want 1 (post-fetch capture)", got)
+		}
+		if lf.Packages[0].Revision != "firstsha00000" {
+			t.Errorf("Revision = %q, want %q (recorded for next sync)", lf.Packages[0].Revision, "firstsha00000")
+		}
+	})
+
+	t.Run("fetcher without RevisionResolver falls back to re-fetch", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-plain", map[string]string{
+			"skills/x/SKILL.md": "# content",
+		})
+
+		f := &plainFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@": archive,
+			}},
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@", archive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+					},
+					Hash:     HashBytes(archive),
+					Revision: "somesha00000",
+				},
+			},
+		})
+
+		if _, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo")); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (no RevisionResolver → always refetch for mutable refs)", got)
+		}
+	})
+
+	t.Run("ResolveRevision error falls back to re-fetch", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-shaerr", map[string]string{
+			"skills/x/SKILL.md": "# content",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@": archive,
+			}},
+			revisionErr: fmt.Errorf("simulated network failure"),
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@", archive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+					},
+					Hash:     HashBytes(archive),
+					Revision: "somesha00000",
+				},
+			},
+		})
+
+		if _, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo")); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@"]; got != 1 {
+			t.Errorf("Fetch calls = %d, want 1 (revision lookup errored → refetch, not stale cache)", got)
+		}
+	})
+
+	t.Run("pinned tag does not trigger any ResolveRevision call", func(t *testing.T) {
+		archive := buildTarGz(t, "owner-repo-v1", map[string]string{
+			"skills/x/SKILL.md": "# content",
+		})
+
+		f := &countingFetcher{
+			inner: mockFetcher{archives: map[string][]byte{
+				"github:owner/repo@v1.0.0": archive,
+			}},
+			revisions: map[string]string{
+				"github:owner/repo@v1.0.0": "tagsha",
+			},
+		}
+		cache := newMockCacheStore(t)
+		if _, err := cache.Store("github:owner/repo@v1.0.0", archive); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+
+		r := NewResolver(f, cache, "")
+		r.SetPriorLockfile(model.Lockfile{
+			Packages: []model.LockedPackage{
+				{
+					Source: model.SourceRef{
+						Scheme: model.SchemeGitHub,
+						Owner:  "owner",
+						Repo:   "repo",
+						Ref:    "v1.0.0",
+					},
+					Hash: HashBytes(archive),
+				},
+			},
+		})
+
+		if _, err := r.Resolve(context.Background(), buildMinimalManifest("github:owner/repo@v1.0.0")); err != nil {
+			t.Fatalf("Resolve() error = %v, want nil", err)
+		}
+		if got := f.calls["github:owner/repo@v1.0.0"]; got != 0 {
+			t.Errorf("Fetch calls = %d, want 0 (pinned tag is immutable)", got)
+		}
+		if got := f.revisionCalls["github:owner/repo@v1.0.0"]; got != 0 {
+			t.Errorf("ResolveRevision calls = %d, want 0 (pinned tag doesn't need SHA check)", got)
 		}
 	})
 }

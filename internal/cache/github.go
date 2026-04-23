@@ -3,6 +3,7 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -32,6 +33,61 @@ func NewGitHubFetcher(token string) *GitHubFetcher {
 // Supports reports whether this fetcher handles the given scheme.
 func (f *GitHubFetcher) Supports(scheme model.Scheme) bool {
 	return scheme == model.SchemeGitHub
+}
+
+// ResolveRevision returns the commit SHA the given ref currently points at.
+// It issues a lightweight `GET /repos/{owner}/{repo}/commits/{ref}` request
+// with the `application/vnd.github.sha` media type — the server responds
+// with the 40-hex-char SHA as plain text, so the response payload is tiny
+// (~40 bytes) and the whole round-trip is typically sub-100ms. Used by the
+// resolver to re-validate cached tarballs for mutable refs (HEAD, branches)
+// without re-downloading the full archive.
+func (f *GitHubFetcher) ResolveRevision(ctx context.Context, ref model.SourceRef) (string, error) {
+	if ref.Scheme != model.SchemeGitHub {
+		return "", fmt.Errorf("github fetcher: unsupported scheme %q", ref.Scheme)
+	}
+
+	gitRef := ref.Ref
+	if gitRef == "" {
+		gitRef = "HEAD"
+	}
+
+	url := fmt.Sprintf(
+		"https://api.github.com/repos/%s/%s/commits/%s",
+		ref.Owner, ref.Repo, gitRef,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("github fetcher: build revision request for %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.github.sha")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if f.token != "" {
+		req.Header.Set("Authorization", "Bearer "+f.token)
+	}
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github fetcher: resolve revision for %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("github fetcher: resolve revision for %s/%s@%s: server returned %d", ref.Owner, ref.Repo, gitRef, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("github fetcher: read revision body for %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
+	}
+
+	sha := string(bytes.TrimSpace(body))
+	if sha == "" {
+		return "", fmt.Errorf("github fetcher: empty revision for %s/%s@%s", ref.Owner, ref.Repo, gitRef)
+	}
+	return sha, nil
 }
 
 // Fetch downloads the tarball for the given SourceRef from the GitHub API.

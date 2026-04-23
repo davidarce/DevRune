@@ -36,8 +36,16 @@ type CacheStore interface {
 type Resolver struct {
 	fetcher    Fetcher
 	cache      CacheStore
-	baseDir    string            // directory containing devrune.yaml
-	priorIndex map[string]string // CacheKey → content hash from prior lockfile
+	baseDir    string                // directory containing devrune.yaml
+	priorIndex map[string]priorEntry // CacheKey → prior content hash + revision
+}
+
+// priorEntry carries the two values we need from a prior lockfile row for
+// cache decisions: the content hash (cache dir key) and the commit SHA the
+// ref pointed at last time (mutable-ref re-validation).
+type priorEntry struct {
+	hash     string
+	revision string
 }
 
 // NewResolver creates a Resolver that uses the given fetcher and cache.
@@ -55,59 +63,96 @@ func NewResolver(fetcher Fetcher, cache CacheStore, baseDir string) *Resolver {
 // can skip network fetches for packages whose content hash is already cached.
 // Local sources are excluded — their content may have changed on disk.
 func (r *Resolver) SetPriorLockfile(lf model.Lockfile) {
-	idx := make(map[string]string)
+	idx := make(map[string]priorEntry)
 	for _, pkg := range lf.Packages {
 		if pkg.Source.Scheme != model.SchemeLocal && pkg.Hash != "" {
-			idx[pkg.Source.CacheKey()] = pkg.Hash
+			idx[pkg.Source.CacheKey()] = priorEntry{hash: pkg.Hash, revision: pkg.Revision}
 		}
 	}
 	for _, mcp := range lf.MCPs {
 		if mcp.Source.Scheme != model.SchemeLocal && mcp.Hash != "" {
-			idx[mcp.Source.CacheKey()] = mcp.Hash
+			idx[mcp.Source.CacheKey()] = priorEntry{hash: mcp.Hash, revision: mcp.Revision}
 		}
 	}
 	for _, wf := range lf.Workflows {
 		if wf.Source.Scheme != model.SchemeLocal && wf.Hash != "" {
-			idx[wf.Source.CacheKey()] = wf.Hash
+			idx[wf.Source.CacheKey()] = priorEntry{hash: wf.Hash, revision: wf.Revision}
 		}
 	}
 	r.priorIndex = idx
 }
 
-// cachedDir checks if a remote source is already cached via the prior lockfile index.
-// Returns the cached directory path and content hash if found, or empty strings if
-// the source must be fetched from the network.
+// cachedDir decides whether a remote source can reuse its prior-lockfile
+// cache entry. Returns the cached directory, content hash and the commit
+// SHA that was recorded for it (empty when the prior lockfile predates the
+// revision field) when the cache is valid. Returns ok=false when the caller
+// must re-fetch from the network.
 //
-// Mutable refs bypass the cache so a `devrune sync` picks up upstream changes:
-// an empty ref (implicit HEAD) or the literal "HEAD" both track whatever the
-// default branch points at right now, so reusing a prior content hash would
-// silently hide new commits. Immutable refs (tags, full commit SHAs, explicitly
-// named branches) still reuse the cache — the user opted in by pinning.
-func (r *Resolver) cachedDir(sourceRef model.SourceRef) (dir, hash string, ok bool) {
+// Cache decision matrix:
+//
+//  1. No prior index, or local scheme → always re-fetch.
+//  2. No prior entry for this CacheKey → always re-fetch (first resolve).
+//  3. Immutable ref (pinned tag, commit SHA, explicit branch name) → reuse
+//     cache if the content hash is still materialised.
+//  4. Mutable ref (empty or literal HEAD):
+//     a. Prior lockfile has a recorded revision AND the fetcher supports
+//        RevisionResolver → cheap GET to compare SHAs. Match reuses the
+//        cache; mismatch or lookup failure falls through to re-fetch.
+//     b. No prior revision, or fetcher can't resolve revisions → re-fetch
+//        (the safe fallback established by the HEAD-bypass fix).
+func (r *Resolver) cachedDir(ctx context.Context, sourceRef model.SourceRef) (dir, hash, revision string, ok bool) {
 	if r.priorIndex == nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	// Local sources always re-fetch (content may change on disk).
 	if sourceRef.Scheme == model.SchemeLocal {
-		return "", "", false
+		return "", "", "", false
 	}
-	// Mutable ref (HEAD) always re-fetches — the bug this guards against:
-	// first resolve cached the tarball, subsequent `devrune sync` runs saw
-	// the ref unchanged (still empty), the CacheKey matched the prior hash,
-	// and we reused the cache without ever re-contacting the remote. Upstream
-	// merges were invisible until the user deleted `~/Library/Caches/devrune/
-	// packages/<hash>/` by hand.
-	if isMutableRef(sourceRef.Ref) {
-		return "", "", false
-	}
-	priorHash, exists := r.priorIndex[sourceRef.CacheKey()]
+	prior, exists := r.priorIndex[sourceRef.CacheKey()]
 	if !exists {
-		return "", "", false
+		return "", "", "", false
 	}
-	if d, cached := r.cache.Get(priorHash); cached {
-		return d, priorHash, true
+
+	// Mutable ref path: try the cheap SHA re-validation before trusting the
+	// cached archive. When that check succeeds we can keep the prior hash
+	// and skip a multi-MB tarball download.
+	if isMutableRef(sourceRef.Ref) {
+		if prior.revision == "" {
+			// Prior lockfile predates the revision field (or was produced by
+			// a resolver that couldn't record one). Fall back to the always-
+			// refetch behaviour that the HEAD-bypass fix installed.
+			return "", "", "", false
+		}
+		rr, canResolve := r.fetcher.(RevisionResolver)
+		if !canResolve {
+			// Fetcher doesn't know how to cheaply resolve refs (e.g. a legacy
+			// backend). Fall back to refetch.
+			return "", "", "", false
+		}
+		currentSHA, err := rr.ResolveRevision(ctx, sourceRef)
+		if err != nil {
+			// Network hiccup, missing permissions, or the source simply
+			// doesn't support revision lookup (ErrRevisionUnsupported). Treat
+			// all of these as "cache invalid, re-fetch" — we'd rather eat a
+			// tarball download than silently serve stale content.
+			return "", "", "", false
+		}
+		if currentSHA != prior.revision {
+			// Upstream moved — let the caller refetch and record the new SHA.
+			return "", "", "", false
+		}
+		if d, cached := r.cache.Get(prior.hash); cached {
+			return d, prior.hash, prior.revision, true
+		}
+		// SHA matched but the cache dir was pruned — re-fetch to repopulate.
+		return "", "", "", false
 	}
-	return "", "", false
+
+	// Immutable ref — reuse the cache if the extracted dir is still there.
+	if d, cached := r.cache.Get(prior.hash); cached {
+		return d, prior.hash, prior.revision, true
+	}
+	return "", "", "", false
 }
 
 // isMutableRef reports whether a SourceRef's ref component names a moving
@@ -122,6 +167,28 @@ func (r *Resolver) cachedDir(sourceRef model.SourceRef) (dir, hash string, ok bo
 // is purely about the `ref: ""` default so this minimal guard closes it.
 func isMutableRef(ref string) bool {
 	return ref == "" || ref == "HEAD"
+}
+
+// revisionForFetch captures the commit SHA for a freshly-fetched mutable-ref
+// source so the next resolve can cheap-check it. Returns "" silently for any
+// error or for immutable refs (where the lockfile Revision field is not
+// required for caching correctness).
+func (r *Resolver) revisionForFetch(ctx context.Context, sourceRef model.SourceRef) string {
+	if !isMutableRef(sourceRef.Ref) {
+		return ""
+	}
+	if sourceRef.Scheme == model.SchemeLocal {
+		return ""
+	}
+	rr, ok := r.fetcher.(RevisionResolver)
+	if !ok {
+		return ""
+	}
+	sha, err := rr.ResolveRevision(ctx, sourceRef)
+	if err != nil {
+		return ""
+	}
+	return sha
 }
 
 // Resolve processes a UserManifest and produces a Lockfile.
@@ -204,11 +271,11 @@ func (r *Resolver) resolvePackage(ctx context.Context, pkg model.PackageRef) (mo
 		return model.LockedPackage{}, fmt.Errorf("resolve: package %q: parse source ref: %w", pkg.Source, err)
 	}
 
-	var dir, hash string
+	var dir, hash, revision string
 
 	// Cache-first: check if the prior lockfile has a cached hash for this source.
-	if d, h, ok := r.cachedDir(sourceRef); ok {
-		dir, hash = d, h
+	if d, h, rev, ok := r.cachedDir(ctx, sourceRef); ok {
+		dir, hash, revision = d, h, rev
 	} else {
 		data, err := r.fetcher.Fetch(ctx, sourceRef)
 		if err != nil {
@@ -219,6 +286,7 @@ func (r *Resolver) resolvePackage(ctx context.Context, pkg model.PackageRef) (mo
 		if err != nil {
 			return model.LockedPackage{}, fmt.Errorf("resolve: package %q: cache: %w", pkg.Source, err)
 		}
+		revision = r.revisionForFetch(ctx, sourceRef)
 	}
 
 	allItems, err := EnumerateContents(dir)
@@ -231,6 +299,7 @@ func (r *Resolver) resolvePackage(ctx context.Context, pkg model.PackageRef) (mo
 	return model.LockedPackage{
 		Source:   sourceRef,
 		Hash:     hash,
+		Revision: revision,
 		Contents: filtered,
 	}, nil
 }
@@ -270,11 +339,12 @@ func (r *Resolver) resolveMCP(ctx context.Context, mcp model.MCPRef) (model.Lock
 		return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: parse source ref: %w", mcp.Source, err)
 	}
 
-	var hash string
+	var hash, revision string
 
-	if d, h, ok := r.cachedDir(sourceRef); ok {
+	if d, h, rev, ok := r.cachedDir(ctx, sourceRef); ok {
 		_ = d // MCP doesn't use dir directly
 		hash = h
+		revision = rev
 	} else {
 		data, err := r.fetcher.Fetch(ctx, sourceRef)
 		if err != nil {
@@ -284,16 +354,18 @@ func (r *Resolver) resolveMCP(ctx context.Context, mcp model.MCPRef) (model.Lock
 			return model.LockedMCP{}, fmt.Errorf("resolve: mcp %q: cache: %w", mcp.Source, err)
 		}
 		hash = HashBytes(data)
+		revision = r.revisionForFetch(ctx, sourceRef)
 	}
 
 	name := mcpName(sourceRef)
 	dir := mcpDir(sourceRef)
 
 	return model.LockedMCP{
-		Source: sourceRef,
-		Hash:   hash,
-		Name:   name,
-		Dir:    dir,
+		Source:   sourceRef,
+		Hash:     hash,
+		Revision: revision,
+		Name:     name,
+		Dir:      dir,
 	}, nil
 }
 
@@ -343,11 +415,12 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 	}
 
 	var data []byte
-	var hash string
+	var hash, revision string
 
-	if d, h, ok := r.cachedDir(sourceRef); ok {
+	if d, h, rev, ok := r.cachedDir(ctx, sourceRef); ok {
 		_ = d
 		hash = h
+		revision = rev
 		// Still need data to parse workflow.yaml — read from cache dir.
 		// Re-fetch from cache store is not possible since we only store extracted dirs.
 		// Fall through to fetch path to get raw data for parsing.
@@ -365,6 +438,7 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 		if _, err := r.cache.Store(sourceRef.CacheKey(), data); err != nil {
 			return model.LockedWorkflow{}, fmt.Errorf("resolve: workflow %q: cache: %w", wfSource, err)
 		}
+		revision = r.revisionForFetch(ctx, sourceRef)
 	}
 
 	// Parse workflow.yaml — try from cache dir first (faster), fall back to archive data.
@@ -402,10 +476,11 @@ func (r *Resolver) resolveWorkflow(ctx context.Context, wfSource string) (model.
 	}
 
 	return model.LockedWorkflow{
-		Source: sourceRef,
-		Hash:   hash,
-		Name:   wfManifest.Metadata.Name,
-		Dir:    wfDir,
+		Source:   sourceRef,
+		Hash:     hash,
+		Revision: revision,
+		Name:     wfManifest.Metadata.Name,
+		Dir:      wfDir,
 	}, nil
 }
 

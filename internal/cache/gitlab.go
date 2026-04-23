@@ -4,6 +4,7 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +38,61 @@ func NewGitLabFetcher(token string) *GitLabFetcher {
 // Supports reports whether this fetcher handles the given scheme.
 func (f *GitLabFetcher) Supports(scheme model.Scheme) bool {
 	return scheme == model.SchemeGitLab
+}
+
+// ResolveRevision returns the commit SHA the given ref currently points at.
+// Issues `GET /api/v4/projects/{id}/repository/commits/{ref}` and parses the
+// `id` field from the JSON response. See GitHubFetcher.ResolveRevision for
+// the motivation.
+func (f *GitLabFetcher) ResolveRevision(ctx context.Context, ref model.SourceRef) (string, error) {
+	if ref.Scheme != model.SchemeGitLab {
+		return "", fmt.Errorf("gitlab fetcher: unsupported scheme %q", ref.Scheme)
+	}
+
+	host := ref.Host
+	if host == "" {
+		host = "gitlab.com"
+	}
+
+	gitRef := ref.Ref
+	if gitRef == "" {
+		gitRef = "HEAD"
+	}
+
+	projectPath := url.PathEscape(ref.Owner + "/" + ref.Repo)
+	rawURL := fmt.Sprintf(
+		"https://%s/api/v4/projects/%s/repository/commits/%s",
+		host, projectPath, url.PathEscape(gitRef),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("gitlab fetcher: build revision request for %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
+	}
+	if f.token != "" {
+		req.Header.Set("PRIVATE-TOKEN", f.token)
+	}
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("gitlab fetcher: resolve revision for %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("gitlab fetcher: resolve revision for %s/%s@%s: server returned %d", ref.Owner, ref.Repo, gitRef, resp.StatusCode)
+	}
+
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", fmt.Errorf("gitlab fetcher: decode revision response for %s/%s@%s: %w", ref.Owner, ref.Repo, gitRef, err)
+	}
+	if payload.ID == "" {
+		return "", fmt.Errorf("gitlab fetcher: empty revision for %s/%s@%s", ref.Owner, ref.Repo, gitRef)
+	}
+	return payload.ID, nil
 }
 
 // Fetch downloads the tar.gz archive for the given SourceRef from the GitLab API.
