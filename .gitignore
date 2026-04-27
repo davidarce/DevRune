@@ -46,3 +46,10 @@ internal/materialize/.gitignore
 internal/materialize/.mcp.json
 
 .SDD (Spec-Driven Development)/
+
+# >>> devrune managed — do not edit
+.devrune/
+.claude/
+.mcp.json
+.sdd/
+# <<< devrune managed

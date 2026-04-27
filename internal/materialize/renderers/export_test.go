@@ -44,3 +44,7 @@ var TransformBodyForCopilot = transformBodyForCopilot
 
 // DeepMergeJSON re-exports deepMergeJSON for use by external test packages.
 var DeepMergeJSON = deepMergeJSON
+
+// CopyDirRecursiveStripVariant re-exports copyDirRecursiveStripVariant for use
+// by external test packages (package renderers_test).
+var CopyDirRecursiveStripVariant = copyDirRecursiveStripVariant

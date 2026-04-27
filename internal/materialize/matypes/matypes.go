@@ -36,3 +36,17 @@ type AgentPaths struct {
 type WorkflowInstallResult struct {
 	ManagedPaths []string
 }
+
+// AdvisorRenderResult carries the outcome of a RegenerateAdvisorFiles call.
+// Using a typed struct (rather than multiple return values) makes call sites
+// more readable and aligns with the AdvisorsSyncResult style used by the CLI
+// sync helper.
+type AdvisorRenderResult struct {
+	// Written contains the absolute paths of agent files that were created or
+	// updated during the call.
+	Written []string
+
+	// Deleted contains the absolute paths of agent files that were removed
+	// during the call.
+	Deleted []string
+}

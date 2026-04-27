@@ -11,6 +11,64 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Local test builder (Mother pattern)
+// ─────────────────────────────────────────────────────────────────────────────
+// anAdvisorDef returns an AdvisorDef pre-populated with safe defaults.
+// The cli package has the full Mother builder; this local variant exists so
+// package-internal tests (package model) can construct fixtures without
+// importing cli (which would create a circular dependency).
+//
+// Default values:
+//
+//	Name:        "test-advisor"
+//	SkillSource: "./testdata/test-advisor"
+//	Scope:       nil (universal)
+//	Origin:      AdvisorOriginLocal
+type advisorDefFixture struct {
+	def AdvisorDef
+}
+
+func anAdvisorDef() *advisorDefFixture {
+	return &advisorDefFixture{
+		def: AdvisorDef{
+			Name:        "test-advisor",
+			SkillSource: "./testdata/test-advisor",
+			Origin:      AdvisorOriginLocal,
+		},
+	}
+}
+
+func (f *advisorDefFixture) named(name string) *advisorDefFixture {
+	f.def.Name = name
+	return f
+}
+
+// withScope sets Scope to the provided tags (variadic).
+// Passing no arguments sets Scope to nil (universal — applies to every project).
+func (f *advisorDefFixture) withScope(scope ...string) *advisorDefFixture {
+	if len(scope) == 0 {
+		f.def.Scope = nil
+		return f
+	}
+	f.def.Scope = append([]string{}, scope...)
+	return f
+}
+
+func (f *advisorDefFixture) withSkillSource(p string) *advisorDefFixture {
+	f.def.SkillSource = p
+	return f
+}
+
+func (f *advisorDefFixture) withOrigin(o AdvisorOrigin) *advisorDefFixture {
+	f.def.Origin = o
+	return f
+}
+
+func (f *advisorDefFixture) build() AdvisorDef {
+	return f.def
+}
+
 // TestUserManifest_Validate tests the Validate method on UserManifest.
 func TestUserManifest_Validate(t *testing.T) {
 	tests := []struct {
@@ -664,4 +722,743 @@ func containsString(s, substr string) bool {
 			}
 			return false
 		}())
+}
+
+// ---------------------------------------------------------------------------
+// AdvisorDef.Validate
+// ---------------------------------------------------------------------------
+
+// TestAdvisorDef_Validate_HappyPath covers baseline valid AdvisorDef values.
+func TestAdvisorDef_Validate_HappyPath(t *testing.T) {
+	tests := []struct {
+		name string
+		def  AdvisorDef
+	}{
+		{
+			name: "shouldAcceptWhenAllFieldsValid",
+			def: anAdvisorDef().
+				named("security-advisor").
+				withSkillSource("/abs/path/to/skill").
+				withScope("security").
+				withOrigin(AdvisorOriginLocal).
+				build(),
+		},
+		{
+			name: "shouldAcceptWhenScopeIsEmpty",
+			def: anAdvisorDef().
+				named("security-advisor").
+				withSkillSource("/abs/path/to/skill").
+				build(),
+		},
+		{
+			name: "shouldAcceptWhenOriginIsEmpty",
+			def: anAdvisorDef().
+				named("security-advisor").
+				withSkillSource("/abs/path/to/skill").
+				withScope("backend").
+				build(),
+		},
+		{
+			name: "shouldAcceptWhenScopeIsFrontend",
+			def: anAdvisorDef().
+				named("ui-advisor").
+				withSkillSource("./relative/path").
+				withScope("frontend").
+				build(),
+		},
+		{
+			name: "shouldAcceptWhenScopeIsBackend",
+			def: anAdvisorDef().
+				named("db-advisor").
+				withSkillSource("./path").
+				withScope("backend").
+				build(),
+		},
+		{
+			name: "shouldAcceptWhenOriginIsCatalog",
+			def: anAdvisorDef().
+				named("perf-advisor").
+				withSkillSource("github:acme/advisor-catalog").
+				withOrigin(AdvisorOriginCatalog).
+				build(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.def.Validate(); err != nil {
+				t.Errorf("Validate() returned unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestAdvisorDef_Validate_InvalidName covers name validation rejections.
+func TestAdvisorDef_Validate_InvalidName(t *testing.T) {
+	tests := []struct {
+		name    string
+		def     AdvisorDef
+		wantMsg string
+	}{
+		{
+			name:    "shouldRejectWhenNameIsEmpty",
+			def:     AdvisorDef{Name: "", SkillSource: "/some/path"},
+			wantMsg: "name must not be empty",
+		},
+		{
+			name:    "shouldRejectWhenNameMissingSuffix",
+			def:     AdvisorDef{Name: "foo", SkillSource: "/some/path"},
+			wantMsg: `must end in "-advisor"`,
+		},
+		{
+			name:    "shouldRejectWhenNameIsBareAdvisorSuffix",
+			def:     AdvisorDef{Name: "-advisor", SkillSource: "/some/path"},
+			wantMsg: `must end in "-advisor"`,
+		},
+		{
+			name:    "shouldRejectWhenNameHasUppercaseSuffix",
+			def:     AdvisorDef{Name: "security-Advisor", SkillSource: "/some/path"},
+			wantMsg: `must end in "-advisor"`,
+		},
+		{
+			name:    "shouldRejectWhenNameHasTrailingWhitespace",
+			def:     AdvisorDef{Name: "my-advisor ", SkillSource: "/some/path"},
+			wantMsg: `must end in "-advisor"`,
+		},
+		{
+			name:    "shouldRejectWhenNameHasLeadingWhitespace",
+			def:     AdvisorDef{Name: " my-advisor", SkillSource: "/some/path"},
+			wantMsg: `must end in "-advisor"`,
+		},
+		{
+			name:    "shouldRejectWhenNameUsesLegacyAdviserSuffix",
+			def:     AdvisorDef{Name: "security-adviser", SkillSource: "/some/path"},
+			wantMsg: `must end in "-advisor"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.def.Validate()
+			if err == nil {
+				t.Errorf("Validate() returned nil, want error containing %q", tt.wantMsg)
+				return
+			}
+			if !containsString(err.Error(), tt.wantMsg) {
+				t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.wantMsg)
+			}
+		})
+	}
+}
+
+// TestAdvisorDef_Validate_InvalidSkillSource covers SkillSource validation rejections.
+func TestAdvisorDef_Validate_InvalidSkillSource(t *testing.T) {
+	tests := []struct {
+		name    string
+		def     AdvisorDef
+		wantMsg string
+	}{
+		{
+			name:    "shouldRejectWhenSkillSourceIsEmpty",
+			def:     AdvisorDef{Name: "security-advisor", SkillSource: ""},
+			wantMsg: "skillSource must not be empty",
+		},
+		{
+			name:    "shouldRejectWhenSkillSourceIsWhitespaceOnly",
+			def:     AdvisorDef{Name: "security-advisor", SkillSource: "   "},
+			wantMsg: "skillSource must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.def.Validate()
+			if err == nil {
+				t.Errorf("Validate() returned nil, want error containing %q", tt.wantMsg)
+				return
+			}
+			if !containsString(err.Error(), tt.wantMsg) {
+				t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.wantMsg)
+			}
+		})
+	}
+}
+
+// TestAdvisorDefValidate_NoScopeChecks asserts that Validate is a no-op for
+// scope content. Vocabulary checking and deduplication happen in
+// NormalizeAdvisorScope at the loader boundary — Validate trusts that the scope
+// has already been normalized and never inspects its vocabulary.
+func TestAdvisorDefValidate_NoScopeChecks(t *testing.T) {
+	tests := []struct {
+		name    string
+		def     AdvisorDef
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			// nil scope (universal) — Validate does not care.
+			name:    "nilScope",
+			def:     anAdvisorDef().named("test-advisor").withScope().build(),
+			wantErr: false,
+		},
+		{
+			// Valid scope tag — Validate still doesn't inspect it.
+			name:    "validScope",
+			def:     anAdvisorDef().named("test-advisor").withScope("backend").build(),
+			wantErr: false,
+		},
+		{
+			// Unknown scope tag: Validate must NOT reject it. Responsibility lies
+			// with NormalizeAdvisorScope; the scope seen here is whatever the loader
+			// produced. Validate trusts the loader boundary.
+			name:    "unknownScopeStillPassesValidate",
+			def:     anAdvisorDef().named("test-advisor").withScope("foo").build(),
+			wantErr: false,
+		},
+		{
+			// Invalid name + valid scope — name error must still surface.
+			name:    "invalidNameWithValidScope",
+			def:     anAdvisorDef().named("not-ending-correctly").withScope("backend").build(),
+			wantErr: true,
+			errMsg:  `must end in "-advisor"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.def.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errMsg != "" && err != nil {
+				if !containsString(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NormalizeAdvisorScope
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNormalizeAdvisorScope is the table-driven heart of the soft-fallback
+// contract. Unknown values and non-canonical forms are silently dropped;
+// empty-after-normalization means universal (nil return, not empty slice).
+func TestNormalizeAdvisorScope(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		// ── nil / empty input ──────────────────────────────────────────────────
+		{
+			name: "nilInput",
+			in:   nil,
+			want: nil, // universal
+		},
+		{
+			name: "emptySliceInput",
+			in:   []string{},
+			want: nil, // universal; never returns empty non-nil slice
+		},
+		// ── single valid ───────────────────────────────────────────────────────
+		{
+			name: "singleValid",
+			in:   []string{"backend"},
+			want: []string{"backend"},
+		},
+		// ── multiple valid ─────────────────────────────────────────────────────
+		{
+			name: "multipleValid",
+			in:   []string{"frontend", "testing"},
+			want: []string{"frontend", "testing"}, // order preserved
+		},
+		// ── mixed valid + unknown ──────────────────────────────────────────────
+		{
+			name: "mixedValidAndUnknown",
+			in:   []string{"backend", "foo"},
+			want: []string{"backend"}, // unknown silently dropped, no error
+		},
+		// ── all unknown ────────────────────────────────────────────────────────
+		{
+			name: "allUnknown",
+			in:   []string{"foo", "bar"},
+			want: nil, // universal fallback
+		},
+		{
+			name: "unknownOnlySingle",
+			in:   []string{"foo"},
+			want: nil, // universal fallback
+		},
+		// ── whitespace handling ────────────────────────────────────────────────
+		{
+			name: "whitespaceTrim",
+			in:   []string{"  backend  "},
+			want: []string{"backend"}, // trim before vocab check
+		},
+		{
+			name: "whitespaceOnlyElement",
+			in:   []string{"   "},
+			want: nil, // dropped silently → universal
+		},
+		{
+			name: "emptyStringElement",
+			in:   []string{""},
+			want: nil, // dropped silently → universal
+		},
+		{
+			name: "mixedValidAndEmpty",
+			in:   []string{"backend", ""},
+			want: []string{"backend"}, // empty dropped silently
+		},
+		// ── deduplication ──────────────────────────────────────────────────────
+		{
+			name: "duplicates",
+			in:   []string{"backend", "backend"},
+			want: []string{"backend"}, // dedup, first-seen wins
+		},
+		{
+			name: "duplicatesAfterTrim",
+			in:   []string{"backend", " backend "},
+			want: []string{"backend"}, // trim happens before dedup
+		},
+		{
+			name: "dedupPreservesOrder",
+			in:   []string{"testing", "backend", "testing"},
+			want: []string{"testing", "backend"}, // first-seen order
+		},
+		// ── mixed-case (case-sensitive) ─────────────────────────────────────────
+		{
+			name: "mixedCaseUnknown",
+			in:   []string{"Frontend"},
+			want: nil, // case-sensitive — "Frontend" treated as unknown, dropped
+		},
+		{
+			name: "mixedCasePlusValid",
+			in:   []string{"Frontend", "backend"},
+			want: []string{"backend"}, // only canonical form kept
+		},
+		// ── all 8 vocabulary values ────────────────────────────────────────────
+		{
+			// Pin: breaks if a vocab value is removed or renamed.
+			name: "acceptsAll8Vocab",
+			in: []string{
+				"frontend", "backend", "testing", "architecture",
+				"api", "security", "performance", "accessibility",
+			},
+			want: []string{
+				"frontend", "backend", "testing", "architecture",
+				"api", "security", "performance", "accessibility",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeAdvisorScope(tt.in)
+			if !slicesEqual(got, tt.want) {
+				t.Errorf("NormalizeAdvisorScope(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNormalizeAdvisorScope_DoesNotMutateInput verifies that the function
+// does not modify the input slice. Passing a slice with duplicates must leave
+// the original slice unchanged.
+func TestNormalizeAdvisorScope_DoesNotMutateInput(t *testing.T) {
+	in := []string{"backend", "backend"}
+	original := make([]string, len(in))
+	copy(original, in)
+
+	_ = NormalizeAdvisorScope(in)
+
+	if len(in) != len(original) {
+		t.Fatalf("input slice length changed: got %d, want %d", len(in), len(original))
+	}
+	for i := range in {
+		if in[i] != original[i] {
+			t.Errorf("input[%d] = %q after call, want %q", i, in[i], original[i])
+		}
+	}
+}
+
+// TestNormalizeAdvisorScope_AllUnknownReturnsNil locks the universal-fallback
+// contract: when all input values are unknown, the return must be nil (not
+// an empty slice). Downstream filter semantics depend on nil == universal.
+func TestNormalizeAdvisorScope_AllUnknownReturnsNil(t *testing.T) {
+	got := NormalizeAdvisorScope([]string{"foo", "bar"})
+	if got != nil {
+		t.Errorf("NormalizeAdvisorScope([unknown values]) = %v (len=%d), want nil (universal)",
+			got, len(got))
+	}
+}
+
+// slicesEqual compares two string slices for equality, treating nil and nil
+// as equal and distinguishing nil from empty ([]string{}).
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestAdvisorDef_Validate_InvalidOrigin covers origin validation rejections.
+func TestAdvisorDef_Validate_InvalidOrigin(t *testing.T) {
+	tests := []struct {
+		name    string
+		def     AdvisorDef
+		wantMsg string
+	}{
+		{
+			name:    "shouldRejectWhenOriginIsExternal",
+			def:     AdvisorDef{Name: "security-advisor", SkillSource: "/p", Origin: "external"},
+			wantMsg: "origin",
+		},
+		{
+			name:    "shouldRejectWhenOriginIsUnknown",
+			def:     AdvisorDef{Name: "security-advisor", SkillSource: "/p", Origin: "unknown"},
+			wantMsg: "origin",
+		},
+		{
+			name:    "shouldRejectWhenOriginIsUppercaseCUSTOM",
+			def:     AdvisorDef{Name: "security-advisor", SkillSource: "/p", Origin: "CUSTOM"},
+			wantMsg: "origin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.def.Validate()
+			if err == nil {
+				t.Errorf("Validate() returned nil, want error containing %q", tt.wantMsg)
+				return
+			}
+			if !containsString(err.Error(), tt.wantMsg) {
+				t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.wantMsg)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CatalogSource.Validate
+// ---------------------------------------------------------------------------
+
+// TestCatalogSource_Validate_HappyPath covers valid CatalogSource URL formats.
+func TestCatalogSource_Validate_HappyPath(t *testing.T) {
+	tests := []struct {
+		name string
+		src  CatalogSource
+	}{
+		{
+			name: "shouldAcceptWhenLocalAbsolutePath",
+			src:  CatalogSource{URL: "local:/abs/path"},
+		},
+		{
+			name: "shouldAcceptWhenLocalRelativePath",
+			src:  CatalogSource{URL: "local:./rel"},
+		},
+		{
+			name: "shouldAcceptWhenGitHubOwnerRepo",
+			src:  CatalogSource{URL: "github:acme/repo"},
+		},
+		{
+			name: "shouldAcceptWhenGitHubOwnerRepoAtRef",
+			src:  CatalogSource{URL: "github:acme/repo@main"},
+		},
+		{
+			name: "shouldAcceptWhenGitLabGroupSubgroupRepo",
+			src:  CatalogSource{URL: "gitlab:grp/subgrp/repo"},
+		},
+		{
+			name: "shouldAcceptWhenNameIsPopulated",
+			src:  CatalogSource{URL: "github:acme/repo", Name: "Acme catalog"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.src.Validate(); err != nil {
+				t.Errorf("Validate() returned unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestCatalogSource_Validate_Rejected covers invalid CatalogSource URL formats.
+func TestCatalogSource_Validate_Rejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		src     CatalogSource
+		wantMsg string
+	}{
+		{
+			name:    "shouldRejectWhenURLIsEmpty",
+			src:     CatalogSource{URL: ""},
+			wantMsg: "url must not be empty",
+		},
+		{
+			name:    "shouldRejectWhenSchemeMissing",
+			src:     CatalogSource{URL: "acme/repo"},
+			wantMsg: "unrecognised scheme",
+		},
+		{
+			name:    "shouldRejectWhenSchemeIsHTTP",
+			src:     CatalogSource{URL: "http:acme/repo"},
+			wantMsg: "unrecognised scheme",
+		},
+		{
+			name:    "shouldRejectWhenSchemeIsBitbucket",
+			src:     CatalogSource{URL: "bitbucket:acme/repo"},
+			wantMsg: "unrecognised scheme",
+		},
+		{
+			name:    "shouldRejectWhenSchemIsBareFile",
+			src:     CatalogSource{URL: "file:/some/path"},
+			wantMsg: "unrecognised scheme",
+		},
+		{
+			name:    "shouldRejectWhenGitHubBodyIsEmpty",
+			src:     CatalogSource{URL: "github:"},
+			wantMsg: "body must not be empty",
+		},
+		{
+			name:    "shouldRejectWhenGitHubPathIsMissingSlash",
+			src:     CatalogSource{URL: "github:owner-only"},
+			wantMsg: `must be in the form "owner/repo"`,
+		},
+		{
+			name:    "shouldRejectWhenGitHubRefIsEmpty",
+			src:     CatalogSource{URL: "github:acme/repo@"},
+			wantMsg: `ref after "@" must not be empty`,
+		},
+		{
+			name:    "shouldRejectWhenGitLabBodyIsEmpty",
+			src:     CatalogSource{URL: "gitlab:"},
+			wantMsg: "body must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.src.Validate()
+			if err == nil {
+				t.Errorf("Validate() returned nil, want error containing %q", tt.wantMsg)
+				return
+			}
+			if !containsString(err.Error(), tt.wantMsg) {
+				t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.wantMsg)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UserManifest.Validate — custom advisors and advisor catalog extensions
+// ---------------------------------------------------------------------------
+
+// TestUserManifest_Validate_CustomAdvisors covers the CustomAdvisors validation paths.
+func TestUserManifest_Validate_CustomAdvisors(t *testing.T) {
+	base := func() UserManifest {
+		return UserManifest{
+			SchemaVersion: "devrune/v1",
+			Agents:        []AgentRef{{Name: "claude"}},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		setup   func() UserManifest
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "shouldAcceptWhenCustomAdvisorsIsNil",
+			setup: func() UserManifest {
+				m := base()
+				m.CustomAdvisors = nil
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldAcceptWhenCustomAdvisorsIsEmptySlice",
+			setup: func() UserManifest {
+				m := base()
+				m.CustomAdvisors = []AdvisorDef{}
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldAcceptWhenCustomAdvisorIsValid",
+			setup: func() UserManifest {
+				m := base()
+				m.CustomAdvisors = []AdvisorDef{
+					// Use a non-reserved name; "security-advisor" is now native.
+					anAdvisorDef().
+						named("custom-security-advisor").
+						withSkillSource("/path/to/skill").
+						withScope("security").
+						withOrigin(AdvisorOriginLocal).
+						build(),
+				}
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldRejectWhenCustomAdvisorNameIsDuplicated",
+			setup: func() UserManifest {
+				m := base()
+				// Use a non-reserved name so we hit the duplicate check, not the
+				// native-conflict check.
+				m.CustomAdvisors = []AdvisorDef{
+					{Name: "custom-db-advisor", SkillSource: "/path/a"},
+					{Name: "custom-db-advisor", SkillSource: "/path/b"},
+				}
+				return m
+			},
+			wantErr: true,
+			errMsg:  "duplicate custom advisor name",
+		},
+		{
+			name: "shouldRejectWhenCustomAdvisorNameShadowsNative",
+			setup: func() UserManifest {
+				m := base()
+				// "architect-advisor" is a native advisor name in reservedAdvisorNames.
+				m.CustomAdvisors = []AdvisorDef{
+					{Name: "architect-advisor", SkillSource: "/path/skill"},
+				}
+				return m
+			},
+			wantErr: true,
+			errMsg:  "conflicts with a native DevRune advisor",
+		},
+		{
+			name: "shouldRejectWhenCustomAdvisorIsInvalid",
+			setup: func() UserManifest {
+				m := base()
+				m.CustomAdvisors = []AdvisorDef{
+					{Name: "not-ending-correctly", SkillSource: "/path"},
+				}
+				return m
+			},
+			wantErr: true,
+			errMsg:  `must end in "-advisor"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.setup()
+			err := m.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errMsg != "" && err != nil {
+				if !containsString(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+// TestUserManifest_Validate_AdvisorCatalogs covers the AdvisorCatalogs validation paths.
+func TestUserManifest_Validate_AdvisorCatalogs(t *testing.T) {
+	base := func() UserManifest {
+		return UserManifest{
+			SchemaVersion: "devrune/v1",
+			Agents:        []AgentRef{{Name: "claude"}},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		setup   func() UserManifest
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "shouldAcceptWhenAdvisorCatalogsIsNil",
+			setup: func() UserManifest {
+				m := base()
+				m.AdvisorCatalogs = nil
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldAcceptWhenAdvisorCatalogsIsEmptySlice",
+			setup: func() UserManifest {
+				m := base()
+				m.AdvisorCatalogs = []CatalogSource{}
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldAcceptWhenAdvisorCatalogURLIsValid",
+			setup: func() UserManifest {
+				m := base()
+				m.AdvisorCatalogs = []CatalogSource{
+					{URL: "github:acme/advisor-catalog"},
+				}
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldRejectWhenAdvisorCatalogURLIsDuplicated",
+			setup: func() UserManifest {
+				m := base()
+				m.AdvisorCatalogs = []CatalogSource{
+					{URL: "github:acme/advisor-catalog"},
+					{URL: "github:acme/advisor-catalog"},
+				}
+				return m
+			},
+			wantErr: true,
+			errMsg:  "duplicate advisor catalog URL",
+		},
+		{
+			name: "shouldRejectWhenAdvisorCatalogURLIsInvalid",
+			setup: func() UserManifest {
+				m := base()
+				m.AdvisorCatalogs = []CatalogSource{
+					{URL: "http://example.com/catalog"},
+				}
+				return m
+			},
+			wantErr: true,
+			errMsg:  "unrecognised scheme",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.setup()
+			err := m.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errMsg != "" && err != nil {
+				if !containsString(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
 }

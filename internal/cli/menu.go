@@ -30,6 +30,7 @@ const (
 	menuActionSync            menuAction = "sync"
 	menuActionStatus          menuAction = "status"
 	menuActionConfigureModels menuAction = "configure-models"
+	menuActionManageAdvisors  menuAction = "manage-advisors"
 	menuActionUpgrade         menuAction = "upgrade"
 	menuActionUninstall       menuAction = "uninstall"
 	menuActionQuit            menuAction = "quit"
@@ -54,6 +55,27 @@ func hasModelRoutingAgents(wd string) bool {
 	return false
 }
 
+// buildMenuOptions returns the ordered list of menu options.
+// When hasRouting is true the "Configure role models" option is included
+// between "Sync project" and "Manage SDD advisors".
+func buildMenuOptions(hasRouting bool) []huh.Option[menuAction] {
+	opts := []huh.Option[menuAction]{
+		huh.NewOption("Setup", menuActionInit),
+		huh.NewOption("Sync project", menuActionSync),
+	}
+	if hasRouting {
+		opts = append(opts, huh.NewOption("Configure role models", menuActionConfigureModels))
+	}
+	opts = append(opts,
+		huh.NewOption("Manage SDD advisors", menuActionManageAdvisors),
+		huh.NewOption("Status", menuActionStatus),
+		huh.NewOption("Upgrade DevRune", menuActionUpgrade),
+		huh.NewOption("Uninstall", menuActionUninstall),
+		huh.NewOption("Quit", menuActionQuit),
+	)
+	return opts
+}
+
 // RunMenu displays the interactive DevRune main menu in a loop.
 // After each action completes, the menu re-displays so the user can
 // pick another action. The loop exits on Ctrl+C / Esc or after
@@ -62,19 +84,7 @@ func RunMenu(cmd *cobra.Command) error {
 	for {
 		var selected menuAction
 
-		menuOptions := []huh.Option[menuAction]{
-			huh.NewOption("Setup", menuActionInit),
-			huh.NewOption("Sync project", menuActionSync),
-		}
-		if hasModelRoutingAgents(workingDir(cmd)) {
-			menuOptions = append(menuOptions, huh.NewOption("Configure role models", menuActionConfigureModels))
-		}
-		menuOptions = append(menuOptions,
-			huh.NewOption("Status", menuActionStatus),
-			huh.NewOption("Upgrade DevRune", menuActionUpgrade),
-			huh.NewOption("Uninstall", menuActionUninstall),
-			huh.NewOption("Quit", menuActionQuit),
-		)
+		menuOptions := buildMenuOptions(hasModelRoutingAgents(workingDir(cmd)))
 
 		form := huh.NewForm(
 			huh.NewGroup(
@@ -129,6 +139,14 @@ func RunMenu(cmd *cobra.Command) error {
 				_ = showMenuMessage(cmd, "Models Updated", "Role models updated and synced successfully.")
 			}
 		// Loop back to menu.
+
+		case menuActionManageAdvisors:
+			if err := runSddAdvisorsFromMenu(cmd); err != nil {
+				if err != huh.ErrUserAborted {
+					_ = showMenuMessage(cmd, "Manage Advisors Failed", err.Error())
+				}
+			}
+			// Loop back to menu.
 
 		case menuActionUpgrade:
 			// Upgrade: if user confirms, binary is replaced and we exit.
@@ -287,7 +305,7 @@ func showStatusInMenu(cmd *cobra.Command) error {
 
 // showMenuMessage displays a titled message inside a TUI form with the DevRune
 // banner, a note, and a "Back to menu" / "Exit" confirm button.
-func showMenuMessage(cmd *cobra.Command, title, message string) error {
+func showMenuMessage(_ *cobra.Command, title, message string) error {
 	var action string
 	form := huh.NewForm(
 		huh.NewGroup(

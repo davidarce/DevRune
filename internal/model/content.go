@@ -32,6 +32,7 @@ type ContentItem struct {
 	Path        string      `yaml:"path"`                  // relative path within the package, e.g. "skills/git-commit/"
 	Description string      `yaml:"description,omitempty"` // human-readable description from frontmatter
 	RuleMeta    *RuleMeta   `yaml:"ruleMeta,omitempty"`    // rule metadata; nil for non-rule content items
+	Custom      bool        `yaml:"custom,omitempty"`      // user-registered OR catalog-imported advisor
 }
 
 // Validate checks that the ContentItem has all required fields.

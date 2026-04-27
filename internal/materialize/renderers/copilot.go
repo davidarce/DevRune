@@ -5,15 +5,23 @@ package renderers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/davidarce/devrune/internal/materialize/matypes"
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
 )
+
+// copilotLegacyAdviserOnce gates the one-time deprecation log for "-adviser" suffixed
+// advisor names detected in RegenerateAdvisorFiles. Mirrors the Claude renderer's
+// behaviour so both renderers emit the warning at most once per process.
+var copilotLegacyAdviserOnce sync.Once
 
 // copilotToolAliases maps canonical tool names to GitHub Copilot tool aliases.
 var copilotToolAliases = map[string]string{
@@ -44,14 +52,22 @@ var copilotSubAgentTools = map[string][]string{
 	"sdd-plan":      {"read", "search", "edit", "execute"},
 	"sdd-implement": {"read", "search", "edit", "execute"},
 	"sdd-review":    {"read", "search", "execute"},
-	// Adviser roles — read and search only; they analyse the plan and their SKILL.md.
-	"architect-adviser":         {"read", "search"},
-	"api-first-adviser":         {"read", "search"},
-	"unit-test-adviser":         {"read", "search"},
-	"integration-test-adviser":  {"read", "search"},
-	"component-adviser":         {"read", "search"},
-	"frontend-test-adviser":     {"read", "search"},
-	"web-accessibility-adviser": {"read", "search"},
+	// Advisor roles — read and search only; they analyse the plan and their SKILL.md.
+	// Both -adviser (legacy) and -advisor (new) keys are kept for transition compat.
+	"architect-adviser":          {"read", "search"},
+	"architect-advisor":          {"read", "search"},
+	"api-first-adviser":          {"read", "search"},
+	"api-first-advisor":          {"read", "search"},
+	"unit-test-adviser":          {"read", "search"},
+	"unit-test-advisor":          {"read", "search"},
+	"integration-test-adviser":   {"read", "search"},
+	"integration-test-advisor":   {"read", "search"},
+	"component-adviser":          {"read", "search"},
+	"component-advisor":          {"read", "search"},
+	"frontend-test-adviser":      {"read", "search"},
+	"frontend-test-advisor":      {"read", "search"},
+	"web-accessibility-adviser":  {"read", "search"},
+	"web-accessibility-advisor":  {"read", "search"},
 }
 
 // copilotBodyReplacements maps Claude Code MCP shorthand tool calls to Copilot
@@ -78,7 +94,7 @@ var copilotBodyReplacements = map[string]string{
 // CopilotRenderer materializes skills for GitHub Copilot custom agents.
 //
 // Key transformations:
-//   - Skills: .github/skills/{name}/SKILL.md (backing skill tree, adviser skills only)
+//   - Skills: .github/skills/{name}/SKILL.md (backing skill tree, advisor skills only)
 //   - Orchestrator/entrypoint: .github/agents/sdd-orchestrator.agent.md (native agent)
 //   - Sub-agents: .github/agents/{role-name}.agent.md (synthesized from skill content)
 //   - Tools: converted to Copilot aliases (read, edit, search, execute)
@@ -88,7 +104,7 @@ type CopilotRenderer struct {
 	def      matypes.AgentPaths
 	agentDef model.AgentDefinition
 	// Collected MCP definitions for inline injection.
-	mcpDefs          map[string]map[string]interface{}
+	mcpDefs          map[string]map[string]any
 	registryContents map[string]string // keyed by workflow name
 	// Normalized MCPs for catalog instruction injection.
 	normalizedMCPs []normalizedMCP
@@ -107,7 +123,7 @@ func NewCopilotRenderer(agentDef model.AgentDefinition) *CopilotRenderer {
 			RulesDir:    agentDef.RulesDir,
 			CatalogFile: agentDef.CatalogFile,
 		},
-		mcpDefs:          make(map[string]map[string]interface{}),
+		mcpDefs:          make(map[string]map[string]any),
 		registryContents: make(map[string]string),
 	}
 }
@@ -187,11 +203,9 @@ func (r *CopilotRenderer) RenderSkill(canonicalPath string, destDir string) erro
 }
 
 // transformFrontmatter applies Copilot-specific frontmatter conversions.
-func (r *CopilotRenderer) transformFrontmatter(fm map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(fm))
-	for k, v := range fm {
-		out[k] = v
-	}
+func (r *CopilotRenderer) transformFrontmatter(fm map[string]any) map[string]any {
+	out := make(map[string]any, len(fm))
+	maps.Copy(out, fm)
 
 	// Drop unsupported fields.
 	for _, field := range copilotDropFields {
@@ -227,8 +241,8 @@ func (r *CopilotRenderer) transformFrontmatter(fm map[string]interface{}) map[st
 
 // convertToolsToAliases converts a canonical tools list to Copilot tool aliases.
 // Duplicates are removed; order follows the alias map.
-func convertToolsToAliases(toolsVal interface{}) []string {
-	toolsList, ok := toolsVal.([]interface{})
+func convertToolsToAliases(toolsVal any) []string {
+	toolsList, ok := toolsVal.([]any)
 	if !ok {
 		return nil
 	}
@@ -259,7 +273,7 @@ func convertToolsToAliases(toolsVal interface{}) []string {
 
 // RenderCommand writes a Copilot agent command file.
 func (r *CopilotRenderer) RenderCommand(cmd model.WorkflowCommand, destDir string) error {
-	fm := map[string]interface{}{
+	fm := map[string]any{
 		"name":        colonToHyphen(cmd.Name),
 		"description": cmd.Action,
 	}
@@ -296,11 +310,11 @@ func (r *CopilotRenderer) RenderMCPs(mcps []model.LockedMCP, cacheStore matypes.
 
 	// Write MCP config file at the config-derived path.
 	// Use applyMCPEnvTransform for env key rename and placeholder style transformation.
-	servers := make(map[string]interface{}, len(normalized))
+	servers := make(map[string]any, len(normalized))
 	for _, n := range normalized {
 		servers[n.Name] = applyMCPEnvTransform(n.ServerConfig, mcpConfig)
 	}
-	mcpJSON := map[string]interface{}{
+	mcpJSON := map[string]any{
 		mcpConfig.RootKey: servers,
 	}
 	data, err := json.MarshalIndent(mcpJSON, "", "  ")
@@ -477,7 +491,7 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		// Also skip the orchestrator skill directory: its content is already in the .agent.md
 		// (installed by installOrchestratorAgent above). Rendering it would create a SKILL.md
 		// with Claude Code Task()/Skill() syntax that is invalid for Copilot.
-		// Only non-subagent, non-orchestrator skills (e.g. adviser skills) go into skills/.
+		// Only non-subagent, non-orchestrator skills (e.g. advisor skills) go into skills/.
 		if skillsSet[name] {
 			if subagentSkillSet[name] || name == orchRoleName {
 				// Subagent skills are embedded in .agent.md; orchestrator is already installed.
@@ -504,8 +518,14 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		// so that the orchestrator .agent.md can reference them via paths such as
 		// .github/skills/sdd-orchestrator/_shared/launch-templates.md.
 		// In Copilot's model, agents/ is flat (.agent.md files only); content lives in skills/.
+		// Apply variant-suffix stripping for _shared/ so that launch-templates.copilot.md →
+		// launch-templates.md and files for other variants are skipped entirely.
 		dstPath := filepath.Join(orchSkillDir, name)
-		if err := copyEntry(srcPath, dstPath, entry); err != nil {
+		if entry.IsDir() && name == "_shared" {
+			if err := copyDirRecursiveStripVariant(srcPath, dstPath, "copilot"); err != nil {
+				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
+			}
+		} else if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
 		}
 		managedPaths = append(managedPaths, dstPath)
@@ -526,60 +546,26 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		managedPaths = append(managedPaths, dstPath)
 	}
 
-	// Generate lightweight .agent.md wrappers for adviser skills installed in skillsBase.
-	// Advisers are not workflow roles but need to be invocable as @agent-name in
+	// Generate lightweight .agent.md wrappers for advisor skills installed in skillsBase.
+	// Advisors are not workflow roles but need to be invocable as @agent-name in
 	// Copilot's guidance loop. The wrapper references the SKILL.md in skills/ rather
 	// than embedding the full content (avoiding duplication).
-	if adviserEntries, err := os.ReadDir(skillsBase); err == nil {
-		for _, entry := range adviserEntries {
-			if !entry.IsDir() || !strings.HasSuffix(entry.Name(), "-adviser") {
+	if advisorEntries, err := os.ReadDir(skillsBase); err == nil {
+		for _, entry := range advisorEntries {
+			if !entry.IsDir() || (!strings.HasSuffix(entry.Name(), "-advisor") && !strings.HasSuffix(entry.Name(), "-adviser")) {
 				continue
 			}
-			adviserName := entry.Name()
-			agentPath := filepath.Join(agentsBase, adviserName+".agent.md")
+			advisorName := entry.Name()
+			agentPath := filepath.Join(agentsBase, advisorName+".agent.md")
 			// Skip if already generated as a workflow role.
 			if _, err := os.Stat(agentPath); err == nil {
 				continue
 			}
-			description := skillDescriptionForRole(adviserName)
-			if description == "" {
-				description = adviserName + " specialist adviser"
-			}
-			tools := copilotSubAgentTools[adviserName]
-			if len(tools) == 0 {
-				tools = []string{"read"}
-			}
-			fm := map[string]interface{}{
-				"name":                     adviserName,
-				"description":              description,
-				"tools":                    tools,
-				"user-invocable":           false,
-				"disable-model-invocation": false,
-			}
-			// Add model: check for an exact override first, then fall back to the SDD adviser sentinel.
-			// sdd-adviser (skill: "*-adviser") is the sentinel that represents all advisers in the SDD
-			// workflow, so its model override applies to any adviser wrapper without its own override.
-			adviserModel := r.modelOverrides[adviserName]
-			if adviserModel == "" || adviserModel == model.ModelInheritOption {
-				adviserModel = r.modelOverrides["sdd-adviser"]
-			}
-			if adviserModel != "" && adviserModel != model.ModelInheritOption {
-				fm["model"] = adviserModel
-			}
-			// Use workspace-relative path (not absolute) so the .agent.md is portable.
-			skillRelPath := filepath.Join(workspaceRoot, r.def.SkillDir, adviserName, "SKILL.md")
-			body := fmt.Sprintf("You are a specialist adviser. Read your skill file at `%s` and follow its instructions.\n", skillRelPath)
-			out, err := parse.SerializeFrontmatter(fm, body)
+			written, err := r.generateAdvisorAgentFile(agentsBase, advisorName, r.modelOverrides, workspaceRoot)
 			if err != nil {
 				continue
 			}
-			if err := os.MkdirAll(filepath.Dir(agentPath), 0o755); err != nil {
-				continue
-			}
-			if err := os.WriteFile(agentPath, out, 0o644); err != nil {
-				continue
-			}
-			managedPaths = append(managedPaths, agentPath)
+			managedPaths = append(managedPaths, written)
 		}
 	}
 
@@ -644,7 +630,7 @@ func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf m
 	}
 
 	// Build frontmatter for the orchestrator agent.
-	fm := map[string]interface{}{
+	fm := map[string]any{
 		"name":           orchRoleName,
 		"description":    orchDesc,
 		"user-invocable": true,
@@ -700,7 +686,7 @@ func (r *CopilotRenderer) generateSubAgentFile(skillSrcDir, dstPath string, role
 
 	// Build frontmatter: sub-agents are not user-invocable but CAN be invoked
 	// by the orchestrator as tools (disable-model-invocation: false).
-	fm := map[string]interface{}{
+	fm := map[string]any{
 		"name":                     role.Name,
 		"description":              skillDescriptionForRole(role.Skill),
 		"tools":                    tools,
@@ -729,36 +715,6 @@ func (r *CopilotRenderer) generateSubAgentFile(skillSrcDir, dstPath string, role
 	return os.WriteFile(dstPath, out, 0o644)
 }
 
-// skillDescriptionForRole returns a human-readable description for a known SDD skill name.
-func skillDescriptionForRole(skill string) string {
-	switch skill {
-	case "sdd-explore":
-		return "SDD Explore sub-agent"
-	case "sdd-plan":
-		return "SDD Plan sub-agent"
-	case "sdd-implement":
-		return "SDD Implement sub-agent"
-	case "sdd-review":
-		return "SDD Review sub-agent"
-	case "architect-adviser":
-		return "Clean architecture adviser: hexagonal, DDD, ports and adapters"
-	case "api-first-adviser":
-		return "API-first design adviser: OpenAPI, REST conventions, error models"
-	case "unit-test-adviser":
-		return "Unit test adviser: test structure, mocking, Given-When-Then"
-	case "integration-test-adviser":
-		return "Integration test adviser: adapter testing, external service mocking"
-	case "component-adviser":
-		return "React component adviser: composition, hooks, state management"
-	case "frontend-test-adviser":
-		return "Frontend test adviser: React Testing Library, Vitest, Cypress"
-	case "web-accessibility-adviser":
-		return "Web accessibility adviser: WCAG 2.1 AA, ARIA, keyboard navigation"
-	default:
-		return skill + " sub-agent"
-	}
-}
-
 // RenderSettings writes .vscode/settings.json with Copilot MCP tool auto-approve entries.
 // Only MCPs with permission level "allow" are added; "ask" and "deny" are no-ops for Copilot.
 // Existing VS Code settings are preserved (read-merge-write).
@@ -772,7 +728,7 @@ func (r *CopilotRenderer) RenderSettings(workspaceRoot string, skills []model.Co
 	settingsPath := filepath.Join(vscodeDir, "settings.json")
 
 	// Read existing settings if present (preserve other VS Code settings).
-	existing := make(map[string]interface{})
+	existing := make(map[string]any)
 	if data, err := os.ReadFile(settingsPath); err == nil {
 		if err := json.Unmarshal(data, &existing); err != nil {
 			return fmt.Errorf("copilot: parse .vscode/settings.json: %w", err)
@@ -783,7 +739,7 @@ func (r *CopilotRenderer) RenderSettings(workspaceRoot string, skills []model.Co
 	const autoApproveKey = "github.copilot.chat.tools.autoApprove"
 	var autoApprove []string
 	if raw, ok := existing[autoApproveKey]; ok {
-		if arr, ok := raw.([]interface{}); ok {
+		if arr, ok := raw.([]any); ok {
 			for _, v := range arr {
 				if s, ok := v.(string); ok {
 					autoApprove = append(autoApprove, s)
@@ -828,6 +784,133 @@ func (r *CopilotRenderer) RenderSettings(workspaceRoot string, skills []model.Co
 		return fmt.Errorf("copilot: mkdir .vscode: %w", err)
 	}
 	return os.WriteFile(settingsPath, data, 0o644)
+}
+
+// generateAdvisorAgentFile synthesizes a lightweight advisor wrapper at
+// `.github/agents/{advisorName}.agent.md`. The file is self-contained: it
+// embeds a prose instruction referencing the SKILL.md in the skills/ backing
+// tree rather than embedding the full skill body, keeping the file small.
+//
+// This helper is used by both InstallWorkflow (inline advisor loop) and
+// RegenerateAdvisorFiles (stateless incremental sync). It is intentionally
+// stateless — all inputs are passed as parameters; no receiver state is mutated.
+func (r *CopilotRenderer) generateAdvisorAgentFile(agentsBase, advisorName string, modelOverrides map[string]string, workspaceRoot string) (string, error) {
+	agentPath := filepath.Join(agentsBase, advisorName+".agent.md")
+
+	description := skillDescriptionForRole(advisorName)
+	if description == "" {
+		description = advisorName + " specialist advisor"
+	}
+	tools := copilotSubAgentTools[advisorName]
+	if len(tools) == 0 {
+		tools = []string{"read"}
+	}
+	fm := map[string]any{
+		"name":                     advisorName,
+		"description":              description,
+		"tools":                    tools,
+		"user-invocable":           false,
+		"disable-model-invocation": false,
+	}
+	// Add model: check for an exact override first, then fall back to the SDD advisor/adviser
+	// sentinel. sdd-adviser (skill: "*-adviser") is the sentinel that represents all advisors
+	// in the SDD workflow, so its model override applies to any advisor wrapper without its own override.
+	advisorModel := modelOverrides[advisorName]
+	if advisorModel == "" || advisorModel == model.ModelInheritOption {
+		advisorModel = modelOverrides["sdd-advisor"] // primary sentinel
+	}
+	if advisorModel == "" || advisorModel == model.ModelInheritOption {
+		advisorModel = modelOverrides["sdd-adviser"] // legacy compat shim
+	}
+	if advisorModel != "" && advisorModel != model.ModelInheritOption {
+		fm["model"] = advisorModel
+	}
+	// Use workspace-relative path (not absolute) so the .agent.md is portable.
+	skillRelPath := filepath.Join(workspaceRoot, r.def.SkillDir, advisorName, "SKILL.md")
+	body := fmt.Sprintf("You are a specialist advisor. Read your skill file at `%s` and follow its instructions.\n", skillRelPath)
+	out, err := parse.SerializeFrontmatter(fm, body)
+	if err != nil {
+		return "", fmt.Errorf("copilot: serialize advisor frontmatter for %q: %w", advisorName, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o755); err != nil {
+		return "", fmt.Errorf("copilot: mkdir advisor: %w", err)
+	}
+	if err := os.WriteFile(agentPath, out, 0o644); err != nil {
+		return "", fmt.Errorf("copilot: write advisor %q: %w", agentPath, err)
+	}
+	return agentPath, nil
+}
+
+// RegenerateAdvisorFiles implements materialize.AdvisorRenderer.
+//
+// It writes `.github/agents/{name}.agent.md` for each installed advisor and
+// removes the agent file for each name in removed. The method is stateless on
+// the receiver — no receiver fields are mutated; all inputs are passed explicitly.
+//
+// Detection rule (identical across all AdvisorRenderer implementations):
+//
+//	hasAdvisorSuffix := strings.HasSuffix(strings.ToLower(item.Name), "-advisor")
+//	hasLegacySuffix  := strings.HasSuffix(strings.ToLower(item.Name), "-adviser") // compat shim
+//	isAdvisor        := hasAdvisorSuffix || hasLegacySuffix || item.Custom
+//
+// The legacy "-adviser" suffix triggers a one-time deprecation log via sync.Once.
+func (r *CopilotRenderer) RegenerateAdvisorFiles(
+	workspaceRoot string,
+	installed []model.ContentItem,
+	removed []string,
+	modelOverrides map[string]string,
+) (matypes.AdvisorRenderResult, error) {
+	// Resolve agentsBase: use configured agentDir, fall back to skillDir (same as InstallWorkflow).
+	agentDirName := r.def.AgentDir
+	if agentDirName == "" {
+		agentDirName = r.def.SkillDir
+	}
+	agentsBase := filepath.Join(workspaceRoot, agentDirName)
+
+	var result matypes.AdvisorRenderResult
+	var firstErr error
+
+	// Process installed advisors.
+	for _, item := range installed {
+		name := strings.ToLower(item.Name)
+		hasAdvisorSuffix := strings.HasSuffix(name, "-advisor")
+		hasLegacySuffix := strings.HasSuffix(name, "-adviser")
+		isAdvisor := hasAdvisorSuffix || hasLegacySuffix || item.Custom
+
+		if !isAdvisor {
+			continue
+		}
+
+		// Emit one-time deprecation log for legacy "-adviser" suffix.
+		if hasLegacySuffix && !item.Custom {
+			copilotLegacyAdviserOnce.Do(func() {
+				log.Printf("copilot: deprecated advisor suffix \"-adviser\" detected for %q; rename to \"-advisor\" (support will be removed in the next minor release)", item.Name)
+			})
+		}
+
+		written, err := r.generateAdvisorAgentFile(agentsBase, item.Name, modelOverrides, workspaceRoot)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		result.Written = append(result.Written, written)
+	}
+
+	// Process removed advisors.
+	for _, name := range removed {
+		agentPath := filepath.Join(agentsBase, name+".agent.md")
+		if err := os.Remove(agentPath); err != nil && !os.IsNotExist(err) {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("copilot: remove advisor %q: %w", agentPath, err)
+			}
+			continue
+		}
+		result.Deleted = append(result.Deleted, agentPath)
+	}
+
+	return result, firstErr
 }
 
 func (r *CopilotRenderer) Finalize(workspaceRoot string) error { return nil }

@@ -25,6 +25,7 @@ import (
 var orchestratorVariantNames = map[string]bool{
 	"ORCHESTRATOR.opencode.md": true,
 	"ORCHESTRATOR.copilot.md":  true,
+	"ORCHESTRATOR.claude.md":   true,
 }
 
 // hookAssetDirNames lists workflow cache directories that contain hook/plugin
@@ -203,8 +204,129 @@ func RemoveSymlinkOrCopy(target, linkPath string) error {
 }
 
 // parseYAML decodes YAML data into the target value.
-func parseYAML(data []byte, target interface{}) error {
+func parseYAML(data []byte, target any) error {
 	return yaml.Unmarshal(data, target)
+}
+
+// knownSharedVariantSuffixes is the set of all agent-variant suffix tokens
+// recognised when copying a _shared/ directory. A file named
+// "foo.{token}.md" is treated as belonging to that specific agent variant.
+// The copy helper uses this set to decide whether to rename or skip a file.
+var knownSharedVariantSuffixes = map[string]bool{
+	"claude":   true,
+	"copilot":  true,
+	"opencode": true,
+}
+
+// copyDirRecursiveStripVariant copies a directory tree from src to dst with
+// variant-suffix awareness at the TOP LEVEL of the tree (not recursively
+// inside subdirectories — subdirs are copied verbatim via copyDirRecursive).
+//
+// For each file directly inside src, three cases are applied:
+//
+//  1. If the filename ends with ".{variant}.md" — install file as the
+//     unsuffixed name (e.g. "launch-templates.claude.md" → "launch-templates.md").
+//     A variant file always takes precedence over a same-named generic file — even if
+//     the generic file (e.g. "launch-templates.md") also exists in the source.
+//
+//  2. If the filename ends with ".{otherVariant}.md" where otherVariant is any
+//     entry in knownSharedVariantSuffixes except variant — SKIP the file (do not
+//     install it).
+//
+//  3. Otherwise (no recognised variant suffix) — copy verbatim UNLESS a variant
+//     file that maps to the same destination name has already been (or will be)
+//     written. Concretely: a generic "foo.md" is skipped when "foo.{variant}.md"
+//     also exists in the source, because the variant file takes precedence.
+//
+// Subdirectories are always copied recursively without name transformation.
+//
+// This ensures that a catalog's _shared/ directory containing per-variant files
+// (e.g. launch-templates.claude.md, launch-templates.copilot.md) installs the
+// correct file under the plain name (launch-templates.md) for each renderer,
+// while keeping files not belonging to other variants out of the install tree.
+func copyDirRecursiveStripVariant(src, dst, variant string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("copy dir strip variant: stat %q: %w", src, err)
+	}
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return fmt.Errorf("copy dir strip variant: mkdir %q: %w", dst, err)
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("copy dir strip variant: read %q: %w", src, err)
+	}
+
+	ownSuffix := "." + variant + ".md"
+
+	// First pass: collect the set of destination basenames that will be produced
+	// by variant files. Generic files that map to one of these names are suppressed.
+	variantDstNames := make(map[string]bool)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if before, ok := strings.CutSuffix(name, ownSuffix); ok {
+			stripped := before + ".md"
+			variantDstNames[stripped] = true
+		}
+	}
+
+	// Second pass: copy files applying the three rules above.
+	for _, entry := range entries {
+		name := entry.Name()
+		srcPath := filepath.Join(src, name)
+
+		if entry.IsDir() {
+			// Subdirectories are copied verbatim — variant suffix logic applies to
+			// files only (the _shared/ top-level).
+			if err := copyDirRecursive(srcPath, filepath.Join(dst, name)); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Rule 1: own variant suffix → rename to plain .md.
+		if before, ok := strings.CutSuffix(name, ownSuffix); ok {
+			stripped := before + ".md"
+			dstPath := filepath.Join(dst, stripped)
+			info, err := entry.Info()
+			if err != nil {
+				return fmt.Errorf("copy dir strip variant: info %q: %w", name, err)
+			}
+			if err := copySingleFile(srcPath, dstPath, info.Mode()); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Rule 2: other-variant suffix → skip.
+		skip := false
+		for v := range knownSharedVariantSuffixes {
+			if v != variant && strings.HasSuffix(name, "."+v+".md") {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
+		// Rule 3: no variant suffix → copy verbatim unless the variant file takes precedence.
+		if variantDstNames[name] {
+			// A variant file maps to the same destination name; skip the generic.
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("copy dir strip variant: info %q: %w", name, err)
+		}
+		if err := copySingleFile(srcPath, filepath.Join(dst, name), info.Mode()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // copyDirRecursive copies a directory tree from src to dst.
@@ -324,7 +446,7 @@ func capitalizeFirst(s string) string {
 }
 
 // getStringField returns the string value of a frontmatter field, or "" if absent/wrong type.
-func getStringField(fm map[string]interface{}, key string) string {
+func getStringField(fm map[string]any, key string) string {
 	v, ok := fm[key]
 	if !ok {
 		return ""
@@ -437,7 +559,7 @@ type normalizedMCP struct {
 	Name string
 	// ServerConfig contains only transport/runtime fields safe for MCP config files.
 	// Allowed keys: command, args, env, environment, type, url, headers.
-	ServerConfig map[string]interface{}
+	ServerConfig map[string]any
 	// AgentInstructions is the extracted agentInstructions value from the MCP definition.
 	// It is catalog-only and must never be written into MCP server config JSON.
 	AgentInstructions string
@@ -471,7 +593,7 @@ var mcpAllowedKeys = map[string]bool{
 //   - any other key not in mcpAllowedKeys
 //
 // The original map is NOT modified; a new map is returned.
-func sanitizeMCPDefinition(def map[string]interface{}) (serverConfig map[string]interface{}, agentInstructions string, permissions map[string]string) {
+func sanitizeMCPDefinition(def map[string]any) (serverConfig map[string]any, agentInstructions string, permissions map[string]string) {
 	if instructions, ok := def["agentInstructions"]; ok {
 		if s, ok := instructions.(string); ok {
 			agentInstructions = s
@@ -481,13 +603,13 @@ func sanitizeMCPDefinition(def map[string]interface{}) (serverConfig map[string]
 	permissions = make(map[string]string)
 	if permsRaw, ok := def["permissions"]; ok {
 		switch p := permsRaw.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			for k, v := range p {
 				if s, ok := v.(string); ok {
 					permissions[k] = s
 				}
 			}
-		case map[interface{}]interface{}:
+		case map[any]any:
 			for k, v := range p {
 				if ks, ok := k.(string); ok {
 					if vs, ok := v.(string); ok {
@@ -498,7 +620,7 @@ func sanitizeMCPDefinition(def map[string]interface{}) (serverConfig map[string]
 		}
 	}
 
-	serverConfig = make(map[string]interface{}, len(def))
+	serverConfig = make(map[string]any, len(def))
 	for k, v := range def {
 		if mcpAllowedKeys[k] {
 			serverConfig[k] = v
@@ -858,7 +980,7 @@ func CopySkillExtras(srcDir, dstDir string) error {
 // and normalizeMCPDefinitions. Callers outside this package (e.g. materializer) should
 // use this function instead of duplicating the YAML-reading logic.
 // Returns an empty map if no definition file exists.
-func ReadMCPDefinitionFromDir(mcpDir string) (map[string]interface{}, error) {
+func ReadMCPDefinitionFromDir(mcpDir string) (map[string]any, error) {
 	return readMCPDefinition(mcpDir)
 }
 
@@ -873,13 +995,13 @@ func ReadMCPDefinitionFromDir(mcpDir string) (map[string]interface{}, error) {
 //
 // This function is exported so it can be used in external integration tests.
 // Internal renderers should call the unexported alias transformEnvVarValues.
-func TransformEnvVarValues(serverConfig map[string]interface{}, agentFormat string) map[string]interface{} {
+func TransformEnvVarValues(serverConfig map[string]any, agentFormat string) map[string]any {
 	return transformEnvVarValues(serverConfig, agentFormat)
 }
 
 // transformEnvVarValues is the internal implementation of TransformEnvVarValues.
-func transformEnvVarValues(serverConfig map[string]interface{}, agentFormat string) map[string]interface{} {
-	out := make(map[string]interface{}, len(serverConfig))
+func transformEnvVarValues(serverConfig map[string]any, agentFormat string) map[string]any {
+	out := make(map[string]any, len(serverConfig))
 	for k, v := range serverConfig {
 		out[k] = v
 	}
@@ -889,11 +1011,11 @@ func transformEnvVarValues(serverConfig map[string]interface{}, agentFormat stri
 		if !ok {
 			continue
 		}
-		envMap, ok := raw.(map[string]interface{})
+		envMap, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		transformed := make(map[string]interface{}, len(envMap))
+		transformed := make(map[string]any, len(envMap))
 		for varName, varVal := range envMap {
 			if s, ok := varVal.(string); ok {
 				transformed[varName] = transformEnvVarPlaceholder(s, agentFormat)
@@ -975,10 +1097,43 @@ func ResolveMCPOutputPath(workspaceRoot string, mcpConfig model.MCPConfig) strin
 	return filepath.Join(workspaceRoot, mcpConfig.FilePath)
 }
 
+// skillDescriptionForRole returns a human-readable description for a known SDD skill name.
+// This helper is shared by all renderers that generate sub-agent frontmatter (Copilot,
+// Claude-native, etc.) so that the human-readable description stays consistent across
+// agent platforms. Unknown skill names fall back to "<skill> sub-agent".
+func skillDescriptionForRole(skill string) string {
+	switch skill {
+	case "sdd-explore":
+		return "SDD Explore sub-agent"
+	case "sdd-plan":
+		return "SDD Plan sub-agent"
+	case "sdd-implement":
+		return "SDD Implement sub-agent"
+	case "sdd-review":
+		return "SDD Review sub-agent"
+	case "architect-adviser", "architect-advisor":
+		return "Clean architecture adviser: hexagonal, DDD, ports and adapters"
+	case "api-first-adviser", "api-first-advisor":
+		return "API-first design adviser: OpenAPI, REST conventions, error models"
+	case "unit-test-adviser", "unit-test-advisor":
+		return "Unit test adviser: test structure, mocking, Given-When-Then"
+	case "integration-test-adviser", "integration-test-advisor":
+		return "Integration test adviser: adapter testing, external service mocking"
+	case "component-adviser", "component-advisor":
+		return "React component adviser: composition, hooks, state management"
+	case "frontend-test-adviser", "frontend-test-advisor":
+		return "Frontend test adviser: React Testing Library, Vitest, Cypress"
+	case "web-accessibility-adviser", "web-accessibility-advisor":
+		return "Web accessibility adviser: WCAG 2.1 AA, ARIA, keyboard navigation"
+	default:
+		return skill + " sub-agent"
+	}
+}
+
 // ApplyMCPEnvTransform is the exported equivalent of applyMCPEnvTransform.
 // Renderers should call the unexported version directly; external callers
 // (e.g. integration tests) should use this exported form.
-func ApplyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.MCPConfig) map[string]interface{} {
+func ApplyMCPEnvTransform(serverConfig map[string]any, mcpConfig model.MCPConfig) map[string]any {
 	return applyMCPEnvTransform(serverConfig, mcpConfig)
 }
 
@@ -995,22 +1150,22 @@ func ApplyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.M
 // Additionally, the "headers" key (used by HTTP-type MCPs such as ref and context7)
 // is transformed in-place: ${VAR_NAME} placeholder values are rewritten using the
 // same envVarStyle as env/environment entries.
-func applyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.MCPConfig) map[string]interface{} {
-	out := make(map[string]interface{}, len(serverConfig))
+func applyMCPEnvTransform(serverConfig map[string]any, mcpConfig model.MCPConfig) map[string]any {
+	out := make(map[string]any, len(serverConfig))
 	for k, v := range serverConfig {
 		out[k] = v
 	}
 
 	// Collect the env map from whichever source key is present ("env" or "environment").
 	// If both are present the last one wins (env first, then environment overrides).
-	var envMap map[string]interface{}
+	var envMap map[string]any
 	var sourceKey string
 	for _, k := range []string{"env", "environment"} {
 		raw, ok := out[k]
 		if !ok {
 			continue
 		}
-		m, ok := raw.(map[string]interface{})
+		m, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -1020,7 +1175,7 @@ func applyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.M
 
 	if envMap != nil {
 		// Build transformed env map.
-		transformed := make(map[string]interface{}, len(envMap))
+		transformed := make(map[string]any, len(envMap))
 		for varName, varVal := range envMap {
 			if s, ok := varVal.(string); ok {
 				transformed[varName] = applyEnvVarStyleTransform(s, mcpConfig.EnvVarStyle)
@@ -1040,8 +1195,8 @@ func applyMCPEnvTransform(serverConfig map[string]interface{}, mcpConfig model.M
 	// HTTP-type MCPs (e.g. ref, context7) pass API keys via headers rather than
 	// env/environment, so they must receive the same placeholder transformation.
 	if raw, ok := out["headers"]; ok {
-		if headersMap, ok := raw.(map[string]interface{}); ok {
-			transformedHeaders := make(map[string]interface{}, len(headersMap))
+		if headersMap, ok := raw.(map[string]any); ok {
+			transformedHeaders := make(map[string]any, len(headersMap))
 			for headerName, headerVal := range headersMap {
 				if s, ok := headerVal.(string); ok {
 					transformedHeaders[headerName] = applyEnvVarStyleTransform(s, mcpConfig.EnvVarStyle)

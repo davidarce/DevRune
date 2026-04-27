@@ -215,9 +215,9 @@ Body.
 		t.Fatal("tools should be present after conversion")
 	}
 
-	toolsList, ok := toolsVal.([]interface{})
+	toolsList, ok := toolsVal.([]any)
 	if !ok {
-		t.Fatalf("tools should be []interface{}, got %T", toolsVal)
+		t.Fatalf("tools should be []any, got %T", toolsVal)
 	}
 
 	toolsSet := make(map[string]bool)
@@ -304,7 +304,7 @@ Body.
 	fm, _, _ := parse.ParseFrontmatter(data)
 
 	toolsVal := fm["tools"]
-	toolsList, _ := toolsVal.([]interface{})
+	toolsList, _ := toolsVal.([]any)
 
 	count := 0
 	for _, v := range toolsList {
@@ -731,7 +731,7 @@ env:
 	}
 
 	// Root key must be "servers" (Copilot/VS Code convention), not "mcpServers" (Claude default).
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse .vscode/mcp.json: %v", err)
 	}
@@ -775,8 +775,8 @@ func TestCopilotRenderer_ManagedConfigPaths(t *testing.T) {
 	}
 }
 
-// mapCopilotKeys returns the keys of a map[string]interface{} as a slice, for diagnostic messages.
-func mapCopilotKeys(m map[string]interface{}) []string {
+// mapCopilotKeys returns the keys of a map[string]any as a slice, for diagnostic messages.
+func mapCopilotKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -840,7 +840,7 @@ permissions:
 		t.Fatalf("read .vscode/settings.json: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse settings.json: %v", err)
 	}
@@ -849,7 +849,7 @@ permissions:
 	if !ok {
 		t.Fatalf("settings.json missing %q; content:\n%s", autoApproveKey, string(content))
 	}
-	arr, ok := raw.([]interface{})
+	arr, ok := raw.([]any)
 	if !ok {
 		t.Fatalf("%q is not an array, got %T", autoApproveKey, raw)
 	}
@@ -1581,9 +1581,9 @@ func TestCopilotRenderer_SubAgentToolSets(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s.agent.md: 'tools' key missing from frontmatter", agentName)
 		}
-		toolsList, ok := toolsVal.([]interface{})
+		toolsList, ok := toolsVal.([]any)
 		if !ok {
-			t.Fatalf("%s.agent.md: 'tools' is %T, want []interface{}", agentName, toolsVal)
+			t.Fatalf("%s.agent.md: 'tools' is %T, want []any", agentName, toolsVal)
 		}
 		result := make(map[string]bool)
 		for _, v := range toolsList {
@@ -1694,5 +1694,429 @@ When blocked, use ` + "`AskUserQuestion`" + ` to clarify.
 	// Variant content must still be present (not the generic content).
 	if !strings.Contains(contentStr, "Copilot Orchestrator") {
 		t.Errorf("copilot variant content must be present; got:\n%s", contentStr)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T011: CopilotRenderer.RegenerateAdvisorFiles unit tests
+// ---------------------------------------------------------------------------
+
+// copilotAdvisorDef returns an AgentDefinition for advisor file generation tests.
+// Copilot writes agent files to {workspaceRoot}/agents/{name}.agent.md.
+func copilotAdvisorDef(workspaceRoot string) model.AgentDefinition {
+	return model.AgentDefinition{
+		Name:      "copilot",
+		Type:      "copilot",
+		Workspace: workspaceRoot,
+		SkillDir:  "skills",
+		AgentDir:  "agents",
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_InstallTwo verifies that installing
+// two advisors creates two .agent.md files with valid frontmatter.
+func TestCopilotRenderer_RegenerateAdvisorFiles_InstallTwo(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Architecture advice"},
+		{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor/", Description: "Unit test advice"},
+	}
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil)
+	if err != nil {
+		t.Fatalf("RegenerateAdvisorFiles: %v", err)
+	}
+
+	if len(result.Written) != 2 {
+		t.Errorf("Written = %d paths, want 2; paths: %v", len(result.Written), result.Written)
+	}
+	if len(result.Deleted) != 0 {
+		t.Errorf("Deleted = %d paths, want 0; paths: %v", len(result.Deleted), result.Deleted)
+	}
+
+	agentsDir := filepath.Join(workspaceRoot, "agents")
+	for _, name := range []string{"architect-advisor", "unit-test-advisor"} {
+		agentPath := filepath.Join(agentsDir, name+".agent.md")
+		data, err := os.ReadFile(agentPath)
+		if err != nil {
+			t.Fatalf("read %s.agent.md: %v", name, err)
+		}
+		fm, _, err := parse.ParseFrontmatter(data)
+		if err != nil {
+			t.Fatalf("parse frontmatter of %s.agent.md: %v", name, err)
+		}
+		if fm["name"] != name {
+			t.Errorf("%s.agent.md: frontmatter name = %v, want %q", name, fm["name"], name)
+		}
+		if _, ok := fm["description"]; !ok {
+			t.Errorf("%s.agent.md: missing 'description' in frontmatter", name)
+		}
+		if _, ok := fm["tools"]; !ok {
+			t.Errorf("%s.agent.md: missing 'tools' in frontmatter", name)
+		}
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_RemoveOne verifies that removing one
+// advisor deletes its .agent.md while the other file remains untouched.
+func TestCopilotRenderer_RegenerateAdvisorFiles_RemoveOne(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	// Install both advisors first.
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Architecture advice"},
+		{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor/", Description: "Unit test advice"},
+	}
+	if _, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil); err != nil {
+		t.Fatalf("first RegenerateAdvisorFiles: %v", err)
+	}
+
+	// Remove architect-advisor, keep unit-test-advisor.
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot,
+		[]model.ContentItem{{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor/", Description: "Unit test advice"}},
+		[]string{"architect-advisor"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("second RegenerateAdvisorFiles: %v", err)
+	}
+
+	if len(result.Deleted) != 1 {
+		t.Errorf("Deleted = %d paths, want 1; paths: %v", len(result.Deleted), result.Deleted)
+	}
+
+	agentsDir := filepath.Join(workspaceRoot, "agents")
+
+	// architect-advisor.agent.md must be gone.
+	removedPath := filepath.Join(agentsDir, "architect-advisor.agent.md")
+	if _, err := os.Stat(removedPath); err == nil {
+		t.Errorf("architect-advisor.agent.md should have been deleted but still exists")
+	}
+
+	// unit-test-advisor.agent.md must still exist.
+	keptPath := filepath.Join(agentsDir, "unit-test-advisor.agent.md")
+	if _, err := os.Stat(keptPath); err != nil {
+		t.Errorf("unit-test-advisor.agent.md should still exist: %v", err)
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_RemoveNonExistent verifies that
+// removing a name that has no corresponding file produces no error.
+func TestCopilotRenderer_RegenerateAdvisorFiles_RemoveNonExistent(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, nil, []string{"nonexistent-advisor"}, nil)
+	if err != nil {
+		t.Errorf("RegenerateAdvisorFiles with nonexistent name: expected no error, got: %v", err)
+	}
+	// Deleted still lists the path (Copilot removes what was there; non-existent is a no-op).
+	_ = result
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_NonAdvisorNamesIgnored verifies that
+// items without "-advisor" or "-adviser" suffix and Custom=false are silently ignored.
+func TestCopilotRenderer_RegenerateAdvisorFiles_NonAdvisorNamesIgnored(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "git-commit", Path: "skills/git-commit/", Description: "Git commits"},
+		{Kind: model.KindSkill, Name: "sdd-plan", Path: "skills/sdd-plan/", Description: "Plan phase"},
+	}
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil)
+	if err != nil {
+		t.Fatalf("RegenerateAdvisorFiles: %v", err)
+	}
+
+	if len(result.Written) != 0 {
+		t.Errorf("Written = %d paths, want 0 (non-advisor names must be ignored); paths: %v", len(result.Written), result.Written)
+	}
+
+	agentsDir := filepath.Join(workspaceRoot, "agents")
+	for _, name := range []string{"git-commit", "sdd-plan"} {
+		agentPath := filepath.Join(agentsDir, name+".agent.md")
+		if _, err := os.Stat(agentPath); err == nil {
+			t.Errorf("%s.agent.md must NOT be created for non-advisor skill", name)
+		}
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_LegacySuffixCompat verifies that a
+// ContentItem with legacy "-adviser" suffix still produces an .agent.md file.
+func TestCopilotRenderer_RegenerateAdvisorFiles_LegacySuffixCompat(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "security-adviser", Path: "skills/security-adviser/", Description: "Security advice"},
+	}
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil)
+	if err != nil {
+		t.Fatalf("RegenerateAdvisorFiles: %v", err)
+	}
+
+	if len(result.Written) != 1 {
+		t.Errorf("Written = %d paths, want 1; paths: %v", len(result.Written), result.Written)
+	}
+
+	// File must use the original name (security-adviser) with .agent.md extension.
+	agentPath := filepath.Join(workspaceRoot, "agents", "security-adviser.agent.md")
+	if _, err := os.Stat(agentPath); err != nil {
+		t.Errorf("security-adviser.agent.md must exist (legacy suffix compat): %v", err)
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_Idempotency verifies that two
+// consecutive calls with identical input produce byte-identical output files.
+func TestCopilotRenderer_RegenerateAdvisorFiles_Idempotency(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Architecture advice"},
+	}
+
+	if _, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	agentPath := filepath.Join(workspaceRoot, "agents", "architect-advisor.agent.md")
+	first, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read first output: %v", err)
+	}
+
+	if _, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	second, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read second output: %v", err)
+	}
+
+	if string(first) != string(second) {
+		t.Errorf("idempotency violated: byte contents differ between first and second call\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_CustomFlaggedItem verifies that a
+// ContentItem with Custom=true produces a valid .agent.md output file.
+func TestCopilotRenderer_RegenerateAdvisorFiles_CustomFlaggedItem(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "security-advisor", Path: "skills/security-advisor/", Description: "Security advice", Custom: true},
+	}
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil)
+	if err != nil {
+		t.Fatalf("RegenerateAdvisorFiles: %v", err)
+	}
+
+	if len(result.Written) != 1 {
+		t.Errorf("Written = %d paths, want 1 for Custom=true item; paths: %v", len(result.Written), result.Written)
+	}
+
+	agentPath := filepath.Join(workspaceRoot, "agents", "security-advisor.agent.md")
+	data, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read security-advisor.agent.md: %v", err)
+	}
+	fm, _, err := parse.ParseFrontmatter(data)
+	if err != nil {
+		t.Fatalf("parse frontmatter: %v", err)
+	}
+	if fm["name"] != "security-advisor" {
+		t.Errorf("frontmatter name = %v, want %q", fm["name"], "security-advisor")
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_InstalledVsRemovedConflict verifies
+// the contract when a name appears in both installed and removed.
+// The implementation processes installed first (writes the file) then removed
+// (deletes the file), so removed wins — the file is absent after the call.
+// Both Written and Deleted record the path (reflecting the sequence of operations).
+func TestCopilotRenderer_RegenerateAdvisorFiles_InstalledVsRemovedConflict(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	const advisorName = "architect-advisor"
+
+	installed := []model.ContentItem{
+		{Kind: model.KindSkill, Name: advisorName, Path: "skills/architect-advisor/", Description: "Architecture advice"},
+	}
+	removed := []string{advisorName}
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, removed, nil)
+	if err != nil {
+		t.Fatalf("RegenerateAdvisorFiles: %v", err)
+	}
+
+	// The file was written (in the install pass) so Written must record it.
+	if len(result.Written) != 1 {
+		t.Errorf("Written = %d, want 1 (install pass ran); paths: %v", len(result.Written), result.Written)
+	}
+	// The file was then deleted (in the remove pass) so Deleted must record it.
+	if len(result.Deleted) != 1 {
+		t.Errorf("Deleted = %d, want 1 (remove pass ran after install); paths: %v", len(result.Deleted), result.Deleted)
+	}
+
+	// Net outcome: removed wins — file is absent on disk.
+	agentPath := filepath.Join(workspaceRoot, "agents", advisorName+".agent.md")
+	if _, err := os.Stat(agentPath); err == nil {
+		t.Errorf("removed wins: %s.agent.md must NOT exist when name is in both installed and removed (remove runs after install)", advisorName)
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_EmptyInputs verifies that calling
+// with empty installed and removed slices returns an empty result and creates no files.
+func TestCopilotRenderer_RegenerateAdvisorFiles_EmptyInputs(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	result, err := r.RegenerateAdvisorFiles(workspaceRoot, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("RegenerateAdvisorFiles with empty inputs: %v", err)
+	}
+
+	if len(result.Written) != 0 {
+		t.Errorf("Written = %d, want 0 for empty inputs; paths: %v", len(result.Written), result.Written)
+	}
+	if len(result.Deleted) != 0 {
+		t.Errorf("Deleted = %d, want 0 for empty inputs; paths: %v", len(result.Deleted), result.Deleted)
+	}
+
+	// agents directory must not have been created or must be empty.
+	agentsDir := filepath.Join(workspaceRoot, "agents")
+	if entries, err := os.ReadDir(agentsDir); err == nil && len(entries) != 0 {
+		t.Errorf("agents dir must be empty for empty inputs; found: %v", entries)
+	}
+}
+
+// TestCopilotRenderer_RegenerateAdvisorFiles_StatelessReceiver verifies that
+// successive calls with different inputs on the same renderer instance do not
+// leak state — each call is independent.
+func TestCopilotRenderer_RegenerateAdvisorFiles_StatelessReceiver(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
+
+	// First call: install architect-advisor only.
+	first := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Architecture"},
+	}
+	result1, err := r.RegenerateAdvisorFiles(workspaceRoot, first, nil, nil)
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if len(result1.Written) != 1 {
+		t.Errorf("first call: Written = %d, want 1; paths: %v", len(result1.Written), result1.Written)
+	}
+
+	// Second call: install unit-test-advisor only (different set).
+	second := []model.ContentItem{
+		{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor/", Description: "Unit tests"},
+	}
+	result2, err := r.RegenerateAdvisorFiles(workspaceRoot, second, nil, nil)
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if len(result2.Written) != 1 {
+		t.Errorf("second call: Written = %d, want 1 (should only reflect second input, not accumulate first); paths: %v", len(result2.Written), result2.Written)
+	}
+	if strings.Contains(result2.Written[0], "architect-advisor") {
+		t.Errorf("second call must not return architect-advisor in Written (state leaked from first call); got: %v", result2.Written)
+	}
+	if !strings.Contains(result2.Written[0], "unit-test-advisor") {
+		t.Errorf("second call Written[0] must contain unit-test-advisor; got: %v", result2.Written[0])
+	}
+}
+
+// TestCopilotRenderer_InstallWorkflow_SharedVariantSuffixStripping verifies that
+// _shared/launch-templates.copilot.md is installed as _shared/launch-templates.md,
+// while claude and opencode variant files are skipped entirely.
+func TestCopilotRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	def := copilotParityDef(workspaceRoot)
+	r := renderers.NewCopilotRenderer(def)
+
+	cachePath := t.TempDir()
+
+	// Minimal workflow cache: one skill, ORCHESTRATOR.md, and _shared/ with variant files.
+	skillDir := filepath.Join(cachePath, "sdd-plan")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir sdd-plan: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: sdd-plan\ndescription: Plan\n---\nBody.\n"), 0o644); err != nil {
+		t.Fatalf("write sdd-plan/SKILL.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "ORCHESTRATOR.md"), []byte("# SDD Orchestrator\n"), 0o644); err != nil {
+		t.Fatalf("write ORCHESTRATOR.md: %v", err)
+	}
+
+	sharedDir := filepath.Join(cachePath, "_shared")
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatalf("mkdir _shared: %v", err)
+	}
+	sharedFiles := map[string]string{
+		"launch-templates.claude.md":   "# claude launch-templates\n",
+		"launch-templates.copilot.md":  "# copilot launch-templates\n",
+		"launch-templates.opencode.md": "# opencode launch-templates\n",
+		"envelope-contract.md":         "# envelope\n",
+	}
+	for name, content := range sharedFiles {
+		if err := os.WriteFile(filepath.Join(sharedDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0", WorkingDir: "sdd-orchestrator"},
+		Components: model.WorkflowComponents{
+			Skills:     []string{"sdd-plan"},
+			Entrypoint: "ORCHESTRATOR.md",
+			Roles: []model.WorkflowRole{
+				{Name: "sdd-orchestrator", Kind: "orchestrator"},
+			},
+		},
+	}
+
+	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	installedShared := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
+
+	// launch-templates.md must exist with copilot content (from launch-templates.copilot.md).
+	ltPath := filepath.Join(installedShared, "launch-templates.md")
+	data, err := os.ReadFile(ltPath)
+	if err != nil {
+		t.Fatalf("launch-templates.md not installed: %v", err)
+	}
+	if string(data) != "# copilot launch-templates\n" {
+		t.Errorf("launch-templates.md content = %q, want copilot variant content", string(data))
+	}
+
+	// envelope-contract.md must exist (generic file).
+	if _, err := os.Stat(filepath.Join(installedShared, "envelope-contract.md")); err != nil {
+		t.Errorf("envelope-contract.md should be present: %v", err)
+	}
+
+	// No variant-suffixed files must exist.
+	for _, absent := range []string{
+		"launch-templates.claude.md",
+		"launch-templates.copilot.md",
+		"launch-templates.opencode.md",
+	} {
+		path := filepath.Join(installedShared, absent)
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("variant file %q must not be installed in _shared/", absent)
+		}
 	}
 }

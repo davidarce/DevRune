@@ -14,9 +14,9 @@ import (
 
 // TestTransformEnvVarValues_Copilot verifies ${VAR} → ${env:VAR} for Copilot.
 func TestTransformEnvVarValues_Copilot(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"command": "npx",
-		"env": map[string]interface{}{
+		"env": map[string]any{
 			"EXA_API_KEY": "${EXA_API_KEY}",
 			"STATIC_VAL":  "not-a-placeholder",
 		},
@@ -24,9 +24,9 @@ func TestTransformEnvVarValues_Copilot(t *testing.T) {
 
 	result := renderers.TransformEnvVarValues(input, "copilot")
 
-	envMap, ok := result["env"].(map[string]interface{})
+	envMap, ok := result["env"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'env' is not map[string]interface{}, got %T", result["env"])
+		t.Fatalf("result 'env' is not map[string]any, got %T", result["env"])
 	}
 
 	if envMap["EXA_API_KEY"] != "${env:EXA_API_KEY}" {
@@ -44,18 +44,18 @@ func TestTransformEnvVarValues_Copilot(t *testing.T) {
 
 // TestTransformEnvVarValues_OpenCode verifies ${VAR} → {env:VAR} for OpenCode.
 func TestTransformEnvVarValues_OpenCode(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"command": "npx",
-		"env": map[string]interface{}{
+		"env": map[string]any{
 			"EXA_API_KEY": "${EXA_API_KEY}",
 		},
 	}
 
 	result := renderers.TransformEnvVarValues(input, "opencode")
 
-	envMap, ok := result["env"].(map[string]interface{})
+	envMap, ok := result["env"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'env' is not map[string]interface{}, got %T", result["env"])
+		t.Fatalf("result 'env' is not map[string]any, got %T", result["env"])
 	}
 
 	if envMap["EXA_API_KEY"] != "{env:EXA_API_KEY}" {
@@ -65,17 +65,17 @@ func TestTransformEnvVarValues_OpenCode(t *testing.T) {
 
 // TestTransformEnvVarValues_EnvironmentKey verifies the "environment" key is also transformed.
 func TestTransformEnvVarValues_EnvironmentKey(t *testing.T) {
-	input := map[string]interface{}{
-		"environment": map[string]interface{}{
+	input := map[string]any{
+		"environment": map[string]any{
 			"MY_TOKEN": "${MY_TOKEN}",
 		},
 	}
 
 	result := renderers.TransformEnvVarValues(input, "copilot")
 
-	envMap, ok := result["environment"].(map[string]interface{})
+	envMap, ok := result["environment"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'environment' is not map[string]interface{}, got %T", result["environment"])
+		t.Fatalf("result 'environment' is not map[string]any, got %T", result["environment"])
 	}
 
 	if envMap["MY_TOKEN"] != "${env:MY_TOKEN}" {
@@ -86,8 +86,8 @@ func TestTransformEnvVarValues_EnvironmentKey(t *testing.T) {
 // TestTransformEnvVarValues_NonPlaceholderUnchanged verifies that values that do not
 // match the ${VAR_NAME} pattern are returned unchanged for all formats.
 func TestTransformEnvVarValues_NonPlaceholderUnchanged(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"RAW":     "already-resolved-value",
 			"EMPTY":   "",
 			"PARTIAL": "${INCOMPLETE",
@@ -96,7 +96,7 @@ func TestTransformEnvVarValues_NonPlaceholderUnchanged(t *testing.T) {
 
 	for _, format := range []string{"copilot", "opencode"} {
 		result := renderers.TransformEnvVarValues(input, format)
-		envMap := result["env"].(map[string]interface{})
+		envMap := result["env"].(map[string]any)
 
 		if envMap["RAW"] != "already-resolved-value" {
 			t.Errorf("[%s] RAW = %q, want %q", format, envMap["RAW"], "already-resolved-value")
@@ -112,10 +112,10 @@ func TestTransformEnvVarValues_NonPlaceholderUnchanged(t *testing.T) {
 
 // TestTransformEnvVarValues_DoesNotMutateOriginal verifies the input map is not modified.
 func TestTransformEnvVarValues_DoesNotMutateOriginal(t *testing.T) {
-	originalEnv := map[string]interface{}{
+	originalEnv := map[string]any{
 		"API_KEY": "${API_KEY}",
 	}
-	input := map[string]interface{}{
+	input := map[string]any{
 		"env": originalEnv,
 	}
 
@@ -130,23 +130,23 @@ func TestTransformEnvVarValues_DoesNotMutateOriginal(t *testing.T) {
 // TestTransformEnvVarValues_BothEnvKeys verifies that if a server config has both
 // "env" and "environment" keys, both are transformed.
 func TestTransformEnvVarValues_BothEnvKeys(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"VAR_A": "${VAR_A}",
 		},
-		"environment": map[string]interface{}{
+		"environment": map[string]any{
 			"VAR_B": "${VAR_B}",
 		},
 	}
 
 	result := renderers.TransformEnvVarValues(input, "opencode")
 
-	envMap := result["env"].(map[string]interface{})
+	envMap := result["env"].(map[string]any)
 	if envMap["VAR_A"] != "{env:VAR_A}" {
 		t.Errorf("env.VAR_A = %q, want %q", envMap["VAR_A"], "{env:VAR_A}")
 	}
 
-	envMap2 := result["environment"].(map[string]interface{})
+	envMap2 := result["environment"].(map[string]any)
 	if envMap2["VAR_B"] != "{env:VAR_B}" {
 		t.Errorf("environment.VAR_B = %q, want %q", envMap2["VAR_B"], "{env:VAR_B}")
 	}
@@ -155,9 +155,9 @@ func TestTransformEnvVarValues_BothEnvKeys(t *testing.T) {
 // TestTransformEnvVarValues_NoEnvKey verifies a server config with no env key is returned
 // as-is (shallow copy with all other fields intact).
 func TestTransformEnvVarValues_NoEnvKey(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"command": "node",
-		"args":    []interface{}{"server.js"},
+		"args":    []any{"server.js"},
 		"type":    "local",
 	}
 
@@ -369,9 +369,9 @@ func TestResolveMCPOutputPath_TableDriven(t *testing.T) {
 
 // TestApplyMCPEnvTransform_CopilotStyle verifies ${EXA_API_KEY} → ${env:EXA_API_KEY}.
 func TestApplyMCPEnvTransform_CopilotStyle(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"command": "npx",
-		"env": map[string]interface{}{
+		"env": map[string]any{
 			"EXA_API_KEY": "${EXA_API_KEY}",
 		},
 	}
@@ -379,9 +379,9 @@ func TestApplyMCPEnvTransform_CopilotStyle(t *testing.T) {
 
 	result := renderers.ApplyMCPEnvTransform(input, cfg)
 
-	envMap, ok := result["env"].(map[string]interface{})
+	envMap, ok := result["env"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'env' is not map[string]interface{}, got %T", result["env"])
+		t.Fatalf("result 'env' is not map[string]any, got %T", result["env"])
 	}
 	if envMap["EXA_API_KEY"] != "${env:EXA_API_KEY}" {
 		t.Errorf("EXA_API_KEY = %q, want %q", envMap["EXA_API_KEY"], "${env:EXA_API_KEY}")
@@ -393,8 +393,8 @@ func TestApplyMCPEnvTransform_CopilotStyle(t *testing.T) {
 
 // TestApplyMCPEnvTransform_OpenCodeStyle verifies ${EXA_API_KEY} → {env:EXA_API_KEY}.
 func TestApplyMCPEnvTransform_OpenCodeStyle(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"EXA_API_KEY": "${EXA_API_KEY}",
 		},
 	}
@@ -406,9 +406,9 @@ func TestApplyMCPEnvTransform_OpenCodeStyle(t *testing.T) {
 	if _, ok := result["env"]; ok {
 		t.Error("source key 'env' should have been renamed to 'environment'")
 	}
-	envMap, ok := result["environment"].(map[string]interface{})
+	envMap, ok := result["environment"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'environment' is not map[string]interface{}, got %T", result["environment"])
+		t.Fatalf("result 'environment' is not map[string]any, got %T", result["environment"])
 	}
 	if envMap["EXA_API_KEY"] != "{env:EXA_API_KEY}" {
 		t.Errorf("EXA_API_KEY = %q, want %q", envMap["EXA_API_KEY"], "{env:EXA_API_KEY}")
@@ -418,8 +418,8 @@ func TestApplyMCPEnvTransform_OpenCodeStyle(t *testing.T) {
 // TestApplyMCPEnvTransform_ClaudeDefaultStyle verifies ${EXA_API_KEY} stays unchanged
 // when EnvVarStyle is "${VAR}" (identity transform).
 func TestApplyMCPEnvTransform_ClaudeDefaultStyle(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"EXA_API_KEY": "${EXA_API_KEY}",
 		},
 	}
@@ -427,9 +427,9 @@ func TestApplyMCPEnvTransform_ClaudeDefaultStyle(t *testing.T) {
 
 	result := renderers.ApplyMCPEnvTransform(input, cfg)
 
-	envMap, ok := result["env"].(map[string]interface{})
+	envMap, ok := result["env"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'env' is not map[string]interface{}, got %T", result["env"])
+		t.Fatalf("result 'env' is not map[string]any, got %T", result["env"])
 	}
 	if envMap["EXA_API_KEY"] != "${EXA_API_KEY}" {
 		t.Errorf("EXA_API_KEY = %q, want %q (should be unchanged)", envMap["EXA_API_KEY"], "${EXA_API_KEY}")
@@ -439,8 +439,8 @@ func TestApplyMCPEnvTransform_ClaudeDefaultStyle(t *testing.T) {
 // TestApplyMCPEnvTransform_EnvKeyRename verifies source "env" is renamed when
 // mcpConfig.EnvKey = "environment".
 func TestApplyMCPEnvTransform_EnvKeyRename(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"MY_TOKEN": "${MY_TOKEN}",
 		},
 	}
@@ -459,8 +459,8 @@ func TestApplyMCPEnvTransform_EnvKeyRename(t *testing.T) {
 // TestApplyMCPEnvTransform_EnvKeyPreserved verifies source "env" stays as "env" when
 // mcpConfig.EnvKey = "env".
 func TestApplyMCPEnvTransform_EnvKeyPreserved(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"MY_TOKEN": "${MY_TOKEN}",
 		},
 	}
@@ -476,8 +476,8 @@ func TestApplyMCPEnvTransform_EnvKeyPreserved(t *testing.T) {
 // TestApplyMCPEnvTransform_NonPlaceholderUnchanged verifies non-placeholder values
 // are not modified by the transform.
 func TestApplyMCPEnvTransform_NonPlaceholderUnchanged(t *testing.T) {
-	input := map[string]interface{}{
-		"env": map[string]interface{}{
+	input := map[string]any{
+		"env": map[string]any{
 			"STATIC_VAL": "already-resolved",
 			"EMPTY":      "",
 			"PARTIAL":    "${INCOMPLETE",
@@ -488,9 +488,9 @@ func TestApplyMCPEnvTransform_NonPlaceholderUnchanged(t *testing.T) {
 
 	result := renderers.ApplyMCPEnvTransform(input, cfg)
 
-	envMap, ok := result["env"].(map[string]interface{})
+	envMap, ok := result["env"].(map[string]any)
 	if !ok {
-		t.Fatalf("result 'env' is not map[string]interface{}")
+		t.Fatalf("result 'env' is not map[string]any")
 	}
 	if envMap["STATIC_VAL"] != "already-resolved" {
 		t.Errorf("STATIC_VAL = %q, want %q", envMap["STATIC_VAL"], "already-resolved")
@@ -509,10 +509,10 @@ func TestApplyMCPEnvTransform_NonPlaceholderUnchanged(t *testing.T) {
 // TestApplyMCPEnvTransform_DoesNotMutateOriginal verifies the original map is not
 // modified (immutability guarantee).
 func TestApplyMCPEnvTransform_DoesNotMutateOriginal(t *testing.T) {
-	originalEnv := map[string]interface{}{
+	originalEnv := map[string]any{
 		"API_KEY": "${API_KEY}",
 	}
-	input := map[string]interface{}{
+	input := map[string]any{
 		"env": originalEnv,
 	}
 	cfg := model.MCPConfig{EnvKey: "environment", EnvVarStyle: "{env:VAR}"}
@@ -532,9 +532,9 @@ func TestApplyMCPEnvTransform_DoesNotMutateOriginal(t *testing.T) {
 // TestApplyMCPEnvTransform_NoEnvKey verifies a server config with no env key is returned
 // as-is (all fields preserved, no transform applied).
 func TestApplyMCPEnvTransform_NoEnvKey(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"command": "node",
-		"args":    []interface{}{"server.js"},
+		"args":    []any{"server.js"},
 		"type":    "local",
 	}
 	cfg := model.MCPConfig{EnvKey: "env", EnvVarStyle: "${env:VAR}"}
@@ -556,10 +556,10 @@ func TestApplyMCPEnvTransform_NoEnvKey(t *testing.T) {
 // the "headers" field is transformed to {env:REF_API_KEY} for OpenCode style.
 // This covers HTTP-type MCPs (ref, context7) that pass API keys via headers.
 func TestApplyMCPEnvTransform_HeadersOpenCodeStyle(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"type": "remote",
 		"url":  "https://api.ref.tools/mcp",
-		"headers": map[string]interface{}{
+		"headers": map[string]any{
 			"x-ref-api-key": "${REF_API_KEY}",
 		},
 	}
@@ -567,7 +567,7 @@ func TestApplyMCPEnvTransform_HeadersOpenCodeStyle(t *testing.T) {
 
 	result := renderers.ApplyMCPEnvTransform(input, cfg)
 
-	headers, ok := result["headers"].(map[string]interface{})
+	headers, ok := result["headers"].(map[string]any)
 	if !ok {
 		t.Fatalf("headers should be a map, got %T", result["headers"])
 	}
@@ -580,10 +580,10 @@ func TestApplyMCPEnvTransform_HeadersOpenCodeStyle(t *testing.T) {
 // TestApplyMCPEnvTransform_HeadersCopilotStyle verifies that ${CONTEXT7_API_KEY} in
 // the "headers" field is transformed to ${env:CONTEXT7_API_KEY} for Copilot style.
 func TestApplyMCPEnvTransform_HeadersCopilotStyle(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"type": "remote",
 		"url":  "https://mcp.context7.com/mcp",
-		"headers": map[string]interface{}{
+		"headers": map[string]any{
 			"CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}",
 		},
 	}
@@ -591,7 +591,7 @@ func TestApplyMCPEnvTransform_HeadersCopilotStyle(t *testing.T) {
 
 	result := renderers.ApplyMCPEnvTransform(input, cfg)
 
-	headers, ok := result["headers"].(map[string]interface{})
+	headers, ok := result["headers"].(map[string]any)
 	if !ok {
 		t.Fatalf("headers should be a map, got %T", result["headers"])
 	}
@@ -604,10 +604,10 @@ func TestApplyMCPEnvTransform_HeadersCopilotStyle(t *testing.T) {
 // TestApplyMCPEnvTransform_HeadersClaudeStyle verifies that ${REF_API_KEY} in headers
 // passes through unchanged when envVarStyle is the Claude default ${VAR}.
 func TestApplyMCPEnvTransform_HeadersClaudeStyle(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"type": "remote",
 		"url":  "https://api.ref.tools/mcp",
-		"headers": map[string]interface{}{
+		"headers": map[string]any{
 			"x-ref-api-key": "${REF_API_KEY}",
 		},
 	}
@@ -615,7 +615,7 @@ func TestApplyMCPEnvTransform_HeadersClaudeStyle(t *testing.T) {
 
 	result := renderers.ApplyMCPEnvTransform(input, cfg)
 
-	headers, ok := result["headers"].(map[string]interface{})
+	headers, ok := result["headers"].(map[string]any)
 	if !ok {
 		t.Fatalf("headers should be a map, got %T", result["headers"])
 	}
@@ -632,13 +632,13 @@ func TestApplyMCPEnvTransform_HeadersClaudeStyle(t *testing.T) {
 // TestSanitizeMCPDefinition_WithPermissions verifies that a permissions block
 // is extracted into the returned permissions map and NOT included in serverConfig.
 func TestSanitizeMCPDefinition_WithPermissions(t *testing.T) {
-	def := map[string]interface{}{
+	def := map[string]any{
 		"command": "npx",
-		"args":    []interface{}{"-y", "@modelcontextprotocol/server-exa"},
-		"env": map[string]interface{}{
+		"args":    []any{"-y", "@modelcontextprotocol/server-exa"},
+		"env": map[string]any{
 			"EXA_API_KEY": "${EXA_API_KEY}",
 		},
-		"permissions": map[string]interface{}{
+		"permissions": map[string]any{
 			"level": "allow",
 		},
 	}
@@ -664,9 +664,9 @@ func TestSanitizeMCPDefinition_WithPermissions(t *testing.T) {
 // TestSanitizeMCPDefinition_WithoutPermissions verifies that when no permissions
 // block is present, an empty (non-nil) map is returned.
 func TestSanitizeMCPDefinition_WithoutPermissions(t *testing.T) {
-	def := map[string]interface{}{
+	def := map[string]any{
 		"command": "node",
-		"args":    []interface{}{"server.js"},
+		"args":    []any{"server.js"},
 	}
 
 	_, _, permissions := renderers.SanitizeMCPDefinition(def)
@@ -682,9 +682,9 @@ func TestSanitizeMCPDefinition_WithoutPermissions(t *testing.T) {
 // TestSanitizeMCPDefinition_PermissionsNotInServerConfig verifies the "permissions"
 // key is stripped from serverConfig even when it is the only extra field.
 func TestSanitizeMCPDefinition_PermissionsNotInServerConfig(t *testing.T) {
-	def := map[string]interface{}{
+	def := map[string]any{
 		"command": "npx",
-		"permissions": map[string]interface{}{
+		"permissions": map[string]any{
 			"level": "deny",
 		},
 	}
@@ -704,9 +704,9 @@ func TestSanitizeMCPDefinition_PermissionsNotInServerConfig(t *testing.T) {
 func TestSanitizeMCPDefinition_AllPermissionLevels(t *testing.T) {
 	for _, level := range []string{"allow", "ask", "deny"} {
 		t.Run("level="+level, func(t *testing.T) {
-			def := map[string]interface{}{
+			def := map[string]any{
 				"command": "npx",
-				"permissions": map[string]interface{}{
+				"permissions": map[string]any{
 					"level": level,
 				},
 			}
@@ -1493,5 +1493,181 @@ func TestRemoveSymlinkOrCopy_LeavesUserOwnedFile(t *testing.T) {
 	}
 	if _, err := os.Stat(linkPath); err != nil {
 		t.Error("user-owned file was incorrectly removed")
+	}
+}
+
+// TestCopyDirRecursiveStripVariant verifies the variant-suffix stripping logic used
+// when installing _shared/ catalog directories. Table-driven cases cover all three
+// cloud-native variants and the key file patterns.
+func TestCopyDirRecursiveStripVariant(t *testing.T) {
+	// Files present in the catalog _shared/ source directory.
+	catalogFiles := map[string]string{
+		"launch-templates.claude.md":   "# claude content\n",
+		"launch-templates.copilot.md":  "# copilot content\n",
+		"launch-templates.opencode.md": "# opencode content\n",
+		"launch-templates.md":          "# generic content\n",
+		"envelope-contract.md":         "# envelope\n",
+		"persistence-contract.md":      "# persistence\n",
+	}
+
+	tests := []struct {
+		name            string
+		variant         string
+		wantPresent     []string // installed filenames that MUST exist
+		wantAbsent      []string // filenames that MUST NOT exist
+		wantContentFile string   // filename whose content to assert
+		wantContent     string   // expected content for wantContentFile
+	}{
+		{
+			name:    "claude variant strips own suffix renames to plain .md",
+			variant: "claude",
+			// launch-templates.claude.md  → launch-templates.md (renamed)
+			// launch-templates.copilot.md → SKIP
+			// launch-templates.opencode.md → SKIP
+			// launch-templates.md (generic) → still copied (no variant suffix)
+			// envelope-contract.md → copied verbatim
+			wantPresent: []string{
+				"launch-templates.md",
+				"envelope-contract.md",
+				"persistence-contract.md",
+			},
+			wantAbsent: []string{
+				"launch-templates.claude.md",
+				"launch-templates.copilot.md",
+				"launch-templates.opencode.md",
+			},
+			// The LAST write wins when both generic and claude variants map to the same dst.
+			// copyDirRecursiveStripVariant copies generic FIRST (alphabetically before .claude.md),
+			// then .claude.md overwrites. So the content should be the claude variant content.
+			wantContentFile: "launch-templates.md",
+			wantContent:     "# claude content\n",
+		},
+		{
+			name:    "copilot variant strips own suffix renames to plain .md",
+			variant: "copilot",
+			wantPresent: []string{
+				"launch-templates.md",
+				"envelope-contract.md",
+				"persistence-contract.md",
+			},
+			wantAbsent: []string{
+				"launch-templates.claude.md",
+				"launch-templates.copilot.md",
+				"launch-templates.opencode.md",
+			},
+			wantContentFile: "launch-templates.md",
+			wantContent:     "# copilot content\n",
+		},
+		{
+			name:    "opencode variant strips own suffix renames to plain .md",
+			variant: "opencode",
+			wantPresent: []string{
+				"launch-templates.md",
+				"envelope-contract.md",
+				"persistence-contract.md",
+			},
+			wantAbsent: []string{
+				"launch-templates.claude.md",
+				"launch-templates.copilot.md",
+				"launch-templates.opencode.md",
+			},
+			wantContentFile: "launch-templates.md",
+			wantContent:     "# opencode content\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := t.TempDir()
+			dst := t.TempDir()
+
+			// Write catalog source files.
+			for name, content := range catalogFiles {
+				if err := os.WriteFile(filepath.Join(src, name), []byte(content), 0o644); err != nil {
+					t.Fatalf("write %s: %v", name, err)
+				}
+			}
+
+			if err := renderers.CopyDirRecursiveStripVariant(src, dst, tc.variant); err != nil {
+				t.Fatalf("CopyDirRecursiveStripVariant(%q): %v", tc.variant, err)
+			}
+
+			// Assert expected files are present.
+			for _, name := range tc.wantPresent {
+				path := filepath.Join(dst, name)
+				if _, err := os.Stat(path); err != nil {
+					t.Errorf("expected %q to exist after install, got: %v", name, err)
+				}
+			}
+
+			// Assert unexpected files are absent.
+			for _, name := range tc.wantAbsent {
+				path := filepath.Join(dst, name)
+				if _, err := os.Stat(path); err == nil {
+					t.Errorf("expected %q to be absent after install, but it exists", name)
+				}
+			}
+
+			// Assert content of the renamed file.
+			if tc.wantContentFile != "" {
+				data, err := os.ReadFile(filepath.Join(dst, tc.wantContentFile))
+				if err != nil {
+					t.Fatalf("read %q: %v", tc.wantContentFile, err)
+				}
+				if string(data) != tc.wantContent {
+					t.Errorf("content of %q = %q, want %q", tc.wantContentFile, string(data), tc.wantContent)
+				}
+			}
+		})
+	}
+}
+
+// TestCopyDirRecursiveStripVariant_NoVariantFilesOnly verifies that when the catalog
+// _shared/ contains ONLY generic files (no variant-suffixed files), all files are
+// copied verbatim for any variant.
+func TestCopyDirRecursiveStripVariant_NoVariantFilesOnly(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	for _, name := range []string{"envelope-contract.md", "persistence-contract.md", "recovery.md"} {
+		if err := os.WriteFile(filepath.Join(src, name), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if err := renderers.CopyDirRecursiveStripVariant(src, dst, "claude"); err != nil {
+		t.Fatalf("CopyDirRecursiveStripVariant: %v", err)
+	}
+
+	for _, name := range []string{"envelope-contract.md", "persistence-contract.md", "recovery.md"} {
+		path := filepath.Join(dst, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("generic file %q should be present: %v", name, err)
+		}
+	}
+}
+
+// TestCopyDirRecursiveStripVariant_SubdirsPassedThrough verifies that subdirectories
+// inside _shared/ are copied recursively without any name transformation.
+func TestCopyDirRecursiveStripVariant_SubdirsPassedThrough(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	// Create a subdirectory with a file inside.
+	subDir := filepath.Join(src, "somesubdir")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "nested.md"), []byte("nested\n"), 0o644); err != nil {
+		t.Fatalf("write nested: %v", err)
+	}
+
+	if err := renderers.CopyDirRecursiveStripVariant(src, dst, "claude"); err != nil {
+		t.Fatalf("CopyDirRecursiveStripVariant: %v", err)
+	}
+
+	nestedPath := filepath.Join(dst, "somesubdir", "nested.md")
+	if _, err := os.Stat(nestedPath); err != nil {
+		t.Errorf("nested file %q should be present in dst: %v", nestedPath, err)
 	}
 }
