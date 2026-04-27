@@ -110,10 +110,16 @@ func RenderRootCatalog(
 		sb.WriteString("\n")
 	}
 
+	// Workspace Command Rules — agent-agnostic guidance for git/gh commands
+	// when CWD is a workspace (parent dir with nested repos) rather than a
+	// repo itself. This catches ad-hoc commands the agent improvises outside
+	// of skills, where the per-skill Step 0 resolution does not apply.
+	sb.WriteString(workspaceCommandRulesSection())
+
 	// Project Rules table.
 	if len(rules) > 0 {
 		sb.WriteString("## Project Rules\n\n")
-		sb.WriteString("Technology-specific rules loaded by advisers based on scope matching.\n\n")
+		sb.WriteString("Technology-specific rules loaded by advisors based on scope matching.\n\n")
 		sb.WriteString("| Rule | Scope | Technology | Applies To | Description |\n")
 		sb.WriteString("|------|-------|------------|------------|-------------|\n")
 		for _, rule := range rules {
@@ -163,4 +169,19 @@ func RenderRootCatalog(
 	}
 
 	return sb.String(), nil
+}
+
+// workspaceCommandRulesSection returns the agent-agnostic "Workspace Command
+// Rules" prose injected into every generated catalog. The rules apply
+// whenever CWD is a workspace (parent dir with nested git repos) instead of
+// a repo itself — for any git/gh command, including ad-hoc exploration
+// outside of skills.
+func workspaceCommandRulesSection() string {
+	return "## Workspace Command Rules\n\n" +
+		"When the current working directory is a **workspace** (a parent directory containing nested git repos) instead of a git repo itself, follow these rules for any git/gh command — this includes ad-hoc exploration outside of skills:\n\n" +
+		"- **Use `git -C <path> <subcommand>`** to operate on a nested repo without changing CWD. Example: `git -C my-repo status`, not `cd my-repo && git status`.\n" +
+		"- **Use `gh -R <owner>/<repo> <subcommand>`** for GitHub operations. `gh` does not support `-C`. Derive owner/repo via `git -C <path> remote get-url origin`.\n" +
+		"- **Never `cd <path> && git ...`** — Claude Code blocks this compound pattern with a hardcoded anti-pattern alert that no allowlist can silence (\"can execute untrusted hooks from the target directory\"). It always prompts the user.\n" +
+		"- For `glab` (GitLab), no `-R` equivalent exists; prefer `gh` (GitHub) skills, or run `glab` manually with the filled template.\n\n" +
+		"Skills like `git-commit`, `git-pull-request`, `review-pr`, and `sdd-review` resolve the target repo via their **Step 0** algorithm and the `workspace.*` block in their `config.json`. For ad-hoc commands outside of skills, the rules above apply directly.\n\n"
 }
