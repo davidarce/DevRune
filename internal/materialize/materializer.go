@@ -247,7 +247,7 @@ func (m *Materializer) Install(
 		}
 
 		// T020: Propagate installed skills to the renderer before workflow installation
-		// so that workflow post-processing (adviser table injection) works correctly.
+		// so that workflow post-processing (advisor table injection) works correctly.
 		if setter, ok := renderer.(interface{ SetInstalledSkills([]model.ContentItem) }); ok {
 			setter.SetInstalledSkills(installedSkills)
 		}

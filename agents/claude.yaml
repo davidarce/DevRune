@@ -2,6 +2,7 @@ name: claude
 type: claude
 workspace: ".claude"
 skillDir: "skills"
+agentDir: "agents"
 commandDir: "commands"
 rulesDir: "rules"
 catalogFile: "CLAUDE.md"

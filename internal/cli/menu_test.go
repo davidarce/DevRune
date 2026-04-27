@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"charm.land/huh/v2"
 )
 
 // TestMenuActionConstants verifies all menuAction constants have the expected string values.
@@ -143,5 +145,155 @@ func TestHasModelRoutingAgents_ReturnsFalseForInvalidYAML(t *testing.T) {
 	}
 	if hasModelRoutingAgents(dir) {
 		t.Error("expected false for invalid YAML manifest")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for buildMenuOptions (T024)
+// ---------------------------------------------------------------------------
+
+// indexOfAction returns the index of the first option with the given value, or -1.
+func indexOfAction(opts []huh.Option[menuAction], action menuAction) int {
+	for i, o := range opts {
+		if o.Value == action {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestMenuActionManageAdvisorsConstant verifies the constant has the expected value.
+func TestMenuActionManageAdvisorsConstant(t *testing.T) {
+	if string(menuActionManageAdvisors) != "manage-advisors" {
+		t.Errorf("menuActionManageAdvisors = %q, want %q", string(menuActionManageAdvisors), "manage-advisors")
+	}
+}
+
+// TestBuildMenuOptions_WithModelRoutingAgents_OrderingIsCorrect verifies that when
+// hasRouting is true the "Configure role models" option appears directly before
+// "Manage SDD advisors".
+func TestBuildMenuOptions_WithModelRoutingAgents_OrderingIsCorrect(t *testing.T) {
+	opts := buildMenuOptions(true)
+
+	idxConfigure := indexOfAction(opts, menuActionConfigureModels)
+	idxAdvisors := indexOfAction(opts, menuActionManageAdvisors)
+
+	if idxConfigure == -1 {
+		t.Fatal("option 'Configure role models' not found when hasRouting=true")
+	}
+	if idxAdvisors == -1 {
+		t.Fatal("option 'Manage SDD advisors' not found when hasRouting=true")
+	}
+	if idxConfigure >= idxAdvisors {
+		t.Errorf("'Configure role models' (index %d) must come before 'Manage SDD advisors' (index %d)",
+			idxConfigure, idxAdvisors)
+	}
+	// Verify they are adjacent (directly followed by advisors).
+	if idxAdvisors != idxConfigure+1 {
+		t.Errorf("'Manage SDD advisors' (index %d) must be directly after 'Configure role models' (index %d), gap = %d",
+			idxAdvisors, idxConfigure, idxAdvisors-idxConfigure)
+	}
+}
+
+// TestBuildMenuOptions_WithoutModelRoutingAgents_OrderingIsCorrect verifies that when
+// hasRouting is false "Sync project" is directly followed by "Manage SDD advisors"
+// and "Configure role models" is absent.
+func TestBuildMenuOptions_WithoutModelRoutingAgents_OrderingIsCorrect(t *testing.T) {
+	opts := buildMenuOptions(false)
+
+	idxSync := indexOfAction(opts, menuActionSync)
+	idxAdvisors := indexOfAction(opts, menuActionManageAdvisors)
+	idxConfigure := indexOfAction(opts, menuActionConfigureModels)
+
+	if idxSync == -1 {
+		t.Fatal("option 'Sync project' not found when hasRouting=false")
+	}
+	if idxAdvisors == -1 {
+		t.Fatal("option 'Manage SDD advisors' not found when hasRouting=false")
+	}
+	if idxConfigure != -1 {
+		t.Errorf("option 'Configure role models' found at index %d but should be absent when hasRouting=false", idxConfigure)
+	}
+	// Verify "Sync project" is directly followed by "Manage SDD advisors".
+	if idxAdvisors != idxSync+1 {
+		t.Errorf("'Manage SDD advisors' (index %d) must be directly after 'Sync project' (index %d) when hasRouting=false",
+			idxAdvisors, idxSync)
+	}
+}
+
+// TestBuildMenuOptions_ManageAdvisorsAlwaysBeforeStatus verifies "Manage SDD advisors"
+// always appears before "Status" regardless of the hasRouting flag.
+func TestBuildMenuOptions_ManageAdvisorsAlwaysBeforeStatus(t *testing.T) {
+	for _, hasRouting := range []bool{true, false} {
+		opts := buildMenuOptions(hasRouting)
+
+		idxAdvisors := indexOfAction(opts, menuActionManageAdvisors)
+		idxStatus := indexOfAction(opts, menuActionStatus)
+
+		if idxAdvisors == -1 {
+			t.Errorf("hasRouting=%v: 'Manage SDD advisors' not found", hasRouting)
+			continue
+		}
+		if idxStatus == -1 {
+			t.Errorf("hasRouting=%v: 'Status' not found", hasRouting)
+			continue
+		}
+		if idxAdvisors >= idxStatus {
+			t.Errorf("hasRouting=%v: 'Manage SDD advisors' (index %d) must come before 'Status' (index %d)",
+				hasRouting, idxAdvisors, idxStatus)
+		}
+	}
+}
+
+// TestBuildMenuOptions_OptionLabels verifies the human-readable key for "Manage SDD advisors"
+// option matches the expected label.
+func TestBuildMenuOptions_OptionLabels(t *testing.T) {
+	opts := buildMenuOptions(false)
+	for _, o := range opts {
+		if o.Value == menuActionManageAdvisors {
+			if o.Key != "Manage SDD advisors" {
+				t.Errorf("label for menuActionManageAdvisors = %q, want %q", o.Key, "Manage SDD advisors")
+			}
+			return
+		}
+	}
+	t.Error("menuActionManageAdvisors option not found in buildMenuOptions(false)")
+}
+
+// TestBuildMenuOptions_WithRouting_ConfigureModelsLabel verifies the label for the
+// "Configure role models" option when hasRouting=true.
+func TestBuildMenuOptions_WithRouting_ConfigureModelsLabel(t *testing.T) {
+	opts := buildMenuOptions(true)
+	for _, o := range opts {
+		if o.Value == menuActionConfigureModels {
+			if o.Key != "Configure role models" {
+				t.Errorf("label for menuActionConfigureModels = %q, want %q", o.Key, "Configure role models")
+			}
+			return
+		}
+	}
+	t.Error("menuActionConfigureModels option not found in buildMenuOptions(true)")
+}
+
+// TestBuildMenuOptions_ManageAdvisorsDispatcherAction verifies that the menu option
+// for managing advisors maps to menuActionManageAdvisors (i.e., the dispatcher
+// switch case will match correctly).
+func TestBuildMenuOptions_ManageAdvisorsDispatcherAction(t *testing.T) {
+	for _, hasRouting := range []bool{true, false} {
+		opts := buildMenuOptions(hasRouting)
+		found := false
+		for _, o := range opts {
+			if o.Key == "Manage SDD advisors" {
+				if o.Value != menuActionManageAdvisors {
+					t.Errorf("hasRouting=%v: option 'Manage SDD advisors' has value %q, want %q",
+						hasRouting, o.Value, menuActionManageAdvisors)
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("hasRouting=%v: option 'Manage SDD advisors' not found", hasRouting)
+		}
 	}
 }

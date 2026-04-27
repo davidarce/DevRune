@@ -185,6 +185,13 @@ func testableResponsiveDescription(fullDesc, shortDesc string, width int) string
 // (terminal height minus headerOverhead), clamped to minSelectHeight.
 // This ensures MultiSelect/Select items remain visible even on short terminals.
 func dynamicHeight(requestedHeight int) int {
+	return DynamicHeight(requestedHeight)
+}
+
+// DynamicHeight returns a MultiSelect viewport height capped to the available
+// terminal height (terminal height minus headerOverhead), with a minimum of
+// minSelectHeight. Use this wherever a huh.MultiSelect needs an explicit Height().
+func DynamicHeight(requestedHeight int) int {
 	_, h := termSize()
 	return testableDynamicHeight(requestedHeight, h)
 }

@@ -223,10 +223,24 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 					catalog := recommend.StaticCatalog{}
 					if detected, fetchErr := catalog.FetchByProfile(profile); fetchErr == nil {
 						skillsShInput = steps.BuildSkillsShInput(detected)
-						// Filter adviser-kind skills to project-relevant subset.
+						// Filter advisor-kind skills to project-relevant subset.
 						// Only the skills.sh curated path is filtered; user-imported repos are unchanged.
 						if skillsShInput != nil {
-							skillsShInput.Skills = recommend.FilterAdvisersByProfile(profile, skillsShInput.Skills)
+							// Convert skill names to AdvisorDef (nil scope = universal) so
+							// FilterAdvisersByProfile can apply its scope-based filter.
+							// Skills not carrying explicit scope information are treated as
+							// universal and always included — same as the previous tier behaviour
+							// for names absent from the old AdvisorClassifications map.
+							advisorDefs := make([]model.AdvisorDef, len(skillsShInput.Skills))
+							for i, name := range skillsShInput.Skills {
+								advisorDefs[i] = model.AdvisorDef{Name: name}
+							}
+							filtered := recommend.FilterAdvisersByProfile(profile, advisorDefs)
+							filteredNames := make([]string, len(filtered))
+							for i, a := range filtered {
+								filteredNames[i] = a.Name
+							}
+							skillsShInput.Skills = filteredNames
 						}
 					}
 				}

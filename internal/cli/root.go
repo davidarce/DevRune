@@ -42,6 +42,7 @@ definitions, and workflows into developer workspaces.`,
 		newUninstallCmd(),
 		newUpgradeCmd(),
 		newCacheCmd(),
+		newSddAdvisorsCmd(),
 	)
 
 	return rootCmd

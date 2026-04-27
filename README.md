@@ -33,7 +33,7 @@ Configuring AI development agents used to mean juggling `.claude/`, `.agents/`, 
 **DevRune makes that a solved problem.** You declare what you want in a single `devrune.yaml`; DevRune resolves it, locks it, and materializes the right files into each agent's native format.
 
 - 📦 **Package-manager model** — sources, selection, lockfile, cache, reproducibility.
-- 🧠 **Spec-Driven Development (SDD) as first-citizen** — 4-phase workflow with model routing, adviser guidance, and compaction recovery. See [the SDD section](#-spec-driven-development-the-first-citizen).
+- 🧠 **Spec-Driven Development (SDD) as first-citizen** — 4-phase workflow with model routing, advisor guidance, and compaction recovery. See [the SDD section](#-spec-driven-development-the-first-citizen).
 - 🤖 **5 agents supported** — Claude Code, OpenCode, Codex, Copilot, Factory. One source of truth, five native workspaces.
 - 🪄 **Interactive TUI** — a guided wizard for first-time setup, project-type detection, and model selection.
 - 🔄 **Safe updates** — `devrune sync` re-resolves, re-installs, and tracks drift via a state file.
@@ -72,7 +72,7 @@ Other methods: [Installation](#-installation).
 devrune init
 ```
 
-The TUI walks you through **agents → SDD overview → content → model selection → confirm**. It detects your project tech stack and pre-selects the relevant advisers and rules.
+The TUI walks you through **agents → SDD overview → content → model selection → confirm**. It detects your project tech stack and pre-selects the relevant advisors and rules.
 
 ### 3. Or start from a manifest
 
@@ -86,7 +86,7 @@ agents: [claude, opencode]
 packages:
   - source: github:davidarce/devrune-starter-catalog@main
     select:
-      skills: [git-commit, architect-adviser, unit-test-adviser]
+      skills: [git-commit, architect-advisor, unit-test-advisor]
       rules: [architecture/clean-architecture, testing/mother-pattern]
 
 mcps:
@@ -149,22 +149,22 @@ Instead of yolo-coding, SDD breaks a change into **four disciplined phases** —
 
 ### The Advisor Strategy (guidance loop)
 
-During Plan, the planner (Sonnet) identifies when a domain specialist is needed and returns a **`guidance_requested`** envelope. The orchestrator launches adviser sub-agents (Opus) in parallel:
+During Plan, the planner (Sonnet) identifies when a domain specialist is needed and returns a **`guidance_requested`** envelope. The orchestrator launches advisor sub-agents (Opus) in parallel:
 
 ```
 sdd-plan (Sonnet) ─┐
                    ├─ detects gap → guidance_requested
                    ▼
-Orchestrator ──── launches advisers (Opus) in parallel
+Orchestrator ──── launches advisors (Opus) in parallel
                    │       architect · api-first · unit-test · component · a11y ...
                    ▼
-Orchestrator ──── re-enters sdd-plan with adviser recommendations
+Orchestrator ──── re-enters sdd-plan with advisor recommendations
                    │
                    ▼
 sdd-plan ──── status: ok → crit review → implement
 ```
 
-Each adviser returns **Strengths / Issues / Recommendations** and persists full guidance to engram (when available). **Advisers never execute code** — they only advise.
+Each advisor returns **Strengths / Issues / Recommendations** and persists full guidance to engram (when available). **Advisors never execute code** — they only advise.
 
 ### Compaction recovery
 
@@ -179,7 +179,7 @@ Long SDD sessions survive context compaction. DevRune installs per-agent hooks t
 
 ### Model routing per phase
 
-DevRune's TUI offers a **SDD Phase Models** step where you pick a model for each role (Explore, Plan, Implement, Review, Adviser) per agent. Pick Opus where depth matters; Sonnet where speed does. Reconfigurable anytime via `devrune` main menu → `Configure Models`.
+DevRune's TUI offers a **SDD Phase Models** step where you pick a model for each role (Explore, Plan, Implement, Review, Advisor) per agent. Pick Opus where depth matters; Sonnet where speed does. Reconfigurable anytime via `devrune` main menu → `Configure Models`.
 
 **GitHub Copilot tier constraint** — Copilot sub-agents cannot use a model with a higher cost tier than the orchestrator (VS Code enforces this). The TUI enforces this at selection time: pick the orchestrator model first and the phase cards automatically filter to only show models within that tier. The orchestrator model is written to the `.agent.md` frontmatter so VS Code picks it up directly.
 
@@ -188,7 +188,7 @@ DevRune's TUI offers a **SDD Phase Models** step where you pick a model for each
 **DevRune** owns the resolver, renderers, materializer, state tracking, hooks injection, and TUI flow.
 **[devrune-starter-catalog](https://github.com/davidarce/devrune-starter-catalog)** owns the SDD skills, orchestrator, templates, hooks, and plugin — the workflow's *content*.
 
-> 📖 Deep dive: the starter catalog's [`workflows/sdd/`](https://github.com/davidarce/devrune-starter-catalog/tree/main/workflows/sdd) directory has `ORCHESTRATOR.md`, the four phase skills, and shared contracts (envelope, launch-templates, adviser-templates, persistence, recovery).
+> 📖 Deep dive: the starter catalog's [`workflows/sdd/`](https://github.com/davidarce/devrune-starter-catalog/tree/main/workflows/sdd) directory has `ORCHESTRATOR.md`, the four phase skills, and shared contracts (envelope, launch-templates, advisor-templates, persistence, recovery).
 
 ---
 
@@ -196,7 +196,7 @@ DevRune's TUI offers a **SDD Phase Models** step where you pick a model for each
 
 DevRune works with **any catalog** that follows the directory contract (`skills/`, `rules/`, `mcps/`, `workflows/`, `tools/`). The **[devrune-starter-catalog](https://github.com/davidarce/devrune-starter-catalog)** is the curated default — it ships the SDD workflow plus:
 
-- **11 skills** — 7 advisers (architect, api-first, unit-test, integration-test, component, frontend-test, a11y), `git-commit`, `git-pull-request`, `review-pr`, `arch-flow-explorer`.
+- **11 skills** — 7 advisors (architect, api-first, unit-test, integration-test, component, frontend-test, a11y), `git-commit`, `git-pull-request`, `review-pr`, `arch-flow-explorer`.
 - **11 rules** — architecture (clean-arch, Beck's 4 rules), API standards, Java/Spring, React, testing patterns, microfrontends, a11y.
 - **6 MCPs** — Atlassian, Context7, Engram, Exa, Playwright, Ref.
 - **2 developer tools** — Crit (plan review), Engram (persistent memory) — auto-installed via Homebrew when the matching workflow/MCP is selected.
@@ -236,7 +236,7 @@ agents: [claude, opencode]               # which agents to configure
 packages:
   - source: github:davidarce/devrune-starter-catalog@main
     select:
-      skills: [git-commit, architect-adviser]
+      skills: [git-commit, architect-advisor]
       rules:  [architecture/clean-architecture]
 
 mcps:
@@ -248,7 +248,7 @@ workflows:
       claude:
         sdd-planner: opus
         sdd-implementer: sonnet
-        sdd-adviser:   opus
+        sdd-advisor:   opus
 
 install:
   linkMode: copy                         # copy | symlink | hardlink

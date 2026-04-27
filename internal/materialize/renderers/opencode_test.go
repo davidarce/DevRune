@@ -178,9 +178,9 @@ Body.
 		t.Fatal("tools field should be present")
 	}
 
-	toolsMap, ok := toolsVal.(map[string]interface{})
+	toolsMap, ok := toolsVal.(map[string]any)
 	if !ok {
-		t.Fatalf("tools should be map[string]interface{}, got %T", toolsVal)
+		t.Fatalf("tools should be map[string]any, got %T", toolsVal)
 	}
 
 	expectedKeys := []string{"bash", "read", "edit"}
@@ -523,18 +523,18 @@ func TestOpenCodeRenderer_InstallWorkflow_AgentEntriesInOpencodeJSON(t *testing.
 		t.Fatalf("read opencode.json: %v", err)
 	}
 
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
 
-	agentSection, ok := cfg["agent"].(map[string]interface{})
+	agentSection, ok := cfg["agent"].(map[string]any)
 	if !ok {
 		t.Fatalf("opencode.json missing 'agent' section; content:\n%s", string(data))
 	}
 
 	// sdd-planner: mode must be "subagent" and prompt must reference the role name.
-	planner, ok := agentSection["sdd-planner"].(map[string]interface{})
+	planner, ok := agentSection["sdd-planner"].(map[string]any)
 	if !ok {
 		t.Fatalf("agent section missing 'sdd-planner'; keys: %v", mapKeys(agentSection))
 	}
@@ -546,7 +546,7 @@ func TestOpenCodeRenderer_InstallWorkflow_AgentEntriesInOpencodeJSON(t *testing.
 	}
 
 	// sdd-reviewer: must exist with mode "subagent".
-	reviewer, ok := agentSection["sdd-reviewer"].(map[string]interface{})
+	reviewer, ok := agentSection["sdd-reviewer"].(map[string]any)
 	if !ok {
 		t.Fatalf("agent section missing 'sdd-reviewer'; keys: %v", mapKeys(agentSection))
 	}
@@ -555,7 +555,7 @@ func TestOpenCodeRenderer_InstallWorkflow_AgentEntriesInOpencodeJSON(t *testing.
 	}
 
 	// sdd-orchestrator: mode must be "all".
-	orch, ok := agentSection["sdd-orchestrator"].(map[string]interface{})
+	orch, ok := agentSection["sdd-orchestrator"].(map[string]any)
 	if !ok {
 		t.Fatalf("agent section missing 'sdd-orchestrator'; keys: %v", mapKeys(agentSection))
 	}
@@ -595,13 +595,13 @@ func TestOpenCodeRenderer_InstallWorkflow_ModelResolvedInAgentEntry(t *testing.T
 		t.Fatalf("read opencode.json: %v", err)
 	}
 
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
 
-	agentSection := cfg["agent"].(map[string]interface{})
-	planner := agentSection["sdd-planner"].(map[string]interface{})
+	agentSection := cfg["agent"].(map[string]any)
+	planner := agentSection["sdd-planner"].(map[string]any)
 
 	const wantModel = "github-copilot/claude-sonnet-4.6"
 	if planner["model"] != wantModel {
@@ -819,7 +819,7 @@ env:
 	}
 
 	// Root key must be "mcp" (OpenCode convention), not "mcpServers" (Claude default).
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
@@ -831,8 +831,8 @@ env:
 	}
 
 	// Env key must be "environment" (OpenCode convention).
-	mcpSection, _ := parsed["mcp"].(map[string]interface{})
-	exaEntry, _ := mcpSection["exa"].(map[string]interface{})
+	mcpSection, _ := parsed["mcp"].(map[string]any)
+	exaEntry, _ := mcpSection["exa"].(map[string]any)
 	if _, ok := exaEntry["environment"]; !ok {
 		t.Errorf("exa server entry should have 'environment' env key; keys: %v", mapKeys(exaEntry))
 	}
@@ -872,9 +872,9 @@ func TestOpenCodeRenderer_ManagedConfigPaths(t *testing.T) {
 	}
 }
 
-// mapKeys returns the keys of a map[string]interface{} as a slice, for use in
+// mapKeys returns the keys of a map[string]any as a slice, for use in
 // diagnostic error messages.
-func mapKeys(m map[string]interface{}) []string {
+func mapKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -906,7 +906,7 @@ func newOpenCodeRendererForMCPTest(workspaceRoot string) *renderers.OpenCodeRend
 
 // renderMCPsFromYAML is a helper that writes mcpYAML to a temp file, calls RenderMCPs,
 // and returns the parsed mcp section of the resulting opencode.json.
-func renderMCPsFromYAML(t *testing.T, workspaceRoot, mcpName, mcpYAML string) map[string]interface{} {
+func renderMCPsFromYAML(t *testing.T, workspaceRoot, mcpName, mcpYAML string) map[string]any {
 	t.Helper()
 	cacheDir := t.TempDir()
 	mcpFile := filepath.Join(cacheDir, mcpName+".yaml")
@@ -926,11 +926,11 @@ func renderMCPsFromYAML(t *testing.T, workspaceRoot, mcpName, mcpYAML string) ma
 	if err != nil {
 		t.Fatalf("read opencode.json: %v", err)
 	}
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
-	mcpSection, _ := parsed["mcp"].(map[string]interface{})
+	mcpSection, _ := parsed["mcp"].(map[string]any)
 	return mcpSection
 }
 
@@ -946,7 +946,7 @@ args:
   - "https://mcp.atlassian.com/v1/sse"
 `)
 
-	entry, ok := mcpSection["atlassian"].(map[string]interface{})
+	entry, ok := mcpSection["atlassian"].(map[string]any)
 	if !ok {
 		t.Fatalf("atlassian entry missing or not a map; mcp section: %v", mcpSection)
 	}
@@ -956,12 +956,12 @@ args:
 		t.Errorf("atlassian type = %q, want %q", got, "local")
 	}
 
-	// command must be a []interface{} (merged array).
-	cmdArr, ok := entry["command"].([]interface{})
+	// command must be a []any (merged array).
+	cmdArr, ok := entry["command"].([]any)
 	if !ok {
 		t.Fatalf("atlassian command should be an array, got %T: %v", entry["command"], entry["command"])
 	}
-	want := []interface{}{"npx", "-y", "mcp-remote", "https://mcp.atlassian.com/v1/sse"}
+	want := []any{"npx", "-y", "mcp-remote", "https://mcp.atlassian.com/v1/sse"}
 	if len(cmdArr) != len(want) {
 		t.Errorf("atlassian command = %v, want %v", cmdArr, want)
 	} else {
@@ -989,7 +989,7 @@ headers:
   CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
 `)
 
-	entry, ok := mcpSection["context7"].(map[string]interface{})
+	entry, ok := mcpSection["context7"].(map[string]any)
 	if !ok {
 		t.Fatalf("context7 entry missing or not a map; mcp section: %v", mcpSection)
 	}
@@ -1023,7 +1023,7 @@ env:
   EXA_API_KEY: "${EXA_API_KEY}"
 `)
 
-	entry, ok := mcpSection["exa"].(map[string]interface{})
+	entry, ok := mcpSection["exa"].(map[string]any)
 	if !ok {
 		t.Fatalf("exa entry missing or not a map; mcp section: %v", mcpSection)
 	}
@@ -1034,7 +1034,7 @@ env:
 	}
 
 	// command must be merged array.
-	cmdArr, ok := entry["command"].([]interface{})
+	cmdArr, ok := entry["command"].([]any)
 	if !ok {
 		t.Fatalf("exa command should be an array, got %T: %v", entry["command"], entry["command"])
 	}
@@ -1043,7 +1043,7 @@ env:
 	}
 
 	// env key must be "environment" and value must use OpenCode placeholder format.
-	envMap, ok := entry["environment"].(map[string]interface{})
+	envMap, ok := entry["environment"].(map[string]any)
 	if !ok {
 		t.Fatalf("exa entry should have 'environment' key; keys: %v", mapKeys(entry))
 	}
@@ -1114,11 +1114,11 @@ permissions:
 		t.Fatalf("read opencode.json: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
-	permSection, ok := parsed["permission"].(map[string]interface{})
+	permSection, ok := parsed["permission"].(map[string]any)
 	if !ok {
 		t.Fatalf("opencode.json missing 'permission' section; content:\n%s", string(content))
 	}
@@ -1164,11 +1164,11 @@ permissions:
 		t.Fatalf("read opencode.json: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
-	permSection, ok := parsed["permission"].(map[string]interface{})
+	permSection, ok := parsed["permission"].(map[string]any)
 	if !ok {
 		t.Fatalf("opencode.json missing 'permission' section; content:\n%s", string(content))
 	}
@@ -1214,15 +1214,15 @@ func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent(t 
 	if err != nil {
 		t.Fatalf("read opencode.json: %v", err)
 	}
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
-	agentSection, ok := cfg["agent"].(map[string]interface{})
+	agentSection, ok := cfg["agent"].(map[string]any)
 	if !ok {
 		t.Fatalf("opencode.json missing 'agent' section; content:\n%s", string(data))
 	}
-	orch, ok := agentSection["sdd-orchestrator"].(map[string]interface{})
+	orch, ok := agentSection["sdd-orchestrator"].(map[string]any)
 	if !ok {
 		t.Fatalf("agent section missing 'sdd-orchestrator'; keys: %v", mapKeys(agentSection))
 	}
@@ -1270,15 +1270,15 @@ func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric
 	if err != nil {
 		t.Fatalf("read opencode.json: %v", err)
 	}
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
-	agentSection, ok := cfg["agent"].(map[string]interface{})
+	agentSection, ok := cfg["agent"].(map[string]any)
 	if !ok {
 		t.Fatalf("opencode.json missing 'agent' section; content:\n%s", string(data))
 	}
-	orch, ok := agentSection["sdd-orchestrator"].(map[string]interface{})
+	orch, ok := agentSection["sdd-orchestrator"].(map[string]any)
 	if !ok {
 		t.Fatalf("agent section missing 'sdd-orchestrator'; keys: %v", mapKeys(agentSection))
 	}
@@ -1383,17 +1383,90 @@ permissions:
 		t.Fatalf("read opencode.json: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parse opencode.json: %v", err)
 	}
 
 	// "permission" section must contain the new entry.
-	permSection, ok := parsed["permission"].(map[string]interface{})
+	permSection, ok := parsed["permission"].(map[string]any)
 	if !ok {
 		t.Fatalf("opencode.json missing 'permission' section; content:\n%s", string(content))
 	}
 	if got := permSection["context7_*"]; got != "allow" {
 		t.Errorf("permission[\"context7_*\"] = %v, want %q", got, "allow")
+	}
+}
+
+// TestOpenCodeRenderer_InstallWorkflow_SharedVariantSuffixStripping verifies that
+// _shared/launch-templates.opencode.md is installed as _shared/launch-templates.md,
+// while claude and copilot variant files are skipped entirely.
+func TestOpenCodeRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing.T) {
+	projectRoot := t.TempDir()
+	workspaceDir := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+
+	def := model.AgentDefinition{
+		Name:        "opencode",
+		Type:        "opencode",
+		Workspace:   workspaceDir,
+		SkillDir:    "../.agents/skills",
+		CommandDir:  "commands",
+		RulesDir:    "rules",
+		CatalogFile: "AGENTS.md",
+	}
+	r := renderers.NewOpenCodeRenderer(def)
+
+	// Build workflow cache with variant-suffixed _shared/ files.
+	wfCacheDir := buildSddWorkflowCache(t, "# SDD Orchestrator\n")
+
+	sharedDir := filepath.Join(wfCacheDir, "_shared")
+	sharedFiles := map[string]string{
+		"launch-templates.claude.md":   "# claude launch-templates\n",
+		"launch-templates.copilot.md":  "# copilot launch-templates\n",
+		"launch-templates.opencode.md": "# opencode launch-templates\n",
+		"envelope-contract.md":         "# envelope\n",
+	}
+	for name, content := range sharedFiles {
+		if err := os.WriteFile(filepath.Join(sharedDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	wf := sddParityManifest()
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// OpenCode installs _shared/ under .opencode/sdd-orchestrator/_shared/.
+	installedShared := filepath.Join(workspaceDir, "sdd-orchestrator", "_shared")
+
+	// launch-templates.md must exist with opencode content (from launch-templates.opencode.md).
+	ltPath := filepath.Join(installedShared, "launch-templates.md")
+	data, err := os.ReadFile(ltPath)
+	if err != nil {
+		t.Fatalf("launch-templates.md not installed: %v", err)
+	}
+	if string(data) != "# opencode launch-templates\n" {
+		t.Errorf("launch-templates.md content = %q, want opencode variant content", string(data))
+	}
+
+	// envelope-contract.md must exist (generic file).
+	if _, err := os.Stat(filepath.Join(installedShared, "envelope-contract.md")); err != nil {
+		t.Errorf("envelope-contract.md should be present: %v", err)
+	}
+
+	// No variant-suffixed files must exist.
+	for _, absent := range []string{
+		"launch-templates.claude.md",
+		"launch-templates.copilot.md",
+		"launch-templates.opencode.md",
+	} {
+		path := filepath.Join(installedShared, absent)
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("variant file %q must not be installed in _shared/", absent)
+		}
 	}
 }

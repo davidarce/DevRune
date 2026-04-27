@@ -907,7 +907,7 @@ func RunWorkflowModelSelection(
 	// (model selection runs before the scan step): synthesize the canonical SDD
 	// subagent role list so the form always shows on first install.
 	if len(roles) == 0 && sddAutoSelected && len(savedModels) == 0 {
-		for _, roleName := range []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "sdd-adviser"} {
+		for _, roleName := range []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "sdd-adviser", "sdd-advisor"} {
 			roles = append(roles, model.WorkflowRole{
 				Name:  roleName,
 				Kind:  "subagent",
@@ -930,7 +930,7 @@ func RunWorkflowModelSelection(
 				}
 			}
 		}
-		// Sort by canonical SDD phase order (explore → plan → implement → review → adviser),
+		// Sort by canonical SDD phase order (explore → plan → implement → review → advisor),
 		// with unknown roles appended alphabetically at the end.
 		sort.SliceStable(roleNames, func(i, j int) bool {
 			return canonicalPhaseIndex(roleNames[i]) < canonicalPhaseIndex(roleNames[j])
@@ -1097,7 +1097,7 @@ func phaseFromRole(roleKey string) string {
 }
 
 // canonicalPhaseIndex returns a sort key for SDD role names.
-// Canonical order: orchestrator(0) → explore(1) → plan(2) → implement(3) → review(4) → adviser(5).
+// Canonical order: orchestrator(0) → explore(1) → plan(2) → implement(3) → review(4) → advisor(5).
 // Unknown roles get index 99 (sorted alphabetically among themselves).
 func canonicalPhaseIndex(roleName string) int {
 	phase := strings.ToLower(phaseFromRole(roleName))

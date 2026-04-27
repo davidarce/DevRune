@@ -5,6 +5,7 @@ package renderers
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,11 +126,9 @@ func (r *OpenCodeRenderer) RenderSkill(canonicalPath string, destDir string) err
 }
 
 // transformFrontmatter applies all OpenCode-specific frontmatter conversions.
-func (r *OpenCodeRenderer) transformFrontmatter(fm map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(fm))
-	for k, v := range fm {
-		out[k] = v
-	}
+func (r *OpenCodeRenderer) transformFrontmatter(fm map[string]any) map[string]any {
+	out := make(map[string]any, len(fm))
+	maps.Copy(out, fm)
 
 	// Drop unsupported fields.
 	for _, field := range openCodeDropFields {
@@ -146,7 +145,7 @@ func (r *OpenCodeRenderer) transformFrontmatter(fm map[string]interface{}) map[s
 	// Convert allowed-tools list to boolean map (tools already dropped above,
 	// but if caller passes tools field separately, convert it).
 	if toolsVal, ok := out["tools"]; ok {
-		if toolsList, ok := toolsVal.([]interface{}); ok {
+		if toolsList, ok := toolsVal.([]any); ok {
 			toolsMap := make(map[string]bool, len(toolsList))
 			for _, t := range toolsList {
 				if ts, ok := t.(string); ok {
@@ -182,7 +181,7 @@ func normalizeToolName(tool string) string {
 
 // RenderCommand writes an OpenCode command file to destDir.
 func (r *OpenCodeRenderer) RenderCommand(cmd model.WorkflowCommand, destDir string) error {
-	fm := map[string]interface{}{
+	fm := map[string]any{
 		"name":        colonToHyphen(cmd.Name),
 		"description": cmd.Action,
 		"mode":        "subagent",
@@ -217,14 +216,14 @@ func (r *OpenCodeRenderer) RenderMCPs(mcps []model.LockedMCP, cacheStore matypes
 	}
 
 	// Load existing opencode.json or start fresh.
-	existing := make(map[string]interface{})
+	existing := make(map[string]any)
 	if data, err := os.ReadFile(opencodeJSON); err == nil {
 		_ = parseYAML(data, &existing) // best-effort; ignore parse errors
 	}
 
-	mcpSection, _ := existing[mcpConfig.RootKey].(map[string]interface{})
+	mcpSection, _ := existing[mcpConfig.RootKey].(map[string]any)
 	if mcpSection == nil {
-		mcpSection = make(map[string]interface{})
+		mcpSection = make(map[string]any)
 	}
 
 	// Store normalized MCPs for catalog memory section injection.
@@ -361,8 +360,14 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 
 		// Copy everything else (e.g. _shared/) as-is under workflowDir.
 		// agents/ and commands/ directories are NOT created — OpenCode uses opencode.json.
+		// Apply variant-suffix stripping for _shared/ so that launch-templates.opencode.md →
+		// launch-templates.md and files for other variants are skipped entirely.
 		dstPath := filepath.Join(workflowDir, name)
-		if err := copyEntry(srcPath, dstPath, entry); err != nil {
+		if entry.IsDir() && name == "_shared" {
+			if err := copyDirRecursiveStripVariant(srcPath, dstPath, "opencode"); err != nil {
+				return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
+			}
+		} else if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
 		}
 		managedPaths = append(managedPaths, dstPath)
@@ -448,15 +453,15 @@ func (r *OpenCodeRenderer) synthesizeAgents(wf model.WorkflowManifest, orchPath 
 	opencodeJSON := filepath.Join(workspaceRoot, "opencode.json")
 
 	// Load existing opencode.json or start fresh.
-	existing := make(map[string]interface{})
+	existing := make(map[string]any)
 	if data, err := os.ReadFile(opencodeJSON); err == nil {
 		_ = json.Unmarshal(data, &existing)
 	}
 
 	// Get or create the agent section.
-	agentSection, _ := existing["agent"].(map[string]interface{})
+	agentSection, _ := existing["agent"].(map[string]any)
 	if agentSection == nil {
-		agentSection = make(map[string]interface{})
+		agentSection = make(map[string]any)
 	}
 
 	for _, role := range wf.Components.Roles {
@@ -490,14 +495,14 @@ func (r *OpenCodeRenderer) synthesizeAgents(wf model.WorkflowManifest, orchPath 
 
 // buildSubagentEntry creates an opencode.json agent entry for a subagent role.
 // The prompt instructs the agent to read its SKILL.md from the installed skills path.
-func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBase string) map[string]interface{} {
+func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBase string) map[string]any {
 	skillPath := skillsBase + "/" + role.Skill + "/SKILL.md"
 	prompt := fmt.Sprintf(
 		"You are the %s sub-agent. Read the skill file at %s FIRST, then follow its instructions exactly.",
 		role.Name, skillPath,
 	)
 
-	entry := map[string]interface{}{
+	entry := map[string]any{
 		"description": buildRoleDescription(role.Name, "sub-agent"),
 		"mode":        "subagent",
 		"prompt":      prompt,
@@ -524,7 +529,7 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 // buildOrchestratorEntry creates an opencode.json agent entry for the orchestrator role.
 // The prompt is the full content of the ORCHESTRATOR.md file with all placeholders
 // resolved ({SKILLS_PATH}, {SDD_MODEL_*}) using the provided replacements map.
-func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, role model.WorkflowRole, orchPath string, replacements map[string]string) (map[string]interface{}, error) {
+func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, role model.WorkflowRole, orchPath string, replacements map[string]string) (map[string]any, error) {
 	var prompt string
 	if orchPath != "" {
 		data, err := os.ReadFile(orchPath)
@@ -540,7 +545,7 @@ func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, rol
 
 	description := buildRoleDescription(role.Name, fmt.Sprintf("coordinates %s workflow via sub-agents", wf.Metadata.EffectiveDisplayName()))
 
-	entry := map[string]interface{}{
+	entry := map[string]any{
 		"description": description,
 		"mode":        "all",
 		"prompt":      prompt,
@@ -586,9 +591,7 @@ func buildRoleDescription(roleName, suffix string) string {
 // This prevents multiple agent entries from sharing the same map reference.
 func toolsCopy(tools map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(tools))
-	for k, v := range tools {
-		out[k] = v
-	}
+	maps.Copy(out, tools)
 	return out
 }
 
@@ -621,16 +624,16 @@ func (r *OpenCodeRenderer) RenderSettings(workspaceRoot string, skills []model.C
 	opencodeJSON := ResolveMCPOutputPath(workspaceRoot, mcpConfig)
 
 	// Load existing opencode.json (already written by RenderMCPs/synthesizeAgents).
-	existing := make(map[string]interface{})
+	existing := make(map[string]any)
 	if data, err := os.ReadFile(opencodeJSON); err == nil {
 		_ = json.Unmarshal(data, &existing)
 	}
 
 	if r.agentDef.Settings != nil {
 		// Get or create the "permission" section.
-		permSection, _ := existing["permission"].(map[string]interface{})
+		permSection, _ := existing["permission"].(map[string]any)
 		if permSection == nil {
-			permSection = make(map[string]interface{})
+			permSection = make(map[string]any)
 		}
 
 		// Add MCP permissions: "<name>_*": "<level>" for each MCP that declares a level.
@@ -704,11 +707,9 @@ func (r *OpenCodeRenderer) Finalize(workspaceRoot string) error {
 //
 // All other fields (url, headers, environment, env) are passed through unchanged.
 // applyMCPEnvTransform handles env key renaming and placeholder style separately.
-func transformMCPForOpenCode(src map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+func transformMCPForOpenCode(src map[string]any) map[string]any {
+	out := make(map[string]any, len(src))
+	maps.Copy(out, src)
 
 	// Transform type:"http" → type:"remote".
 	if t, ok := out["type"].(string); ok && t == "http" {
@@ -716,12 +717,12 @@ func transformMCPForOpenCode(src map[string]interface{}) map[string]interface{} 
 	}
 
 	// Transform command+args → type:"local", command:[cmd, ...args].
-	// Canonical format: command is a string, args is []interface{}.
-	// OpenCode format:  type is "local", command is []interface{} (merged).
+	// Canonical format: command is a string, args is []any.
+	// OpenCode format:  type is "local", command is []any (merged).
 	if cmdStr, ok := out["command"].(string); ok {
 		// Build the merged command array: [command, ...args].
-		merged := []interface{}{cmdStr}
-		if args, ok := out["args"].([]interface{}); ok {
+		merged := []any{cmdStr}
+		if args, ok := out["args"].([]any); ok {
 			merged = append(merged, args...)
 		}
 		out["command"] = merged
