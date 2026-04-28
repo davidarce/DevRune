@@ -48,23 +48,23 @@ Examples:
   # Add a custom advisor from a local directory:
   devrune sdd-advisors --add-advisor source=local:./my-advisor
 
-  # Add a custom advisor from GitHub with explicit name:
+  # Add an advisor from GitHub (selecting one specific advisor by name):
   devrune sdd-advisors --add-advisor source=github:acme/advisor-catalog,name=security-advisor
 
-  # Remove a custom or catalog-imported advisor:
+  # Remove an advisor by name (strips it from the matching AdvisorSource.Select):
   devrune sdd-advisors --remove-advisor security-advisor
 
-  # Add an advisor catalog source:
+  # Add an advisor source (no Select — installs everything in the source):
   devrune sdd-advisors --add-catalog github:acme/advisor-catalog
 
-  # Remove an advisor catalog source:
+  # Remove an advisor source (drops the entire AdvisorSource entry):
   devrune sdd-advisors --remove-catalog github:acme/advisor-catalog
 
-  # Re-fetch all registered advisor catalog sources:
+  # Re-fetch all registered advisor sources:
   devrune sdd-advisors --refresh-catalogs
 
-  Note: --refresh-catalogs returns an error if any catalog fetch fails.
-  All catalogs are attempted; per-catalog errors are aggregated and reported together.
+  Note: --refresh-catalogs returns an error if any source fetch fails.
+  All sources are attempted; per-source errors are aggregated and reported together.
 
   Note: the alias 'sdd-advisers' (British spelling) is accepted for one
   release as a backward-compat shim and will be removed in a future version.`,
@@ -77,19 +77,21 @@ Examples:
 	cmd.Flags().StringArray("install", nil, "Advisor name(s) to install (repeatable)")
 	cmd.Flags().StringArray("uninstall", nil, "Advisor name(s) to uninstall (repeatable)")
 
-	// Custom / catalog advisor flags.
+	// Advisor source flags.
 	cmd.Flags().StringArray("add-advisor", nil,
-		`Add a custom or catalog advisor. Value format: source=SCHEME:PATH[,name=NAME,description=DESC,tier=TIER]
+		`Add an advisor by source. Value format: source=SCHEME:PATH[,name=NAME]
   Schemes: local: (filesystem path), github: (owner/repo[@ref]), gitlab: (owner/repo[@ref])
+  Without name=: install everything discovered in the source (Select empty).
+  With name=:    install only that name (added to the matching source's Select).
   Example: --add-advisor source=local:./my-advisor,name=security-advisor`)
-	cmd.Flags().StringArray("remove-advisor", nil, "Remove a custom or catalog-imported advisor by name (repeatable)")
+	cmd.Flags().StringArray("remove-advisor", nil, "Remove an advisor by name (repeatable). Strips it from any AdvisorSource.Select.")
 
-	// Catalog source flags.
+	// Bulk source flags.
 	cmd.Flags().StringArray("add-catalog", nil,
-		`Add an advisor catalog source (SCHEME:PATH, repeatable).
+		`Add an advisor source with no Select filter (installs everything in the source). Repeatable.
   Example: --add-catalog github:acme/advisor-catalog`)
-	cmd.Flags().StringArray("remove-catalog", nil, "Remove an advisor catalog source by URL (repeatable)")
-	cmd.Flags().Bool("refresh-catalogs", false, "Re-fetch all registered advisor catalog sources")
+	cmd.Flags().StringArray("remove-catalog", nil, "Remove an advisor source by URL — drops the entire AdvisorSource entry (repeatable).")
+	cmd.Flags().Bool("refresh-catalogs", false, "Re-fetch all registered advisor sources")
 
 	return cmd
 }
@@ -157,23 +159,44 @@ func runSddAdvisorsNonInteractive(
 	// ── --add-advisor ─────────────────────────────────────────────────────────
 	addAdvisorVals, _ := cmd.Flags().GetStringArray("add-advisor")
 	for _, val := range addAdvisorVals {
-		def, parseErr := parseAddAdvisorFlag(val, wd)
+		entry, parseErr := parseAddAdvisorFlag(val, wd)
 		if parseErr != nil {
 			return fmt.Errorf("sdd-advisors: --add-advisor %q: %w", val, parseErr)
 		}
-		if err := def.Validate(); err != nil {
-			return fmt.Errorf("sdd-advisors: --add-advisor %q: %w", val, err)
-		}
-		// Deduplicate by name.
-		already := false
-		for _, existing := range manifest.CustomAdvisors {
-			if existing.Name == def.Name {
-				already = true
-				break
+
+		// Find or create the AdvisorSource entry for entry.source.
+		existing := findAdvisorSource(&manifest, entry.source)
+		if existing == nil {
+			newSrc := model.AdvisorSource{Source: entry.source}
+			if entry.name != "" {
+				newSrc.Select = []string{entry.name}
 			}
+			if err := newSrc.Validate(); err != nil {
+				return fmt.Errorf("sdd-advisors: --add-advisor %q: %w", val, err)
+			}
+			manifest.Advisors = append(manifest.Advisors, newSrc)
+			changed = true
+			continue
 		}
-		if !already {
-			manifest.CustomAdvisors = append(manifest.CustomAdvisors, def)
+
+		// Source exists. If the user asked for a specific name, append it
+		// (preserving the existing Select shape: extending an existing list,
+		// or staying empty if the source already says "install everything").
+		if entry.name == "" {
+			// User wants the whole source — collapse Select to empty.
+			if len(existing.Select) > 0 {
+				existing.Select = nil
+				changed = true
+			}
+			continue
+		}
+		if len(existing.Select) == 0 {
+			// Source already installs everything — adding a specific name is
+			// redundant. No-op.
+			continue
+		}
+		if !containsString(existing.Select, entry.name) {
+			existing.Select = append(existing.Select, entry.name)
 			changed = true
 		}
 	}
@@ -181,58 +204,70 @@ func runSddAdvisorsNonInteractive(
 	// ── --remove-advisor ─────────────────────────────────────────────────────
 	removeAdvisorVals, _ := cmd.Flags().GetStringArray("remove-advisor")
 	for _, name := range removeAdvisorVals {
+		// Walk all sources, strip name from Select. Drop sources whose
+		// previously-non-empty Select becomes empty (mirrors applyManifestDiff).
 		found := false
-		for _, def := range manifest.CustomAdvisors {
-			if def.Name == name {
-				found = true
-				break
+		nextAdvisors := manifest.Advisors[:0]
+		for _, src := range manifest.Advisors {
+			if len(src.Select) == 0 {
+				// Empty Select = install everything — name is implicitly
+				// included, but we cannot drop it from this source without
+				// resolving + materializing a new explicit Select. Surface
+				// this to the user instead of doing it silently.
+				nextAdvisors = append(nextAdvisors, src)
+				continue
 			}
+			filtered := src.Select[:0]
+			for _, n := range src.Select {
+				if n == name {
+					found = true
+					continue
+				}
+				filtered = append(filtered, n)
+			}
+			src.Select = filtered
+			if len(src.Select) == 0 {
+				// Whole source falls away — its Select was non-empty and now is.
+				continue
+			}
+			nextAdvisors = append(nextAdvisors, src)
 		}
+		manifest.Advisors = nextAdvisors
+
 		if !found {
-			return fmt.Errorf("sdd-advisors: --remove-advisor: advisor %q not found in customAdvisors", name)
+			return fmt.Errorf("sdd-advisors: --remove-advisor: advisor %q not found in any AdvisorSource.Select", name)
 		}
-		filtered := manifest.CustomAdvisors[:0]
-		for _, def := range manifest.CustomAdvisors {
-			if def.Name != name {
-				filtered = append(filtered, def)
-			}
-		}
-		manifest.CustomAdvisors = filtered
 		changed = true
 	}
 
 	// ── --add-catalog ─────────────────────────────────────────────────────────
 	addCatalogVals, _ := cmd.Flags().GetStringArray("add-catalog")
 	for _, url := range addCatalogVals {
-		cat := model.CatalogSource{URL: url}
-		if err := cat.Validate(); err != nil {
+		newSrc := model.AdvisorSource{Source: url}
+		if err := newSrc.Validate(); err != nil {
 			return fmt.Errorf("sdd-advisors: --add-catalog %q: %w", url, err)
 		}
-		// Deduplicate by URL.
-		already := false
-		for _, existing := range manifest.AdvisorCatalogs {
-			if existing.URL == url {
-				already = true
-				break
-			}
+		// Deduplicate by source URL.
+		if findAdvisorSource(&manifest, url) != nil {
+			continue
 		}
-		if !already {
-			manifest.AdvisorCatalogs = append(manifest.AdvisorCatalogs, cat)
-			changed = true
-		}
+		manifest.Advisors = append(manifest.Advisors, newSrc)
+		changed = true
 	}
 
 	// ── --remove-catalog ─────────────────────────────────────────────────────
 	removeCatalogVals, _ := cmd.Flags().GetStringArray("remove-catalog")
 	for _, url := range removeCatalogVals {
-		filtered := manifest.AdvisorCatalogs[:0]
-		for _, cat := range manifest.AdvisorCatalogs {
-			if cat.URL != url {
-				filtered = append(filtered, cat)
+		filtered := manifest.Advisors[:0]
+		for _, src := range manifest.Advisors {
+			if src.Source != url {
+				filtered = append(filtered, src)
 			}
 		}
-		manifest.AdvisorCatalogs = filtered
-		changed = true
+		if len(filtered) != len(manifest.Advisors) {
+			changed = true
+		}
+		manifest.Advisors = filtered
 	}
 
 	// ── --refresh-catalogs ────────────────────────────────────────────────────
@@ -276,9 +311,10 @@ func runSddAdvisorsInteractive(
 	manifestPath string,
 	out interface{ Write([]byte) (int, error) },
 ) error {
+	_ = out
 	for {
 		rows := buildAdvisorInventory(filepath.Join(wd, ".claude", "skills"), manifest)
-		action, err := runTopLevelActionForm(rows, len(manifest.AdvisorCatalogs))
+		action, err := runTopLevelActionForm(rows, len(manifest.Advisors))
 		if err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				return nil
@@ -567,13 +603,24 @@ func printAdvisorsSyncSummary(out interface{ Write([]byte) (int, error) }, resul
 	}
 }
 
+// addAdvisorFlagEntry is the internal struct returned by parseAddAdvisorFlag.
+// It is a light, runtime-only triple used by the non-interactive flow to
+// drive the manifest mutation. It does NOT persist anywhere — the caller
+// translates it into the appropriate AdvisorSource changes.
+type addAdvisorFlagEntry struct {
+	source string // scheme-prefixed URL (local:/github:/gitlab:)
+	name   string // optional advisor name; empty = install everything in the source
+}
+
 // parseAddAdvisorFlag parses a value in the format:
 //
-//	source=SCHEME:PATH[,name=NAME,description=DESC,tier=TIER]
+//	source=SCHEME:PATH[,name=NAME]
 //
-// It returns a fully-populated AdvisorDef. The name, if not provided, is
-// derived from the last path component of SCHEME:PATH.
-func parseAddAdvisorFlag(val, wd string) (model.AdvisorDef, error) {
+// (description and tier are no longer accepted — description is read from the
+// SKILL.md frontmatter on disk; tier was removed earlier.)
+//
+// Returns the source URL plus the optional advisor name.
+func parseAddAdvisorFlag(val, wd string) (addAdvisorFlagEntry, error) {
 	parts := strings.Split(val, ",")
 	kv := make(map[string]string, len(parts))
 	for _, p := range parts {
@@ -583,7 +630,7 @@ func parseAddAdvisorFlag(val, wd string) (model.AdvisorDef, error) {
 		}
 		key, value, found := strings.Cut(p, "=")
 		if !found {
-			return model.AdvisorDef{}, fmt.Errorf("expected key=value, got %q", p)
+			return addAdvisorFlagEntry{}, fmt.Errorf("expected key=value, got %q", p)
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
@@ -592,60 +639,40 @@ func parseAddAdvisorFlag(val, wd string) (model.AdvisorDef, error) {
 
 	sourceVal, ok := kv["source"]
 	if !ok || sourceVal == "" {
-		return model.AdvisorDef{}, fmt.Errorf("source= is required (e.g. source=local:./my-advisor)")
+		return addAdvisorFlagEntry{}, fmt.Errorf("source= is required (e.g. source=local:./my-advisor)")
 	}
-
-	// Determine origin and resolve local paths.
-	var origin model.AdvisorOrigin
-	var skillSource string
 
 	switch {
 	case strings.HasPrefix(sourceVal, "local:"):
-		origin = model.AdvisorOriginLocal
+		// For local: we resolve and verify the path eagerly so the user gets
+		// an immediate error rather than a deferred fetch failure later.
 		localPath := strings.TrimPrefix(sourceVal, "local:")
 		if !filepath.IsAbs(localPath) {
 			localPath = filepath.Join(wd, localPath)
 		}
-		// Validate it exists and is a directory.
 		if fi, err := os.Stat(localPath); err != nil {
-			return model.AdvisorDef{}, fmt.Errorf("local path %q: %w", localPath, err)
+			return addAdvisorFlagEntry{}, fmt.Errorf("local path %q: %w", localPath, err)
 		} else if !fi.IsDir() {
-			return model.AdvisorDef{}, fmt.Errorf("local path %q is not a directory", localPath)
+			return addAdvisorFlagEntry{}, fmt.Errorf("local path %q is not a directory", localPath)
 		}
-		skillSource = localPath
+		// Normalize the source URL to use the absolute path so subsequent
+		// lookups against the manifest are deterministic.
+		sourceVal = "local:" + localPath
 
 	case strings.HasPrefix(sourceVal, "github:"), strings.HasPrefix(sourceVal, "gitlab:"):
-		origin = model.AdvisorOriginCatalog
-		skillSource = sourceVal
+		// nothing to do — the fetcher will validate on first use.
 
 	default:
-		return model.AdvisorDef{}, fmt.Errorf("unrecognised scheme in %q (must be local:, github:, or gitlab:)", sourceVal)
+		return addAdvisorFlagEntry{}, fmt.Errorf("unrecognised scheme in %q (must be local:, github:, or gitlab:)", sourceVal)
 	}
 
-	// Derive name from last path component if not provided.
-	name := kv["name"]
-	if name == "" {
-		// Strip scheme prefix and any ref (@ref), then take the last segment.
-		rawPath := sourceVal
-		for _, pfx := range []string{"local:", "github:", "gitlab:"} {
-			rawPath = strings.TrimPrefix(rawPath, pfx)
-		}
-		// Strip @ref.
-		if atIdx := strings.Index(rawPath, "@"); atIdx >= 0 {
-			rawPath = rawPath[:atIdx]
-		}
-		rawPath = strings.TrimSuffix(rawPath, "/")
-		if idx := strings.LastIndex(rawPath, "/"); idx >= 0 {
-			name = rawPath[idx+1:]
-		} else {
-			name = rawPath
-		}
+	// Validate the resulting source URL via CatalogSource (same scheme grammar).
+	if err := (model.CatalogSource{URL: sourceVal}).Validate(); err != nil {
+		return addAdvisorFlagEntry{}, err
 	}
 
-	return model.AdvisorDef{
-		Name:        name,
-		Description: kv["description"],
-		SkillSource: skillSource,
-		Origin:      origin,
+	return addAdvisorFlagEntry{
+		source: sourceVal,
+		name:   kv["name"],
 	}, nil
 }

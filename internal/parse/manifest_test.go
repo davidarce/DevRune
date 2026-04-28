@@ -223,10 +223,11 @@ func TestSerializeManifest_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestSerializeManifest_CustomAdvisors_RoundTrip verifies the five round-trip
-// scenarios for customAdvisors and advisorCatalogs.
-func TestSerializeManifest_CustomAdvisors_RoundTrip(t *testing.T) {
-	t.Run("no customAdvisors or advisorCatalogs — fields absent after round-trip", func(t *testing.T) {
+// TestSerializeManifest_Advisors_RoundTrip verifies round-trip behavior for
+// the unified Advisors []AdvisorSource schema. The legacy customAdvisors /
+// advisorCatalogs fields are gone; everything is collapsed into Advisors[].
+func TestSerializeManifest_Advisors_RoundTrip(t *testing.T) {
+	t.Run("no advisors — field absent after round-trip", func(t *testing.T) {
 		original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
 agents:
   - name: claude
@@ -242,47 +243,39 @@ packages:
 			t.Fatalf("SerializeManifest: %v", err)
 		}
 
-		if strings.Contains(string(serialized), "customAdvisors") {
-			t.Errorf("serialized output must not contain 'customAdvisors' when field is empty, got:\n%s", serialized)
-		}
-		if strings.Contains(string(serialized), "advisorCatalogs") {
-			t.Errorf("serialized output must not contain 'advisorCatalogs' when field is empty, got:\n%s", serialized)
+		if strings.Contains(string(serialized), "advisors:") {
+			t.Errorf("serialized output must not contain 'advisors:' when field is empty, got:\n%s", serialized)
 		}
 
 		reparsed, err := parse.ParseManifest(serialized)
 		if err != nil {
 			t.Fatalf("ParseManifest (reparsed): %v", err)
 		}
-		if len(reparsed.CustomAdvisors) != 0 {
-			t.Errorf("CustomAdvisors after round-trip = %d, want 0", len(reparsed.CustomAdvisors))
-		}
-		if len(reparsed.AdvisorCatalogs) != 0 {
-			t.Errorf("AdvisorCatalogs after round-trip = %d, want 0", len(reparsed.AdvisorCatalogs))
+		if len(reparsed.Advisors) != 0 {
+			t.Errorf("Advisors after round-trip = %d, want 0", len(reparsed.Advisors))
 		}
 	})
 
-	t.Run("one local custom advisor — round-trips correctly", func(t *testing.T) {
+	t.Run("local source with select — round-trips correctly", func(t *testing.T) {
 		original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
 agents:
   - name: claude
 packages:
   - source: github:owner/repo@v1.0.0
-customAdvisors:
-  - name: custom-security-advisor
-    description: Reviews code for security vulnerabilities
-    skillSource: local:./advisors/custom-security-advisor
-    scope: [backend]
-    origin: local
+advisors:
+  - source: local:./advisors/custom-security-advisor
+    select:
+      - custom-security-advisor
 `))
 		if err != nil {
 			t.Fatalf("ParseManifest: %v", err)
 		}
 
-		if len(original.CustomAdvisors) != 1 {
-			t.Fatalf("CustomAdvisors length = %d, want 1", len(original.CustomAdvisors))
+		if len(original.Advisors) != 1 {
+			t.Fatalf("Advisors length = %d, want 1", len(original.Advisors))
 		}
-		if original.CustomAdvisors[0].Origin != "local" {
-			t.Errorf("Origin = %q, want %q", original.CustomAdvisors[0].Origin, "local")
+		if original.Advisors[0].Source != "local:./advisors/custom-security-advisor" {
+			t.Errorf("Source = %q, want %q", original.Advisors[0].Source, "local:./advisors/custom-security-advisor")
 		}
 
 		serialized, err := parse.SerializeManifest(original)
@@ -295,49 +288,36 @@ customAdvisors:
 			t.Fatalf("ParseManifest (reparsed): %v", err)
 		}
 
-		if len(reparsed.CustomAdvisors) != 1 {
-			t.Fatalf("CustomAdvisors length after round-trip = %d, want 1", len(reparsed.CustomAdvisors))
+		if len(reparsed.Advisors) != 1 {
+			t.Fatalf("Advisors length after round-trip = %d, want 1", len(reparsed.Advisors))
 		}
-		got := reparsed.CustomAdvisors[0]
-		want := original.CustomAdvisors[0]
-		if got.Name != want.Name {
-			t.Errorf("Name = %q, want %q", got.Name, want.Name)
+		got := reparsed.Advisors[0]
+		want := original.Advisors[0]
+		if got.Source != want.Source {
+			t.Errorf("Source = %q, want %q", got.Source, want.Source)
 		}
-		if got.Description != want.Description {
-			t.Errorf("Description = %q, want %q", got.Description, want.Description)
-		}
-		if got.SkillSource != want.SkillSource {
-			t.Errorf("SkillSource = %q, want %q", got.SkillSource, want.SkillSource)
-		}
-		if len(got.Scope) != len(want.Scope) {
-			t.Errorf("Scope length = %d, want %d", len(got.Scope), len(want.Scope))
+		if len(got.Select) != len(want.Select) {
+			t.Errorf("Select length = %d, want %d", len(got.Select), len(want.Select))
 		} else {
-			for i := range want.Scope {
-				if got.Scope[i] != want.Scope[i] {
-					t.Errorf("Scope[%d] = %q, want %q", i, got.Scope[i], want.Scope[i])
+			for i := range want.Select {
+				if got.Select[i] != want.Select[i] {
+					t.Errorf("Select[%d] = %q, want %q", i, got.Select[i], want.Select[i])
 				}
 			}
 		}
-		if got.Origin != want.Origin {
-			t.Errorf("Origin = %q, want %q", got.Origin, want.Origin)
-		}
 	})
 
-	t.Run("catalog-origin advisor plus advisorCatalogs entry — both round-trip", func(t *testing.T) {
+	t.Run("github source with lastFetched — round-trips correctly", func(t *testing.T) {
 		original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
 agents:
   - name: claude
 packages:
   - source: github:owner/repo@v1.0.0
-customAdvisors:
-  - name: perf-advisor
-    description: Performance analysis advisor
-    skillSource: github:org/catalog@main
-    origin: catalog
-advisorCatalogs:
-  - url: github:org/catalog@main
-    name: org-catalog
+advisors:
+  - source: github:org/catalog@main
     lastFetched: "2024-01-15T10:00:00Z"
+    select:
+      - perf-advisor
 `))
 		if err != nil {
 			t.Fatalf("ParseManifest: %v", err)
@@ -353,41 +333,26 @@ advisorCatalogs:
 			t.Fatalf("ParseManifest (reparsed): %v", err)
 		}
 
-		if len(reparsed.CustomAdvisors) != 1 {
-			t.Fatalf("CustomAdvisors length after round-trip = %d, want 1", len(reparsed.CustomAdvisors))
+		if len(reparsed.Advisors) != 1 {
+			t.Fatalf("Advisors length after round-trip = %d, want 1", len(reparsed.Advisors))
 		}
-		if reparsed.CustomAdvisors[0].Origin != "catalog" {
-			t.Errorf("Origin = %q, want %q", reparsed.CustomAdvisors[0].Origin, "catalog")
+		got := reparsed.Advisors[0]
+		if got.Source != "github:org/catalog@main" {
+			t.Errorf("Source = %q, want %q", got.Source, "github:org/catalog@main")
 		}
-		if len(reparsed.AdvisorCatalogs) != 1 {
-			t.Fatalf("AdvisorCatalogs length after round-trip = %d, want 1", len(reparsed.AdvisorCatalogs))
-		}
-		gotCatalog := reparsed.AdvisorCatalogs[0]
-		wantCatalog := original.AdvisorCatalogs[0]
-		if gotCatalog.URL != wantCatalog.URL {
-			t.Errorf("AdvisorCatalogs[0].URL = %q, want %q", gotCatalog.URL, wantCatalog.URL)
-		}
-		if gotCatalog.Name != wantCatalog.Name {
-			t.Errorf("AdvisorCatalogs[0].Name = %q, want %q", gotCatalog.Name, wantCatalog.Name)
-		}
-		if gotCatalog.LastFetched != wantCatalog.LastFetched {
-			t.Errorf("AdvisorCatalogs[0].LastFetched = %q, want %q", gotCatalog.LastFetched, wantCatalog.LastFetched)
+		if got.LastFetched != "2024-01-15T10:00:00Z" {
+			t.Errorf("LastFetched = %q, want %q", got.LastFetched, "2024-01-15T10:00:00Z")
 		}
 	})
 
-	t.Run("explicit empty list customAdvisors/advisorCatalogs — key dropped after round-trip (omitempty)", func(t *testing.T) {
-		// Build YAML manually with explicit empty lists.
+	t.Run("explicit empty list advisors — key dropped after round-trip (omitempty)", func(t *testing.T) {
 		rawYAML := []byte(`schemaVersion: devrune/v1
 agents:
   - name: claude
 packages:
   - source: github:owner/repo@v1.0.0
-customAdvisors: []
-advisorCatalogs: []
+advisors: []
 `)
-		// ParseManifest will reject the manifest if [] leaves invalid state — but
-		// empty slices are valid (no entries to validate). Unmarshal produces nil
-		// or empty slices; either way the manifest is valid.
 		original, err := parse.ParseManifest(rawYAML)
 		if err != nil {
 			t.Fatalf("ParseManifest: %v", err)
@@ -399,34 +364,25 @@ advisorCatalogs: []
 		}
 
 		// omitempty must drop the key entirely when the slice is nil/empty.
-		if strings.Contains(string(serialized), "customAdvisors") {
-			t.Errorf("serialized output must not contain 'customAdvisors' for empty slice (omitempty), got:\n%s", serialized)
-		}
-		if strings.Contains(string(serialized), "advisorCatalogs") {
-			t.Errorf("serialized output must not contain 'advisorCatalogs' for empty slice (omitempty), got:\n%s", serialized)
+		if strings.Contains(string(serialized), "advisors:") {
+			t.Errorf("serialized output must not contain 'advisors:' for empty slice (omitempty), got:\n%s", serialized)
 		}
 	})
 
-	t.Run("populated customAdvisors and advisorCatalogs — serialize then parse deep-equal", func(t *testing.T) {
+	t.Run("populated multi-source advisors — serialize then parse deep-equal", func(t *testing.T) {
 		original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
 agents:
   - name: claude
 packages:
   - source: github:owner/repo@v1.0.0
-customAdvisors:
-  - name: custom-security-advisor
-    description: Security review advisor
-    skillSource: local:./advisors/custom-security-advisor
-    scope: [backend]
-    origin: local
-  - name: perf-advisor
-    description: Performance analysis advisor
-    skillSource: github:org/catalog@main
-    origin: catalog
-advisorCatalogs:
-  - url: github:org/catalog@main
-    name: org-catalog
+advisors:
+  - source: local:./advisors/custom-security-advisor
+    select:
+      - custom-security-advisor
+  - source: github:org/catalog@main
     lastFetched: "2024-01-15T10:00:00Z"
+    select:
+      - perf-advisor
 `))
 		if err != nil {
 			t.Fatalf("ParseManifest: %v", err)
@@ -442,129 +398,28 @@ advisorCatalogs:
 			t.Fatalf("ParseManifest (reparsed): %v", err)
 		}
 
-		if len(reparsed.CustomAdvisors) != len(original.CustomAdvisors) {
-			t.Fatalf("CustomAdvisors length mismatch: %d != %d", len(reparsed.CustomAdvisors), len(original.CustomAdvisors))
+		if len(reparsed.Advisors) != len(original.Advisors) {
+			t.Fatalf("Advisors length mismatch: %d != %d", len(reparsed.Advisors), len(original.Advisors))
 		}
-		for i, want := range original.CustomAdvisors {
-			got := reparsed.CustomAdvisors[i]
-			if got.Name != want.Name {
-				t.Errorf("CustomAdvisors[%d].Name = %q, want %q", i, got.Name, want.Name)
-			}
-			if got.Description != want.Description {
-				t.Errorf("CustomAdvisors[%d].Description = %q, want %q", i, got.Description, want.Description)
-			}
-			if got.SkillSource != want.SkillSource {
-				t.Errorf("CustomAdvisors[%d].SkillSource = %q, want %q", i, got.SkillSource, want.SkillSource)
-			}
-			if len(got.Scope) != len(want.Scope) {
-				t.Errorf("CustomAdvisors[%d].Scope length = %d, want %d", i, len(got.Scope), len(want.Scope))
-			} else {
-				for j := range want.Scope {
-					if got.Scope[j] != want.Scope[j] {
-						t.Errorf("CustomAdvisors[%d].Scope[%d] = %q, want %q", i, j, got.Scope[j], want.Scope[j])
-					}
-				}
-			}
-			if got.Origin != want.Origin {
-				t.Errorf("CustomAdvisors[%d].Origin = %q, want %q", i, got.Origin, want.Origin)
-			}
-		}
-		if len(reparsed.AdvisorCatalogs) != len(original.AdvisorCatalogs) {
-			t.Fatalf("AdvisorCatalogs length mismatch: %d != %d", len(reparsed.AdvisorCatalogs), len(original.AdvisorCatalogs))
-		}
-		for i, want := range original.AdvisorCatalogs {
-			got := reparsed.AdvisorCatalogs[i]
-			if got.URL != want.URL {
-				t.Errorf("AdvisorCatalogs[%d].URL = %q, want %q", i, got.URL, want.URL)
-			}
-			if got.Name != want.Name {
-				t.Errorf("AdvisorCatalogs[%d].Name = %q, want %q", i, got.Name, want.Name)
+		for i, want := range original.Advisors {
+			got := reparsed.Advisors[i]
+			if got.Source != want.Source {
+				t.Errorf("Advisors[%d].Source = %q, want %q", i, got.Source, want.Source)
 			}
 			if got.LastFetched != want.LastFetched {
-				t.Errorf("AdvisorCatalogs[%d].LastFetched = %q, want %q", i, got.LastFetched, want.LastFetched)
+				t.Errorf("Advisors[%d].LastFetched = %q, want %q", i, got.LastFetched, want.LastFetched)
+			}
+			if len(got.Select) != len(want.Select) {
+				t.Errorf("Advisors[%d].Select length = %d, want %d", i, len(got.Select), len(want.Select))
+				continue
+			}
+			for j := range want.Select {
+				if got.Select[j] != want.Select[j] {
+					t.Errorf("Advisors[%d].Select[%d] = %q, want %q", i, j, got.Select[j], want.Select[j])
+				}
 			}
 		}
 	})
-}
-
-// TestParseManifest_IgnoresScopeInManifest verifies that any `scope:` field in
-// a customAdvisors[] entry is silently ignored on parse. SKILL.md frontmatter
-// on disk is the single source of truth for advisor scope; the manifest does
-// NOT participate. Older devrune.yaml files with `scope:` (or the legacy
-// `tier:`) parse cleanly and the field is left empty.
-func TestParseManifest_IgnoresScopeInManifest(t *testing.T) {
-	cases := []struct {
-		name string
-		yaml string
-	}{
-		{
-			name: "scope list — ignored",
-			yaml: `schemaVersion: devrune/v1
-agents:
-  - name: claude
-packages:
-  - source: github:owner/repo@v1.0.0
-customAdvisors:
-  - name: my-advisor
-    description: An advisor
-    skillSource: local:./advisors/my-advisor
-    scope: [backend, testing]
-    origin: local
-`,
-		},
-		{
-			name: "scope unknown values — ignored",
-			yaml: `schemaVersion: devrune/v1
-agents:
-  - name: claude
-packages:
-  - source: github:owner/repo@v1.0.0
-customAdvisors:
-  - name: my-advisor
-    description: An advisor
-    skillSource: local:./advisors/my-advisor
-    scope: [foo, Frontend]
-    origin: local
-`,
-		},
-		{
-			name: "scope absent — universal as before",
-			yaml: `schemaVersion: devrune/v1
-agents:
-  - name: claude
-packages:
-  - source: github:owner/repo@v1.0.0
-customAdvisors:
-  - name: my-advisor
-    description: An advisor
-    skillSource: local:./advisors/my-advisor
-    origin: local
-`,
-		},
-	}
-
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			m, err := parse.ParseManifest([]byte(tt.yaml))
-			if err != nil {
-				t.Fatalf("ParseManifest: %v", err)
-			}
-			if len(m.CustomAdvisors) != 1 {
-				t.Fatalf("CustomAdvisors length = %d, want 1", len(m.CustomAdvisors))
-			}
-			if got := m.CustomAdvisors[0].Scope; got != nil {
-				t.Errorf("Scope = %v, want nil (manifest must NOT carry scope; disk is truth)", got)
-			}
-
-			serialized, err := parse.SerializeManifest(m)
-			if err != nil {
-				t.Fatalf("SerializeManifest: %v", err)
-			}
-			if strings.Contains(string(serialized), "scope:") {
-				t.Errorf("serialized manifest contains 'scope:' — must NOT be persisted:\n%s", serialized)
-			}
-		})
-	}
 }
 
 

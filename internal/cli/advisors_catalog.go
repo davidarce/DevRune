@@ -31,8 +31,8 @@ const addNewCatalogSentinel = "__add_new__"
 // for calling persistManifest and SyncAdvisors after this returns nil.
 func runAddAdvisorFlow(ctx context.Context, wd string, manifest *model.UserManifest) error {
 	for {
-		// Screen 3a — pick existing catalog source or add a new one.
-		selectedCatalogURL, err := runPickCatalogForm(manifest)
+		// Screen 3a — pick existing advisor source or add a new one.
+		selectedSourceURL, err := runPickCatalogForm(manifest)
 		if err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				// User cancelled — bubble up so the parent loop returns to the
@@ -42,9 +42,9 @@ func runAddAdvisorFlow(ctx context.Context, wd string, manifest *model.UserManif
 			return err
 		}
 
-		var catalogSrc model.CatalogSource
-		if selectedCatalogURL == addNewCatalogSentinel {
-			// Screen 3b — collect and validate a new catalog source.
+		var srcURL string
+		if selectedSourceURL == addNewCatalogSentinel {
+			// Screen 3b — collect and validate a new source.
 			newSrc, back, addErr := runAddCatalogSourceForm(ctx, wd, manifest)
 			if addErr != nil {
 				return addErr
@@ -53,21 +53,15 @@ func runAddAdvisorFlow(ctx context.Context, wd string, manifest *model.UserManif
 				// User hit "Back" — return to Screen 3a.
 				continue
 			}
-			catalogSrc = newSrc
+			srcURL = newSrc
 		} else {
-			// Locate the existing CatalogSource by URL.
-			for _, cs := range manifest.AdvisorCatalogs {
-				if cs.URL == selectedCatalogURL {
-					catalogSrc = cs
-					break
-				}
-			}
+			srcURL = selectedSourceURL
 		}
 
-		// Fetch (or resolve for local:) the catalog root directory.
-		rootDir, fetchErr := fetchCatalogSource(ctx, wd, catalogSrc)
+		// Fetch (or resolve for local:) the source root directory.
+		rootDir, fetchErr := fetchCatalogSource(ctx, wd, model.CatalogSource{URL: srcURL})
 		if fetchErr != nil {
-			return fmt.Errorf("add-advisor: fetch catalog %q: %w", catalogSrc.URL, fetchErr)
+			return fmt.Errorf("add-advisor: fetch %q: %w", srcURL, fetchErr)
 		}
 
 		// Single-advisor-mode detection: if the resolved dir itself contains SKILL.md
@@ -87,7 +81,7 @@ func runAddAdvisorFlow(ctx context.Context, wd string, manifest *model.UserManif
 			var scanErr error
 			entries, scanErr = advisorcatalog.DirScanner{}.Scan(rootDir)
 			if scanErr != nil {
-				return fmt.Errorf("add-advisor: scan catalog %q: %w", rootDir, scanErr)
+				return fmt.Errorf("add-advisor: scan %q: %w", rootDir, scanErr)
 			}
 		}
 
@@ -127,38 +121,38 @@ func runAddAdvisorFlow(ctx context.Context, wd string, manifest *model.UserManif
 			}
 		}
 
-		// Determine origin.
-		origin := model.AdvisorOriginCatalog
-		if singleAdvisorMode {
-			scheme, _, _, _ := advisorcatalog.ParseCatalogURL(catalogSrc.URL)
-			if scheme == "local" {
-				origin = model.AdvisorOriginLocal
-			}
-		}
-
-		// Copy each selected advisor into .claude/skills/ and register it.
+		// Copy each selected advisor into .claude/skills/ and register it under
+		// the appropriate AdvisorSource entry (creating one if necessary).
 		for _, entry := range selected {
 			dst := filepath.Join(wd, ".claude", "skills", entry.Name)
 			if _, copyErr := copyAdvisorDir(entry.DirPath, dst); copyErr != nil {
 				return fmt.Errorf("add-advisor: copy %q: %w", entry.Name, copyErr)
 			}
+		}
 
-			// Determine skillSource: for catalog entries use the catalog URL, for local single-advisor use the dir path.
-			skillSrc := catalogSrc.URL
-			if origin == model.AdvisorOriginLocal {
-				skillSrc = entry.DirPath
+		// Register names under the AdvisorSource. Find or create the entry,
+		// then extend Select. If the source pre-existed with empty Select
+		// (= "install everything") we leave Select empty — the resolver will
+		// continue picking up whatever is in the source.
+		existing := findAdvisorSource(manifest, srcURL)
+		if existing != nil {
+			if len(existing.Select) > 0 {
+				for _, e := range selected {
+					if !containsString(existing.Select, e.Name) {
+						existing.Select = append(existing.Select, e.Name)
+					}
+				}
 			}
-
-			// Note: Scope is intentionally NOT copied into the manifest entry.
-			// SKILL.md on disk is the single source of truth for scope; the TUI
-			// and filter code load it on demand via advisormeta.
-			def := model.AdvisorDef{
-				Name:        entry.Name,
-				Description: entry.Description,
-				SkillSource: skillSrc,
-				Origin:      origin,
+			// existing.Select was empty → leave as-is (install everything).
+		} else {
+			selectNames := make([]string, 0, len(selected))
+			for _, e := range selected {
+				selectNames = append(selectNames, e.Name)
 			}
-			manifest.CustomAdvisors = append(manifest.CustomAdvisors, def)
+			manifest.Advisors = append(manifest.Advisors, model.AdvisorSource{
+				Source: srcURL,
+				Select: selectNames,
+			})
 		}
 
 		// Update SelectFilter.Skills for installed advisors.
@@ -174,70 +168,78 @@ func runAddAdvisorFlow(ctx context.Context, wd string, manifest *model.UserManif
 	}
 }
 
-// runRefreshCatalogsFlow re-fetches every registered catalog source, re-copies
-// any catalog-imported advisors whose SKILL.md changed (drift detection via SHA256),
-// persists updated LastFetched timestamps, and calls SyncAdvisors.
+// runRefreshCatalogsFlow re-fetches every registered advisor source, re-copies
+// any source-imported advisors whose SKILL.md changed (drift detection via SHA256),
+// persists updated LastFetched timestamps, and is followed by SyncAdvisors.
 //
 // Returns a CatalogRefreshResult with structured messages for the TUI to
-// render (status per catalog, warnings, updates). All output is captured —
+// render (status per source, warnings, updates). All output is captured —
 // nothing is written to stdout/stderr while the TUI is active.
 //
-// An error is returned if ANY catalog fetch fails; per-catalog errors are
-// aggregated. The result is still populated for the catalogs that succeeded.
+// An error is returned if ANY source fetch fails; per-source errors are
+// aggregated. The result is still populated for the sources that succeeded.
 func runRefreshCatalogsFlow(ctx context.Context, wd string, manifest *model.UserManifest) (CatalogRefreshResult, error) {
 	var refreshResult CatalogRefreshResult
 
-	if len(manifest.AdvisorCatalogs) == 0 {
+	if len(manifest.Advisors) == 0 {
 		return refreshResult, fmt.Errorf("refresh-catalogs: no advisor catalogs registered (use 'Add advisor' to add one first)")
 	}
 
 	var fetchErrs []error
 
-	for i := range manifest.AdvisorCatalogs {
-		cat := &manifest.AdvisorCatalogs[i]
+	for i := range manifest.Advisors {
+		src := &manifest.Advisors[i]
 
 		// Fetch (re-clone or fast-forward).
-		rootDir, fetchErr := fetchCatalogSource(ctx, wd, *cat)
+		rootDir, fetchErr := fetchCatalogSource(ctx, wd, src.AsCatalogSource())
 		if fetchErr != nil {
 			refreshResult.Errors = append(refreshResult.Errors,
-				fmt.Sprintf("%s: fetch error: %v", cat.URL, fetchErr))
-			fetchErrs = append(fetchErrs, fmt.Errorf("catalog %q: %w", cat.URL, fetchErr))
+				fmt.Sprintf("%s: fetch error: %v", src.Source, fetchErr))
+			fetchErrs = append(fetchErrs, fmt.Errorf("source %q: %w", src.Source, fetchErr))
 			continue
 		}
 
 		// Update LastFetched.
-		cat.LastFetched = time.Now().UTC().Format(time.RFC3339)
+		src.LastFetched = time.Now().UTC().Format(time.RFC3339)
 
-		// Re-scan the catalog.
-		catalogEntries, scanErr := advisorcatalog.DirScanner{}.Scan(rootDir)
-		if scanErr != nil {
-			refreshResult.Warnings = append(refreshResult.Warnings,
-				fmt.Sprintf("%s: scan error: %v (skipped)", cat.URL, scanErr))
-			continue
+		// Re-scan the source. Single-advisor-mode short-circuit mirrors the
+		// add-advisor flow.
+		var entries []advisorcatalog.CatalogEntry
+		if isSingleAdvisorDir(rootDir) {
+			entry, scanErr := singleAdvisorEntry(rootDir)
+			if scanErr != nil {
+				refreshResult.Warnings = append(refreshResult.Warnings,
+					fmt.Sprintf("%s: scan error: %v (skipped)", src.Source, scanErr))
+				continue
+			}
+			entries = []advisorcatalog.CatalogEntry{entry}
+		} else {
+			var scanErr error
+			entries, scanErr = advisorcatalog.DirScanner{}.Scan(rootDir)
+			if scanErr != nil {
+				refreshResult.Warnings = append(refreshResult.Warnings,
+					fmt.Sprintf("%s: scan error: %v (skipped)", src.Source, scanErr))
+				continue
+			}
 		}
 
-		// Build a lookup of scanned entries by name for fast access.
-		entryByName := make(map[string]advisorcatalog.CatalogEntry, len(catalogEntries))
-		for _, e := range catalogEntries {
-			entryByName[e.Name] = e
+		// Apply Select filter (empty = include all).
+		var keep map[string]bool
+		if len(src.Select) > 0 {
+			keep = make(map[string]bool, len(src.Select))
+			for _, n := range src.Select {
+				keep[n] = true
+			}
 		}
 
-		// Re-copy advisors imported from this catalog whose SKILL.md has changed.
+		// Re-copy advisors whose SKILL.md has changed.
 		updatedCount := 0
-		for _, def := range manifest.CustomAdvisors {
-			if def.Origin != model.AdvisorOriginCatalog {
-				continue
-			}
-			if !advisorBelongsToCatalog(def, *cat, manifest.AdvisorCatalogs, wd) {
+		for _, newEntry := range entries {
+			if keep != nil && !keep[newEntry.Name] {
 				continue
 			}
 
-			newEntry, ok := entryByName[def.Name]
-			if !ok {
-				continue
-			}
-
-			dst := filepath.Join(wd, ".claude", "skills", def.Name)
+			dst := filepath.Join(wd, ".claude", "skills", newEntry.Name)
 			dstSkillMD := filepath.Join(dst, "SKILL.md")
 
 			hashBefore := fileSHA256(dstSkillMD)
@@ -249,20 +251,20 @@ func runRefreshCatalogsFlow(ctx context.Context, wd string, manifest *model.User
 
 			if _, copyErr := copyAdvisorDir(newEntry.DirPath, dst); copyErr != nil {
 				refreshResult.Warnings = append(refreshResult.Warnings,
-					fmt.Sprintf("%s: could not re-copy %q: %v", cat.URL, def.Name, copyErr))
+					fmt.Sprintf("%s: could not re-copy %q: %v", src.Source, newEntry.Name, copyErr))
 				continue
 			}
-			refreshResult.Updated = append(refreshResult.Updated, def.Name)
+			refreshResult.Updated = append(refreshResult.Updated, newEntry.Name)
 			updatedCount++
 		}
 
 		if updatedCount == 0 {
-			refreshResult.NoChanges = append(refreshResult.NoChanges, cat.URL)
+			refreshResult.NoChanges = append(refreshResult.NoChanges, src.Source)
 		}
 	}
 
 	if len(fetchErrs) > 0 {
-		return refreshResult, fmt.Errorf("refresh-catalogs: %d catalog(s) failed to fetch: %w",
+		return refreshResult, fmt.Errorf("refresh-catalogs: %d source(s) failed to fetch: %w",
 			len(fetchErrs), errors.Join(fetchErrs...))
 	}
 	return refreshResult, nil
@@ -274,30 +276,26 @@ func runRefreshCatalogsFlow(ctx context.Context, wd string, manifest *model.User
 type CatalogRefreshResult struct {
 	// Updated holds names of advisors that were re-copied due to detected drift.
 	Updated []string
-	// NoChanges holds catalog URLs that produced no advisor updates.
+	// NoChanges holds source URLs that produced no advisor updates.
 	NoChanges []string
 	// Warnings holds non-fatal notices (scan failures, copy failures).
 	Warnings []string
-	// Errors holds fatal per-catalog errors (e.g. fetch failures).
+	// Errors holds fatal per-source errors (e.g. fetch failures).
 	Errors []string
 }
 
 // ── Screen helpers ────────────────────────────────────────────────────────────
 
-// runPickCatalogForm shows Screen 3a: select an existing catalog source or add a new one.
-// Returns the selected catalog URL or addNewCatalogSentinel.
+// runPickCatalogForm shows Screen 3a: select an existing advisor source or add a new one.
+// Returns the selected source URL or addNewCatalogSentinel.
 //
-// Single-choice Select: Enter drills directly into the highlighted catalog
+// Single-choice Select: Enter drills directly into the highlighted source
 // (no separate Confirm step — the selection IS the action). Esc cancels.
 // Returns huh.ErrUserAborted on cancel.
 func runPickCatalogForm(manifest *model.UserManifest) (string, error) {
-	options := make([]huh.Option[string], 0, len(manifest.AdvisorCatalogs)+1)
-	for _, cat := range manifest.AdvisorCatalogs {
-		label := cat.URL
-		if cat.Name != "" {
-			label = cat.Name + " (" + cat.URL + ")"
-		}
-		options = append(options, huh.NewOption(label, cat.URL))
+	options := make([]huh.Option[string], 0, len(manifest.Advisors)+1)
+	for _, src := range manifest.Advisors {
+		options = append(options, huh.NewOption(src.Source, src.Source))
 	}
 	options = append(options, huh.NewOption("+ Add a new catalog source", addNewCatalogSentinel))
 
@@ -326,9 +324,9 @@ func runPickCatalogForm(manifest *model.UserManifest) (string, error) {
 	return selected, nil
 }
 
-// runAddCatalogSourceForm shows Screen 3b: collect scheme + path for a new catalog source.
-// Returns (newSource, back=true, nil) when the user hits Back, or (newSource, false, nil) on Confirm.
-func runAddCatalogSourceForm(ctx context.Context, wd string, manifest *model.UserManifest) (model.CatalogSource, bool, error) {
+// runAddCatalogSourceForm shows Screen 3b: collect scheme + path for a new source.
+// Returns (newSourceURL, back=true, nil) when the user hits Back, or (newSourceURL, false, nil) on Confirm.
+func runAddCatalogSourceForm(ctx context.Context, wd string, manifest *model.UserManifest) (string, bool, error) {
 	var scheme string
 	var path string
 	var confirmed bool
@@ -361,32 +359,30 @@ func runAddCatalogSourceForm(ctx context.Context, wd string, manifest *model.Use
 		})
 
 	if err := form.Run(); err != nil {
-		return model.CatalogSource{}, false, err
+		return "", false, err
 	}
 
 	if !confirmed {
-		return model.CatalogSource{}, true, nil
+		return "", true, nil
 	}
 
 	url := scheme + ":" + strings.TrimSpace(path)
-	src := model.CatalogSource{URL: url}
-	if err := src.Validate(); err != nil {
-		return model.CatalogSource{}, false, fmt.Errorf("invalid catalog source: %w", err)
+	// Validate via CatalogSource (same scheme rules apply).
+	if err := (model.CatalogSource{URL: url}).Validate(); err != nil {
+		return "", false, fmt.Errorf("invalid catalog source: %w", err)
 	}
 
 	// Test fetch immediately so we fail early.
-	if _, err := fetchCatalogSource(ctx, wd, src); err != nil {
-		return model.CatalogSource{}, false, fmt.Errorf("catalog source %q: %w", url, err)
+	if _, err := fetchCatalogSource(ctx, wd, model.CatalogSource{URL: url}); err != nil {
+		return "", false, fmt.Errorf("catalog source %q: %w", url, err)
 	}
 
-	// Deduplicate before appending.
-	for _, existing := range manifest.AdvisorCatalogs {
-		if existing.URL == url {
-			return src, false, nil
-		}
-	}
-	manifest.AdvisorCatalogs = append(manifest.AdvisorCatalogs, src)
-	return src, false, nil
+	// The AdvisorSource entry itself is appended later by runAddAdvisorFlow,
+	// once the user has actually selected at least one advisor — adding it
+	// here would leave a phantom source if the user backs out. Just return
+	// the URL.
+	_ = manifest
+	return url, false, nil
 }
 
 // runPickAdvisorEntriesForm shows Screen 3c: multi-select which catalog entries to import.
@@ -523,29 +519,28 @@ func singleAdvisorEntry(dir string) (advisorcatalog.CatalogEntry, error) {
 }
 
 // buildInstalledSet returns a set of advisor names that are already installed:
-// native advisors from model.ReservedAdvisorNames plus custom advisors in the manifest.
+// native advisors from model.ReservedAdvisorNames plus advisors registered
+// under any AdvisorSource.Select (sources with empty Select cannot contribute
+// names without I/O — see buildAdvisorSourceSelectionSet).
 func buildInstalledSet(manifest *model.UserManifest) map[string]bool {
 	installed := make(map[string]bool)
 	for _, n := range model.ReservedAdvisorNames() {
 		installed[n] = true
 	}
-	for _, def := range manifest.CustomAdvisors {
-		installed[def.Name] = true
+	for k := range buildAdvisorSourceSelectionSet(manifest) {
+		installed[k] = true
 	}
 	return installed
 }
 
 // filterAvailableEntries removes entries that collide with native advisors or
-// already-registered custom/catalog advisors in the manifest.
+// already-registered advisors in the manifest.
 func filterAvailableEntries(entries []advisorcatalog.CatalogEntry, manifest *model.UserManifest) []advisorcatalog.CatalogEntry {
 	nativeSet := make(map[string]bool)
 	for _, n := range model.ReservedAdvisorNames() {
 		nativeSet[n] = true
 	}
-	registeredSet := make(map[string]bool)
-	for _, def := range manifest.CustomAdvisors {
-		registeredSet[def.Name] = true
-	}
+	registeredSet := buildAdvisorSourceSelectionSet(manifest)
 
 	var filtered []advisorcatalog.CatalogEntry
 	for _, e := range entries {
@@ -555,44 +550,6 @@ func filterAvailableEntries(entries []advisorcatalog.CatalogEntry, manifest *mod
 		filtered = append(filtered, e)
 	}
 	return filtered
-}
-
-// advisorBelongsToCatalog returns true if def is attributable to cat.
-//
-// Matching strategy (in priority order):
-//  1. Exact URL match: def.SkillSource == cat.URL (set by the Add-advisor flow for
-//     multi-advisor catalog sources).
-//  2. Path prefix match: def.SkillSource is a filesystem path that lies inside the
-//     catalog's resolved cache directory (.devrune/advisor-catalogs/<CacheKey>/…).
-//     This covers catalog-imported advisors whose SkillSource was set to the copied
-//     cache path rather than the catalog URL.
-//
-// The old single-catalog heuristic ("if only 1 catalog is registered, attribute
-// everything to it") is intentionally removed: it would mis-attribute local-origin
-// advisors to a github: catalog when exactly one catalog is registered.
-func advisorBelongsToCatalog(def model.AdvisorDef, cat model.CatalogSource, _ []model.CatalogSource, wd string) bool {
-	// Strategy 1: exact URL match.
-	if def.SkillSource == cat.URL {
-		return true
-	}
-
-	// Strategy 2: path-prefix match against the catalog's cache directory.
-	// Local catalogs (CacheKey == "") have no cache dir — they are used in place,
-	// so a path-prefix match is not meaningful; skip.
-	cacheKey := advisorcatalog.CacheKey(cat)
-	if cacheKey == "" {
-		return false
-	}
-
-	cacheDir := filepath.Clean(filepath.Join(wd, ".devrune", "advisor-catalogs", cacheKey))
-	skillSrc := filepath.Clean(def.SkillSource)
-
-	// HasPrefix via Rel: if skillSrc is under cacheDir, Rel won't start with "..".
-	rel, err := filepath.Rel(cacheDir, skillSrc)
-	if err != nil {
-		return false
-	}
-	return !strings.HasPrefix(rel, "..")
 }
 
 // fileSHA256 returns the hex-encoded SHA256 of the named file, or an empty
@@ -609,4 +566,14 @@ func fileSHA256(path string) string {
 		return ""
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// containsString reports whether s is in slice.
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
