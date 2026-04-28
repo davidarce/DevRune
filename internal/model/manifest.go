@@ -185,10 +185,10 @@ func NormalizeAdvisorScope(in []string) []string {
 //	github:owner/repo@ref   — GitHub repo at a specific branch/tag/SHA
 //	gitlab:owner/repo[@ref] — GitLab repo
 //
-// NOTE: AdvisorCatalogs is distinct from the top-level Catalogs field on
-// UserManifest. Catalogs holds refs to the PRIMARY package catalog (where
-// DevRune packages come from). AdvisorCatalogs holds refs to external advisor
-// directories scanned for SKILL.md files — a different concept entirely.
+// CatalogSource is the primitive consumed by advisorcatalog.Fetcher. It is
+// no longer persisted directly in devrune.yaml — the manifest now uses
+// AdvisorSource (which embeds the same URL grammar) as the persisted shape.
+// CatalogSource lives on as the runtime input to Fetcher / Scanner.
 type CatalogSource struct {
 	URL         string `yaml:"url"`
 	Name        string `yaml:"name,omitempty"`        // human-readable alias, optional
@@ -245,7 +245,7 @@ func (c CatalogSource) Validate() error {
 
 // reservedAdvisorNames is the canonical list of native advisor names that ship
 // with DevRune via the starter catalog (devrune-starter-catalog/skills/*-advisor).
-// User-installed custom advisors (manifest.customAdvisors[]) are NOT in this list
+// User-installed custom advisors (manifest.advisors[].select) are NOT in this list
 // even when their copy lives under .claude/skills/. The integrity test in
 // internal/advisormeta/ verifies every name in this slice exists on disk; it
 // does NOT fail on extra *-advisor directories (those are legitimate user
