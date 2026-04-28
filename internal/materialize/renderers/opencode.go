@@ -322,6 +322,12 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			continue
 		}
 
+		// Skip all registry variant files (e.g. REGISTRY.claude.md) — only the renderer
+		// whose variant matches uses it, never copied loose into the workspace.
+		if registryVariantNames[name] {
+			continue
+		}
+
 		// Skip all orchestrator variant files — none should be copied as loose files.
 		// Each renderer uses only its own variant (resolved in the pre-loop probe above).
 		if orchestratorVariantNames[name] {

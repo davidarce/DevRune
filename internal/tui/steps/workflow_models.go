@@ -907,7 +907,7 @@ func RunWorkflowModelSelection(
 	// (model selection runs before the scan step): synthesize the canonical SDD
 	// subagent role list so the form always shows on first install.
 	if len(roles) == 0 && sddAutoSelected && len(savedModels) == 0 {
-		for _, roleName := range []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "sdd-adviser", "sdd-advisor"} {
+		for _, roleName := range []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "sdd-advisor"} {
 			roles = append(roles, model.WorkflowRole{
 				Name:  roleName,
 				Kind:  "subagent",

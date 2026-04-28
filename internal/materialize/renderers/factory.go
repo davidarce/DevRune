@@ -265,6 +265,12 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
+		// Skip all registry variant files — only the renderer whose variant matches
+		// consumes it; never copied loose into the workspace.
+		if registryVariantNames[name] {
+			continue
+		}
+
 		// Skip all orchestrator variant files — none should be copied as loose files.
 		// Factory uses the generic ORCHESTRATOR.md entrypoint; agent-specific variants
 		// are for OpenCode and Copilot only.
