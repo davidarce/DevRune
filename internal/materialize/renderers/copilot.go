@@ -467,6 +467,12 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
+		// Skip all registry variant files — only the renderer whose variant matches
+		// consumes it; never copied loose into the workspace.
+		if registryVariantNames[name] {
+			continue
+		}
+
 		// Skip all orchestrator variant files — none should be copied as loose files.
 		// Each renderer uses only its own variant (resolved in the pre-loop probe above).
 		if orchestratorVariantNames[name] {

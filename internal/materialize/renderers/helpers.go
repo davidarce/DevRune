@@ -28,6 +28,18 @@ var orchestratorVariantNames = map[string]bool{
 	"ORCHESTRATOR.claude.md":   true,
 }
 
+// registryVariantNames is the set of agent-specific registry variant filenames.
+// Like orchestrator variants, these must NEVER be copied as loose files into the
+// workspace — each renderer only consumes its own variant (via captureRegistryContent)
+// and the rest are skipped by the generic scan loop.
+var registryVariantNames = map[string]bool{
+	"REGISTRY.opencode.md": true,
+	"REGISTRY.copilot.md":  true,
+	"REGISTRY.claude.md":   true,
+	"REGISTRY.codex.md":    true,
+	"REGISTRY.factory.md":  true,
+}
+
 // hookAssetDirNames lists workflow cache directories that contain hook/plugin
 // assets. These are NOT copied by the generic "everything else" loop — they are
 // only installed by the renderer whose agent is explicitly declared in
@@ -764,6 +776,7 @@ func buildWorkflowPlaceholderReplacements(
 		"PLANNER":     "{SDD_MODEL_PLAN}",
 		"IMPLEMENTER": "{SDD_MODEL_IMPLEMENT}",
 		"REVIEWER":    "{SDD_MODEL_REVIEW}",
+		"ADVISOR":     "{SDD_MODEL_ADVISOR}",
 		"ADVISER":     "{SDD_MODEL_ADVISER}",
 	}
 
@@ -1111,20 +1124,20 @@ func skillDescriptionForRole(skill string) string {
 		return "SDD Implement sub-agent"
 	case "sdd-review":
 		return "SDD Review sub-agent"
-	case "architect-adviser", "architect-advisor":
-		return "Clean architecture adviser: hexagonal, DDD, ports and adapters"
-	case "api-first-adviser", "api-first-advisor":
-		return "API-first design adviser: OpenAPI, REST conventions, error models"
-	case "unit-test-adviser", "unit-test-advisor":
-		return "Unit test adviser: test structure, mocking, Given-When-Then"
-	case "integration-test-adviser", "integration-test-advisor":
-		return "Integration test adviser: adapter testing, external service mocking"
-	case "component-adviser", "component-advisor":
-		return "React component adviser: composition, hooks, state management"
-	case "frontend-test-adviser", "frontend-test-advisor":
-		return "Frontend test adviser: React Testing Library, Vitest, Cypress"
-	case "web-accessibility-adviser", "web-accessibility-advisor":
-		return "Web accessibility adviser: WCAG 2.1 AA, ARIA, keyboard navigation"
+	case "architect-advisor", "architect-adviser":
+		return "Clean architecture advisor: hexagonal, DDD, ports and adapters"
+	case "api-first-advisor", "api-first-adviser":
+		return "API-first design advisor: OpenAPI, REST conventions, error models"
+	case "unit-test-advisor", "unit-test-adviser":
+		return "Unit test advisor: test structure, mocking, Given-When-Then"
+	case "integration-test-advisor", "integration-test-adviser":
+		return "Integration test advisor: adapter testing, external service mocking"
+	case "component-advisor", "component-adviser":
+		return "React component advisor: composition, hooks, state management"
+	case "frontend-test-advisor", "frontend-test-adviser":
+		return "Frontend test advisor: React Testing Library, Vitest, Cypress"
+	case "web-accessibility-advisor", "web-accessibility-adviser":
+		return "Web accessibility advisor: WCAG 2.1 AA, ARIA, keyboard navigation"
 	default:
 		return skill + " sub-agent"
 	}

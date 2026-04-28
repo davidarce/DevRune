@@ -403,7 +403,9 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	// Remove _shared/ files that the Claude-native orchestrator does not reference.
 	// launch-templates.md is now installed from launch-templates.claude.md (variant suffix
 	// stripped) and IS referenced by ORCHESTRATOR.claude.md — do NOT remove it.
-	// adviser-templates.md is only needed by Codex/Factory via the generic ORCHESTRATOR.md.
+	// advisor-templates.md is only needed by Codex/Factory via the generic ORCHESTRATOR.md.
+	_ = os.Remove(filepath.Join(destBase, "_shared", "advisor-templates.md"))
+	// Also remove the legacy filename if present (one-release transition shim).
 	_ = os.Remove(filepath.Join(destBase, "_shared", "adviser-templates.md"))
 
 	// 5. If the entrypoint was not present in the cache directory (cache lacks the
@@ -613,8 +615,8 @@ func (r *ClaudeRenderer) generateSubAgentFile(
 // so emitting it enforces read-only behavior. The `skills:` field preloads the
 // advisor skill body, so the agent file itself stays under 1 KB.
 //
-// Model resolves via the {WORKFLOW_MODEL_ADVISER} placeholder emitted by the
-// sentinel `sdd-adviser` role in workflow.yaml (substituted by postProcessWorkflow
+// Model resolves via the {WORKFLOW_MODEL_ADVISOR} placeholder emitted by the
+// sentinel `sdd-advisor` role in workflow.yaml (substituted by postProcessWorkflow
 // after this helper returns).
 func (r *ClaudeRenderer) generateAdvisorAgentFile(agentsBase string, advisorName string) error {
 	description := skillDescriptionForRole(advisorName)
@@ -629,7 +631,7 @@ func (r *ClaudeRenderer) generateAdvisorAgentFile(agentsBase string, advisorName
 		"skills":                   []string{advisorName},
 		"permissionMode":           "default",
 		"disable-model-invocation": false,
-		"model":                    "{WORKFLOW_MODEL_ADVISER}",
+		"model":                    "{WORKFLOW_MODEL_ADVISOR}",
 	}
 
 	tools := claudeSubAgentTools[advisorName]
@@ -659,12 +661,13 @@ func (r *ClaudeRenderer) generateAdvisorAgentFile(agentsBase string, advisorName
 }
 
 // postProcessWorkflow runs post-installation processing on a workflow's rendered files.
-// T017: For SKILL.md files containing <!-- ADVISER_TABLE_PLACEHOLDER -->, replaces it
-// with a markdown table of installed advisor skills. For ALL .md files (including
-// ORCHESTRATOR.md), resolves shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
+// T017: For SKILL.md files containing <!-- ADVISOR_TABLE_PLACEHOLDER --> (or its
+// legacy ADVISER_TABLE_PLACEHOLDER alias), replaces it with a markdown table of
+// installed advisor skills. For ALL .md files (including ORCHESTRATOR.md),
+// resolves shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
 func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[string]string) error {
 	// Build the advisor table from installed skills whose names contain "advisor" or "adviser".
-	adviserTable := r.buildAdviserTable()
+	advisorTable := r.buildAdvisorTable()
 
 	// Walk all .md files under destBase and apply replacements.
 	return filepath.WalkDir(destBase, func(path string, d os.DirEntry, walkErr error) error {
@@ -694,15 +697,18 @@ func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[s
 			}
 		}
 
-		// Replace <!-- ADVISER_TABLE_PLACEHOLDER --> only in SKILL.md files.
-		if d.Name() == "SKILL.md" && strings.Contains(content, "<!-- ADVISER_TABLE_PLACEHOLDER -->") {
-			if adviserTable == "" {
-				// No advisor skills installed — log warning but don't fail.
-				content = strings.ReplaceAll(content, "<!-- ADVISER_TABLE_PLACEHOLDER -->", "")
-			} else {
-				content = strings.ReplaceAll(content, "<!-- ADVISER_TABLE_PLACEHOLDER -->", adviserTable)
+		// Replace <!-- ADVISOR_TABLE_PLACEHOLDER --> (and legacy ADVISER_ alias) only in SKILL.md files.
+		if d.Name() == "SKILL.md" {
+			for _, marker := range []string{"<!-- ADVISOR_TABLE_PLACEHOLDER -->", "<!-- ADVISER_TABLE_PLACEHOLDER -->"} {
+				if strings.Contains(content, marker) {
+					if advisorTable == "" {
+						content = strings.ReplaceAll(content, marker, "")
+					} else {
+						content = strings.ReplaceAll(content, marker, advisorTable)
+					}
+					modified = true
+				}
 			}
-			modified = true
 		}
 
 		if modified {
@@ -714,23 +720,23 @@ func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[s
 	})
 }
 
-// buildAdviserTable creates a markdown table of installed advisor skills.
-// Advisor skills are those whose Name contains "adviser" or "advisor".
-func (r *ClaudeRenderer) buildAdviserTable() string {
-	var advisers []model.ContentItem
+// buildAdvisorTable creates a markdown table of installed advisor skills.
+// Advisor skills are those whose Name contains "advisor" (or the legacy "adviser" alias).
+func (r *ClaudeRenderer) buildAdvisorTable() string {
+	var advisors []model.ContentItem
 	for _, skill := range r.installedSkills {
-		if strings.Contains(skill.Name, "adviser") || strings.Contains(skill.Name, "advisor") {
-			advisers = append(advisers, skill)
+		if strings.Contains(skill.Name, "advisor") || strings.Contains(skill.Name, "adviser") {
+			advisors = append(advisors, skill)
 		}
 	}
-	if len(advisers) == 0 {
+	if len(advisors) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 	sb.WriteString("| Skill | Invocation | Use When |\n")
 	sb.WriteString("|-------|------------|----------|\n")
-	for _, a := range advisers {
+	for _, a := range advisors {
 		_, _ = fmt.Fprintf(&sb, "| `%s` | `/%s` | %s |\n", a.Name, a.Name, a.Description)
 	}
 	return sb.String()
