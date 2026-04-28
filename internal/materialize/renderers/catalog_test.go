@@ -44,31 +44,6 @@ func TestRenderRootCatalog_EmptyInputs(t *testing.T) {
 	}
 }
 
-// TestRenderRootCatalog_WorkspaceCommandRules verifies the unconditional
-// "Workspace Command Rules" section is always emitted with the canonical
-// guidance for git/gh commands when CWD is a workspace.
-func TestRenderRootCatalog_WorkspaceCommandRules(t *testing.T) {
-	out, err := renderers.RenderRootCatalog(nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("RenderRootCatalog: %v", err)
-	}
-	if !strings.Contains(out, "## Workspace Command Rules") {
-		t.Errorf("output missing '## Workspace Command Rules' section")
-	}
-	wantSnippets := []string{
-		"git -C <path>",
-		"gh -R <owner>/<repo>",
-		"Never `cd <path> && git ...`",
-		"hardcoded anti-pattern alert",
-		"Step 0",
-	}
-	for _, s := range wantSnippets {
-		if !strings.Contains(out, s) {
-			t.Errorf("Workspace Command Rules section missing required snippet %q", s)
-		}
-	}
-}
-
 // TestRenderRootCatalog_WithSkills verifies the skills table is rendered correctly.
 func TestRenderRootCatalog_WithSkills(t *testing.T) {
 	skills := []model.ContentItem{

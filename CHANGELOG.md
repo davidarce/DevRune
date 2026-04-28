@@ -5,43 +5,7 @@ All notable changes to DevRune will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.29] — 2026-04-27
-
-### Added — Workspace Command Rules section in generated catalog
-
-The `RenderRootCatalog` renderer now emits an agent-agnostic
-`## Workspace Command Rules` section into every generated `CLAUDE.md` /
-`AGENTS.md` / equivalent root catalog. The rules instruct the agent to use
-`git -C <path>` (and `gh -R <owner>/<repo>` for GitHub) when CWD is a
-workspace containing nested git repos rather than a repo itself, and to
-never use `cd <path> && git ...` (which Claude Code blocks with a
-hardcoded anti-pattern alert that no allowlist can silence).
-
-This block is unconditional (always emitted) and complements the
-per-skill `Step 0: Resolve Target Repository` algorithm now present in
-`git-commit`, `git-pull-request`, `review-pr`, and `sdd-review` skills in
-the starter catalog. For ad-hoc commands outside of skills, the
-catalog-level rules apply directly.
-
-**Why**
-
-- Catches improvised `cd <repo> && git ...` calls the agent might
-  generate outside of skill execution, where per-skill Step 0 does not
-  apply.
-- Encodes the workspace contract in always-loaded context, so users who
-  work in a parent dir with multiple nested repos (rather than `cd`-ing
-  into one repo) get correct guidance without having to remember the
-  convention themselves.
-
-**Implementation**
-
-- `internal/materialize/renderers/catalog.go` — new
-  `workspaceCommandRulesSection()` helper, invoked unconditionally
-  between Invocation Controls and Project Rules sections in
-  `RenderRootCatalog`.
-- `internal/materialize/renderers/catalog_test.go` — new
-  `TestRenderRootCatalog_WorkspaceCommandRules` verifies the section is
-  present with the expected canonical snippets.
+## [0.1.29] — 2026-04-28
 
 ### Internal — Modernize generics and copy patterns in renderers
 
