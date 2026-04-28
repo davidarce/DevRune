@@ -12,102 +12,41 @@ typical manifest.
 |-------|------|----------|-------------|
 | `schemaVersion` | string | Yes | Always `devrune/v1`. |
 | `packages` | list | No | Package sources and skill/rule selections. |
-| `customAdvisors` | list | No | User-defined or catalog-imported advisors. |
-| `advisorCatalogs` | list | No | External advisor catalog sources to fetch from. |
+| `advisors` | list | No | External advisor sources and which advisors to install from each. |
 | `workflows` | object | No | Workflow-level configuration (e.g. SDD model overrides — owned by "Configure role models", not the `sdd-advisors` command). |
 
 ---
 
-## `customAdvisors`
+## `advisors`
 
-Inline list of user-defined or catalog-imported advisors. The `devrune sdd-advisors`
-command writes to this list when you add or remove custom advisors.
+List of external advisor sources and which advisors to install from each.
+The shape mirrors `packages[]` exactly — one source per entry plus an
+optional `select` list of names. The `devrune sdd-advisors` command
+writes to this list when you add, remove, or refresh advisors.
 
-### Schema
-
-```yaml
-customAdvisors:
-    - name: <string>            # required
-      description: <string>     # optional; populates the agent frontmatter
-      skillSource: <path>       # required; see SkillSource values below
-      scope: [<list>]           # optional; default: universal (empty = applies to every project)
-      origin: <string>          # optional; "custom" | "catalog"; default: "custom"
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Canonical identifier for the advisor. Must end in `-advisor`. |
-| `description` | string | No | Human-readable description, used in agent frontmatter and catalog tables. |
-| `skillSource` | string | Yes | Path or URL pointing to the advisor skill directory. See [SkillSource values](#skillsource-values). |
-| `scope` | list of strings | No | Project domains this advisor targets. Recognized values: `frontend`, `backend`, `testing`, `architecture`, `api`, `security`, `performance`, `accessibility`. Unknown values are silently dropped. Omit (or leave empty) for a universal advisor that applies to every project. |
-| `origin` | string | No | Records how the advisor was added. One of `custom` (user-authored) or `catalog` (imported from an `advisorCatalogs` entry). Defaults to `custom`. |
-
-### Validation rules
-
-- `name` **must** end with the suffix `-advisor`. Names ending in `-adviser` are
-  accepted during a one-release compatibility window (see [Migration note](#migration-note-adviser--advisor))
-  but emit a deprecation warning and will be rejected in the next minor release.
-- `name` **must not** collide with a native advisor name (e.g. `architect-advisor`).
-  Registering a custom advisor with the same name as a native advisor is rejected at
-  parse time.
-- Duplicate `name` values within the `customAdvisors` list are rejected
-  (case-sensitive comparison).
-- `skillSource` **must** point to a directory that contains a `SKILL.md` file at
-  its root. Pointing at a bare `SKILL.md` file is a hard error:
-  ```
-  skillSource must be a directory containing SKILL.md, got file: <path>
-  ```
-- `scope` values are validated against the controlled vocabulary (`frontend`,
-  `backend`, `testing`, `architecture`, `api`, `security`, `performance`,
-  `accessibility`). **Unknown values are silently dropped** (soft-fallback policy)
-  rather than rejected — this preserves forward compatibility when a new vocabulary
-  tag is added in a future release. Vocabulary matching is case-sensitive; `Frontend`
-  is treated as unknown and dropped.
-- `origin` must be one of `custom`, `catalog`, or empty (treated as `custom`).
-
-### SkillSource values
-
-`skillSource` accepts three formats:
-
-| Format | Example | Behaviour |
-|--------|---------|-----------|
-| Relative path | `./advisors/security-advisor` | Resolved against the directory containing `devrune.yaml`. Source is used in place — no copy into cache. |
-| Absolute path | `/home/user/advisors/security-advisor` | Used as-is. Accepted, but updates require manual re-sync if the source changes outside the project tree. |
-| Catalog cache path | `.devrune/advisor-catalogs/<sha1>/performance-advisor` | Written automatically by the catalog-import flow. Do not edit by hand. |
-
-> **Note**: `github:` / `gitlab:` URLs are **not** valid `skillSource` values.
-> Those schemes appear in `advisorCatalogs[].url`. When a catalog advisor is
-> imported, `skillSource` is set to the local cache path under
-> `.devrune/advisor-catalogs/`.
-
----
-
-## `advisorCatalogs`
-
-List of external advisor catalog sources. The `devrune sdd-advisors` command
-writes to this list when you add or remove catalog sources. Catalogs are
-**not** fetched automatically on `devrune sync` — fetch is triggered explicitly
-via `devrune sdd-advisors --refresh-catalogs` (or the TUI "Refresh catalogs"
-action) to avoid surprise network calls in CI.
+Catalogs are **not** fetched automatically on `devrune sync` — fetch is
+triggered explicitly via `devrune sdd-advisors --refresh-catalogs` (or
+the TUI "Refresh catalogs" action) to avoid surprise network calls in CI.
 
 ### Schema
 
 ```yaml
-advisorCatalogs:
-    - url: <string>             # required; scheme-prefixed URL
-      name: <string>            # optional; human-readable alias
+advisors:
+    - source: <string>          # required; scheme-prefixed URL
       lastFetched: <RFC3339>    # optional; set automatically on fetch
+      select:                   # optional; list of advisor names to install
+        - <name-1>              #   (each must end in "-advisor")
+        - <name-2>              # OMIT or leave empty → install ALL "*-advisor/"
+                                #   directories found under the resolved source
 ```
 
 ### Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `url` | string | Yes | Scheme-prefixed catalog URL. See [Supported URL schemes](#supported-url-schemes). |
-| `name` | string | No | Human-readable alias shown in the TUI catalog list. |
+| `source` | string | Yes | Scheme-prefixed source URL. See [Supported URL schemes](#supported-url-schemes). |
 | `lastFetched` | string | No | RFC 3339 timestamp of the most recent successful fetch. Written automatically — do not set by hand. |
+| `select` | list of strings | No | Names of advisors to install from this source (each must end in `-advisor`). When omitted or empty, every `*-advisor/` directory discovered by the scanner is installed. |
 
 ### Supported URL schemes
 
@@ -119,11 +58,24 @@ advisorCatalogs:
 
 ### Validation rules
 
-- `url` must begin with one of the recognised scheme prefixes (`local:`,
+- `source` must begin with one of the recognised scheme prefixes (`local:`,
   `github:`, `gitlab:`). An unknown prefix is rejected at parse time.
 - The path or repository portion after the scheme prefix must be non-empty.
-- Duplicate `url` values within the `advisorCatalogs` list are rejected
+- Duplicate `source` values within the `advisors` list are rejected
   (exact string comparison, case-sensitive).
+- Each entry in `select` must end in `-advisor` (case-sensitive). Bare
+  `-advisor` (no prefix) is rejected.
+- `select` entries **must not** collide with a native advisor name (e.g.
+  `architect-advisor`). Native advisors come from the primary package
+  catalog via `packages[].select.skills`, not from `advisors[]`.
+
+### Description and scope: NOT persisted
+
+Each advisor's `description` and `scope` (e.g. `[security]`, `[performance]`)
+live in the advisor's own `SKILL.md` frontmatter — the single source of
+truth. They are never written into `devrune.yaml`. The runtime resolver
+populates them automatically when the source is fetched and scanned, so
+there is no drift between manifest and disk.
 
 ### Catalog layout contract
 
@@ -183,7 +135,7 @@ DevRune is renaming all native advisor skill names from the `-adviser` suffix
 
 - Native skill names in `packages[].select.skills[]`
   (e.g. `architect-adviser` → `architect-advisor`)
-- The `name` field of any `customAdvisors` entries
+- Entries in `advisors[].select[]`
 - The directory names under `.claude/skills/` and `.claude/agents/`
 
 ### Compatibility window
@@ -206,7 +158,7 @@ After the compatibility window closes (next minor release), manifests containing
 
 1. Update `packages[].select.skills[]` entries: replace every `-adviser` suffix
    with `-advisor`.
-2. Update any `customAdvisors[].name` entries similarly.
+2. Update any `advisors[].select[]` entries similarly.
 3. Run `devrune sync` to regenerate agent files under the new names.
 4. Remove the old `.claude/agents/*-adviser.md` files if they were not
    overwritten automatically.
@@ -232,24 +184,21 @@ packages:
             - architect-advisor
             - api-first-advisor
 
-customAdvisors:
-    - name: security-advisor
-      description: OWASP threat-modelling specialist
-      skillSource: ./advisors/security-advisor
-      scope: [security]
-      origin: custom
-    - name: performance-advisor
-      description: Perf budgets & p99 latency
-      skillSource: .devrune/advisor-catalogs/7f3a9b.../performance-advisor
-      scope: [performance]
-      origin: catalog
-
-advisorCatalogs:
-    - url: github:acme/advisor-catalog@main
-      name: Acme corporate advisors
-      lastFetched: 2026-04-23T10:12:00Z
-    - url: local:./advisors
+advisors:
+    # Local source — only the security-advisor is installed; other
+    # *-advisor/ subdirectories under ./advisors are ignored.
+    - source: local:./advisors
       lastFetched: 2026-04-23T10:15:00Z
+      select:
+        - security-advisor
+
+    # Remote catalog — performance-advisor is installed from the cached
+    # clone under .devrune/advisor-catalogs/<sha1>/. Omitting `select`
+    # would install every *-advisor/ directory the catalog contains.
+    - source: github:acme/advisor-catalog@main
+      lastFetched: 2026-04-23T10:12:00Z
+      select:
+        - performance-advisor
 
 workflows:
     sdd:
