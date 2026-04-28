@@ -45,6 +45,15 @@ dist/
 internal/materialize/.gitignore
 internal/materialize/.mcp.json
 
+# Self-dogfooding artifacts (running DevRune on itself for local
+# testing only — must never ship in the public repo)
+.crit.json
+AGENTS.md
+CLAUDE.md
+devrune.yaml
+devrune.lock
+advisors/
+
 .SDD (Spec-Driven Development)/
 
 # >>> devrune managed — do not edit

@@ -54,8 +54,6 @@ multi-valued `scope` list.
   filesystem-free; `advisormeta` is the only new filesystem-aware package.
 - TUI advisor toggle rows now display scope as `advisor-name (scope1, scope2)`.
   Advisors with empty scope (universal) display as just `advisor-name`.
-- `performance-advisor` moved from universal to `scope: [performance]`.
-- `security-advisor` moved from universal to `scope: [security]`.
 
 **Migration guide**
 
