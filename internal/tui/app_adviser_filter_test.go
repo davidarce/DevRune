@@ -17,8 +17,6 @@ func advisorFixture(name string, scope ...string) model.AdvisorDef {
 	def := model.AdvisorDef{
 		Name:        name,
 		Description: "test fixture",
-		SkillSource: "./testdata/" + name,
-		Origin:      model.AdvisorOriginLocal,
 	}
 	if len(scope) > 0 {
 		def.Scope = scope

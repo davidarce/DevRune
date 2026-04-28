@@ -22,9 +22,12 @@ import (
 // Default values:
 //
 //	Name:        "test-advisor"
-//	SkillSource: "./testdata/test-advisor"
 //	Scope:       nil (universal)
-//	Origin:      AdvisorOriginLocal
+//
+// AdvisorDef no longer carries SkillSource or Origin — those concepts live
+// on AdvisorSource (the persisted shape). Tests that previously seeded
+// SkillSource on an AdvisorDef literal are obsolete; AdvisorDef is now a
+// runtime-only struct populated by Scanner output.
 type advisorDefFixture struct {
 	def AdvisorDef
 }
@@ -32,9 +35,7 @@ type advisorDefFixture struct {
 func anAdvisorDef() *advisorDefFixture {
 	return &advisorDefFixture{
 		def: AdvisorDef{
-			Name:        "test-advisor",
-			SkillSource: "./testdata/test-advisor",
-			Origin:      AdvisorOriginLocal,
+			Name: "test-advisor",
 		},
 	}
 }
@@ -52,16 +53,6 @@ func (f *advisorDefFixture) withScope(scope ...string) *advisorDefFixture {
 		return f
 	}
 	f.def.Scope = append([]string{}, scope...)
-	return f
-}
-
-func (f *advisorDefFixture) withSkillSource(p string) *advisorDefFixture {
-	f.def.SkillSource = p
-	return f
-}
-
-func (f *advisorDefFixture) withOrigin(o AdvisorOrigin) *advisorDefFixture {
-	f.def.Origin = o
 	return f
 }
 
@@ -738,23 +729,19 @@ func TestAdvisorDef_Validate_HappyPath(t *testing.T) {
 			name: "shouldAcceptWhenAllFieldsValid",
 			def: anAdvisorDef().
 				named("security-advisor").
-				withSkillSource("/abs/path/to/skill").
 				withScope("security").
-				withOrigin(AdvisorOriginLocal).
 				build(),
 		},
 		{
 			name: "shouldAcceptWhenScopeIsEmpty",
 			def: anAdvisorDef().
 				named("security-advisor").
-				withSkillSource("/abs/path/to/skill").
 				build(),
 		},
 		{
-			name: "shouldAcceptWhenOriginIsEmpty",
+			name: "shouldAcceptWhenScopeIsBackendOnly",
 			def: anAdvisorDef().
 				named("security-advisor").
-				withSkillSource("/abs/path/to/skill").
 				withScope("backend").
 				build(),
 		},
@@ -762,7 +749,6 @@ func TestAdvisorDef_Validate_HappyPath(t *testing.T) {
 			name: "shouldAcceptWhenScopeIsFrontend",
 			def: anAdvisorDef().
 				named("ui-advisor").
-				withSkillSource("./relative/path").
 				withScope("frontend").
 				build(),
 		},
@@ -770,16 +756,13 @@ func TestAdvisorDef_Validate_HappyPath(t *testing.T) {
 			name: "shouldAcceptWhenScopeIsBackend",
 			def: anAdvisorDef().
 				named("db-advisor").
-				withSkillSource("./path").
 				withScope("backend").
 				build(),
 		},
 		{
-			name: "shouldAcceptWhenOriginIsCatalog",
+			name: "shouldAcceptWhenAdvisorIsForCatalog",
 			def: anAdvisorDef().
 				named("perf-advisor").
-				withSkillSource("github:acme/advisor-catalog").
-				withOrigin(AdvisorOriginCatalog).
 				build(),
 		},
 	}
@@ -802,37 +785,37 @@ func TestAdvisorDef_Validate_InvalidName(t *testing.T) {
 	}{
 		{
 			name:    "shouldRejectWhenNameIsEmpty",
-			def:     AdvisorDef{Name: "", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: ""},
 			wantMsg: "name must not be empty",
 		},
 		{
 			name:    "shouldRejectWhenNameMissingSuffix",
-			def:     AdvisorDef{Name: "foo", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: "foo"},
 			wantMsg: `must end in "-advisor"`,
 		},
 		{
 			name:    "shouldRejectWhenNameIsBareAdvisorSuffix",
-			def:     AdvisorDef{Name: "-advisor", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: "-advisor"},
 			wantMsg: `must end in "-advisor"`,
 		},
 		{
 			name:    "shouldRejectWhenNameHasUppercaseSuffix",
-			def:     AdvisorDef{Name: "security-Advisor", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: "security-Advisor"},
 			wantMsg: `must end in "-advisor"`,
 		},
 		{
 			name:    "shouldRejectWhenNameHasTrailingWhitespace",
-			def:     AdvisorDef{Name: "my-advisor ", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: "my-advisor "},
 			wantMsg: `must end in "-advisor"`,
 		},
 		{
 			name:    "shouldRejectWhenNameHasLeadingWhitespace",
-			def:     AdvisorDef{Name: " my-advisor", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: " my-advisor"},
 			wantMsg: `must end in "-advisor"`,
 		},
 		{
 			name:    "shouldRejectWhenNameUsesLegacyAdviserSuffix",
-			def:     AdvisorDef{Name: "security-adviser", SkillSource: "/some/path"},
+			def:     AdvisorDef{Name: "security-adviser"},
 			wantMsg: `must end in "-advisor"`,
 		},
 	}
@@ -851,38 +834,9 @@ func TestAdvisorDef_Validate_InvalidName(t *testing.T) {
 	}
 }
 
-// TestAdvisorDef_Validate_InvalidSkillSource covers SkillSource validation rejections.
-func TestAdvisorDef_Validate_InvalidSkillSource(t *testing.T) {
-	tests := []struct {
-		name    string
-		def     AdvisorDef
-		wantMsg string
-	}{
-		{
-			name:    "shouldRejectWhenSkillSourceIsEmpty",
-			def:     AdvisorDef{Name: "security-advisor", SkillSource: ""},
-			wantMsg: "skillSource must not be empty",
-		},
-		{
-			name:    "shouldRejectWhenSkillSourceIsWhitespaceOnly",
-			def:     AdvisorDef{Name: "security-advisor", SkillSource: "   "},
-			wantMsg: "skillSource must not be empty",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.def.Validate()
-			if err == nil {
-				t.Errorf("Validate() returned nil, want error containing %q", tt.wantMsg)
-				return
-			}
-			if !containsString(err.Error(), tt.wantMsg) {
-				t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.wantMsg)
-			}
-		})
-	}
-}
+// SkillSource validation tests were removed: AdvisorDef no longer carries
+// SkillSource. Source URL grammar is now validated by AdvisorSource.Validate
+// (see TestAdvisorSource_Validate below) and CatalogSource.Validate.
 
 // TestAdvisorDefValidate_NoScopeChecks asserts that Validate is a no-op for
 // scope content. Vocabulary checking and deduplication happen in
@@ -1111,43 +1065,9 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
-// TestAdvisorDef_Validate_InvalidOrigin covers origin validation rejections.
-func TestAdvisorDef_Validate_InvalidOrigin(t *testing.T) {
-	tests := []struct {
-		name    string
-		def     AdvisorDef
-		wantMsg string
-	}{
-		{
-			name:    "shouldRejectWhenOriginIsExternal",
-			def:     AdvisorDef{Name: "security-advisor", SkillSource: "/p", Origin: "external"},
-			wantMsg: "origin",
-		},
-		{
-			name:    "shouldRejectWhenOriginIsUnknown",
-			def:     AdvisorDef{Name: "security-advisor", SkillSource: "/p", Origin: "unknown"},
-			wantMsg: "origin",
-		},
-		{
-			name:    "shouldRejectWhenOriginIsUppercaseCUSTOM",
-			def:     AdvisorDef{Name: "security-advisor", SkillSource: "/p", Origin: "CUSTOM"},
-			wantMsg: "origin",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.def.Validate()
-			if err == nil {
-				t.Errorf("Validate() returned nil, want error containing %q", tt.wantMsg)
-				return
-			}
-			if !containsString(err.Error(), tt.wantMsg) {
-				t.Errorf("Validate() error = %q, want message containing %q", err.Error(), tt.wantMsg)
-			}
-		})
-	}
-}
+// Origin validation tests were removed: AdvisorDef no longer carries Origin.
+// "origin" is now derived at runtime from the AdvisorSource.Source scheme
+// prefix (see resolveAdvisorOriginFromSource in cli) and is never persisted.
 
 // ---------------------------------------------------------------------------
 // CatalogSource.Validate
@@ -1266,8 +1186,11 @@ func TestCatalogSource_Validate_Rejected(t *testing.T) {
 // UserManifest.Validate — custom advisors and advisor catalog extensions
 // ---------------------------------------------------------------------------
 
-// TestUserManifest_Validate_CustomAdvisors covers the CustomAdvisors validation paths.
-func TestUserManifest_Validate_CustomAdvisors(t *testing.T) {
+// TestUserManifest_Validate_Advisors covers UserManifest.Advisors[] validation
+// paths under the new schema. The legacy CustomAdvisors / AdvisorCatalogs
+// fields no longer exist; the new model collapses both into a single
+// Advisors []AdvisorSource list.
+func TestUserManifest_Validate_Advisors(t *testing.T) {
 	base := func() UserManifest {
 		return UserManifest{
 			SchemaVersion: "devrune/v1",
@@ -1282,62 +1205,80 @@ func TestUserManifest_Validate_CustomAdvisors(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "shouldAcceptWhenCustomAdvisorsIsNil",
+			name: "shouldAcceptWhenAdvisorsIsNil",
 			setup: func() UserManifest {
 				m := base()
-				m.CustomAdvisors = nil
+				m.Advisors = nil
 				return m
 			},
 			wantErr: false,
 		},
 		{
-			name: "shouldAcceptWhenCustomAdvisorsIsEmptySlice",
+			name: "shouldAcceptWhenAdvisorsIsEmptySlice",
 			setup: func() UserManifest {
 				m := base()
-				m.CustomAdvisors = []AdvisorDef{}
+				m.Advisors = []AdvisorSource{}
 				return m
 			},
 			wantErr: false,
 		},
 		{
-			name: "shouldAcceptWhenCustomAdvisorIsValid",
+			name: "shouldAcceptWhenAdvisorSourceIsValidGitHub",
 			setup: func() UserManifest {
 				m := base()
-				m.CustomAdvisors = []AdvisorDef{
-					// Use a non-reserved name; "security-advisor" is now native.
-					anAdvisorDef().
-						named("custom-security-advisor").
-						withSkillSource("/path/to/skill").
-						withScope("security").
-						withOrigin(AdvisorOriginLocal).
-						build(),
+				m.Advisors = []AdvisorSource{
+					{Source: "github:acme/advisor-catalog"},
 				}
 				return m
 			},
 			wantErr: false,
 		},
 		{
-			name: "shouldRejectWhenCustomAdvisorNameIsDuplicated",
+			name: "shouldAcceptWhenAdvisorSourceHasSelectList",
 			setup: func() UserManifest {
 				m := base()
-				// Use a non-reserved name so we hit the duplicate check, not the
-				// native-conflict check.
-				m.CustomAdvisors = []AdvisorDef{
-					{Name: "custom-db-advisor", SkillSource: "/path/a"},
-					{Name: "custom-db-advisor", SkillSource: "/path/b"},
+				m.Advisors = []AdvisorSource{
+					{Source: "github:acme/advisor-catalog", Select: []string{"custom-db-advisor"}},
+				}
+				return m
+			},
+			wantErr: false,
+		},
+		{
+			name: "shouldRejectWhenAdvisorSourceURLIsDuplicated",
+			setup: func() UserManifest {
+				m := base()
+				m.Advisors = []AdvisorSource{
+					{Source: "github:acme/advisor-catalog"},
+					{Source: "github:acme/advisor-catalog"},
 				}
 				return m
 			},
 			wantErr: true,
-			errMsg:  "duplicate custom advisor name",
+			errMsg:  "duplicate advisor source",
 		},
 		{
-			name: "shouldRejectWhenCustomAdvisorNameShadowsNative",
+			name: "shouldRejectWhenAdvisorSourceURLIsInvalidScheme",
 			setup: func() UserManifest {
 				m := base()
-				// "architect-advisor" is a native advisor name in reservedAdvisorNames.
-				m.CustomAdvisors = []AdvisorDef{
-					{Name: "architect-advisor", SkillSource: "/path/skill"},
+				m.Advisors = []AdvisorSource{
+					{Source: "http://example.com/catalog"},
+				}
+				return m
+			},
+			wantErr: true,
+			errMsg:  "unrecognised scheme",
+		},
+		{
+			name: "shouldRejectWhenSelectEntryShadowsNative",
+			setup: func() UserManifest {
+				m := base()
+				m.Advisors = []AdvisorSource{
+					{
+						Source: "github:acme/advisor-catalog",
+						// architect-advisor is reserved for native advisors.
+						Select: []string{"architect-advisor"},
+					},
 				}
 				return m
 			},
@@ -1345,11 +1286,11 @@ func TestUserManifest_Validate_CustomAdvisors(t *testing.T) {
 			errMsg:  "conflicts with a native DevRune advisor",
 		},
 		{
-			name: "shouldRejectWhenCustomAdvisorIsInvalid",
+			name: "shouldRejectWhenSelectEntryHasInvalidSuffix",
 			setup: func() UserManifest {
 				m := base()
-				m.CustomAdvisors = []AdvisorDef{
-					{Name: "not-ending-correctly", SkillSource: "/path"},
+				m.Advisors = []AdvisorSource{
+					{Source: "github:acme/advisor-catalog", Select: []string{"not-ending-correctly"}},
 				}
 				return m
 			},
@@ -1375,81 +1316,69 @@ func TestUserManifest_Validate_CustomAdvisors(t *testing.T) {
 	}
 }
 
-// TestUserManifest_Validate_AdvisorCatalogs covers the AdvisorCatalogs validation paths.
-func TestUserManifest_Validate_AdvisorCatalogs(t *testing.T) {
-	base := func() UserManifest {
-		return UserManifest{
-			SchemaVersion: "devrune/v1",
-			Agents:        []AgentRef{{Name: "claude"}},
-		}
-	}
-
+// TestAdvisorSource_Validate covers AdvisorSource.Validate end-to-end.
+func TestAdvisorSource_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func() UserManifest
+		src     AdvisorSource
 		wantErr bool
 		errMsg  string
 	}{
 		{
-			name: "shouldAcceptWhenAdvisorCatalogsIsNil",
-			setup: func() UserManifest {
-				m := base()
-				m.AdvisorCatalogs = nil
-				return m
-			},
+			name:    "shouldAcceptWhenLocalSource",
+			src:     AdvisorSource{Source: "local:/abs/path"},
 			wantErr: false,
 		},
 		{
-			name: "shouldAcceptWhenAdvisorCatalogsIsEmptySlice",
-			setup: func() UserManifest {
-				m := base()
-				m.AdvisorCatalogs = []CatalogSource{}
-				return m
-			},
+			name:    "shouldAcceptWhenGitHubSourceWithRef",
+			src:     AdvisorSource{Source: "github:acme/repo@main"},
 			wantErr: false,
 		},
 		{
-			name: "shouldAcceptWhenAdvisorCatalogURLIsValid",
-			setup: func() UserManifest {
-				m := base()
-				m.AdvisorCatalogs = []CatalogSource{
-					{URL: "github:acme/advisor-catalog"},
-				}
-				return m
-			},
+			name:    "shouldAcceptWhenSelectIsEmpty",
+			src:     AdvisorSource{Source: "github:acme/repo", Select: nil},
 			wantErr: false,
 		},
 		{
-			name: "shouldRejectWhenAdvisorCatalogURLIsDuplicated",
-			setup: func() UserManifest {
-				m := base()
-				m.AdvisorCatalogs = []CatalogSource{
-					{URL: "github:acme/advisor-catalog"},
-					{URL: "github:acme/advisor-catalog"},
-				}
-				return m
-			},
+			name:    "shouldAcceptWhenSelectHasValidNames",
+			src:     AdvisorSource{Source: "github:acme/repo", Select: []string{"custom-db-advisor", "custom-perf-advisor"}},
+			wantErr: false,
+		},
+		{
+			name:    "shouldRejectWhenSourceIsEmpty",
+			src:     AdvisorSource{Source: ""},
 			wantErr: true,
-			errMsg:  "duplicate advisor catalog URL",
+			errMsg:  "url must not be empty",
 		},
 		{
-			name: "shouldRejectWhenAdvisorCatalogURLIsInvalid",
-			setup: func() UserManifest {
-				m := base()
-				m.AdvisorCatalogs = []CatalogSource{
-					{URL: "http://example.com/catalog"},
-				}
-				return m
-			},
+			name:    "shouldRejectWhenSourceUsesUnknownScheme",
+			src:     AdvisorSource{Source: "http://example.com"},
 			wantErr: true,
 			errMsg:  "unrecognised scheme",
+		},
+		{
+			name:    "shouldRejectWhenSelectEntryIsEmpty",
+			src:     AdvisorSource{Source: "github:acme/repo", Select: []string{""}},
+			wantErr: true,
+			errMsg:  "must not be empty",
+		},
+		{
+			name:    "shouldRejectWhenSelectEntryMissingSuffix",
+			src:     AdvisorSource{Source: "github:acme/repo", Select: []string{"foo"}},
+			wantErr: true,
+			errMsg:  `must end in "-advisor"`,
+		},
+		{
+			name:    "shouldRejectWhenSelectEntryHasWhitespace",
+			src:     AdvisorSource{Source: "github:acme/repo", Select: []string{" my-advisor"}},
+			wantErr: true,
+			errMsg:  `must end in "-advisor"`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := tt.setup()
-			err := m.Validate()
+			err := tt.src.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1460,5 +1389,22 @@ func TestUserManifest_Validate_AdvisorCatalogs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAdvisorSource_AsCatalogSource verifies the lossless conversion to
+// CatalogSource consumed by the Fetcher.
+func TestAdvisorSource_AsCatalogSource(t *testing.T) {
+	src := AdvisorSource{
+		Source:      "github:acme/repo@main",
+		LastFetched: "2024-01-15T10:00:00Z",
+		Select:      []string{"custom-db-advisor"},
+	}
+	cs := src.AsCatalogSource()
+	if cs.URL != src.Source {
+		t.Errorf("URL = %q, want %q", cs.URL, src.Source)
+	}
+	if cs.LastFetched != src.LastFetched {
+		t.Errorf("LastFetched = %q, want %q", cs.LastFetched, src.LastFetched)
 	}
 }

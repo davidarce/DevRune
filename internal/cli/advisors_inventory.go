@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -16,13 +17,13 @@ type advisorRow struct {
 	Name        string
 	Description string
 	Scope       []string
-	Origin      string // "", "local", "catalog", "github:acme", etc.
-	CatalogURL  string // set only for catalog-imported advisors
+	Origin      string // "", "local", "catalog"
+	CatalogURL  string // set only for catalog-imported advisors (the AdvisorSource.Source)
 	Installed   bool
 }
 
 // buildAdvisorInventory returns a fully annotated list of every known advisor —
-// native, custom-local, and catalog-imported — merged and deduplicated.
+// native and externally-sourced — merged and deduplicated.
 //
 // skillsRoot is the path to the on-disk skills directory (e.g.
 // filepath.Join(wd, ".claude", "skills")). It is used to load native advisor
@@ -31,10 +32,19 @@ type advisorRow struct {
 // nil scope (universal) and no error is propagated — the inventory degrades
 // gracefully rather than crashing the TUI.
 //
+// External advisors are discovered by walking m.Advisors[] and scanning each
+// resolved source via advisorcatalog.Scanner. The Select filter on each entry
+// is applied (empty Select = include all advisors discovered in the source).
+//
+// Resolution failures (fetch / scan / parse errors) degrade gracefully: the
+// failing source is skipped silently, leaving its advisors absent from the
+// inventory. The TUI must remain responsive even when a remote catalog is
+// temporarily unreachable.
+//
 // Ordering guarantee (deterministic):
 //  1. Native advisors, sorted by name.
-//  2. Custom (local+catalog) advisors not already listed as native, sorted by
-//     CatalogURL (empty first) then Name within each group.
+//  2. External advisors not already listed as native, sorted by CatalogURL
+//     (empty/local first) then Name within each group.
 func buildAdvisorInventory(skillsRoot string, m model.UserManifest) []advisorRow {
 	// ── load native advisor scopes from disk ──────────────────────────────────
 	// Errors are non-fatal: native advisors without scope are treated as
@@ -53,36 +63,17 @@ func buildAdvisorInventory(skillsRoot string, m model.UserManifest) []advisorRow
 		}
 	}
 
-	// ── build a lookup: advisor name → catalog URL (from AdvisorCatalogs) ────
-	// We rely on the advisor's SkillSource matching the catalog URL (best-effort).
-	// The SkillSource field for catalog-imported advisors stores the catalog-ref URL.
-	catalogURLByName := make(map[string]string, len(m.CustomAdvisors))
-	for _, def := range m.CustomAdvisors {
-		if def.Origin == model.AdvisorOriginCatalog {
-			// Try to find the matching catalog source by checking if the advisor's
-			// SkillSource starts with (or equals) any catalog URL.
-			matched := false
-			for _, cat := range m.AdvisorCatalogs {
-				if cat.URL != "" && def.SkillSource == cat.URL {
-					catalogURLByName[def.Name] = cat.URL
-					matched = true
-					break
-				}
-			}
-			if !matched && len(m.AdvisorCatalogs) > 0 {
-				// best-effort: if only one catalog, attribute to it
-				if len(m.AdvisorCatalogs) == 1 {
-					catalogURLByName[def.Name] = m.AdvisorCatalogs[0].URL
-				}
-				// if multiple catalogs and no match, CatalogURL stays ""
-			}
-		}
-	}
+	// ── resolve external advisors via the new Advisors[] schema ───────────────
+	// On any per-source failure we silently drop that source's contributions —
+	// the inventory is a best-effort view; it must not crash the TUI when a
+	// remote catalog is unreachable. Fetcher operations are network calls, so
+	// we use a fresh context here (no upstream cancellation token at this layer).
+	resolved, _ := resolveAdvisors(context.Background(), "", m)
 
-	// ── build a set of custom advisor names (to deduplicate against native) ───
-	customByName := make(map[string]model.AdvisorDef, len(m.CustomAdvisors))
-	for _, def := range m.CustomAdvisors {
-		customByName[def.Name] = def
+	// ── deduplicate against native names: external entry wins for same name ──
+	customByName := make(map[string]ResolvedAdvisor, len(resolved))
+	for _, r := range resolved {
+		customByName[r.Def.Name] = r
 	}
 
 	var rows []advisorRow
@@ -106,45 +97,47 @@ func buildAdvisorInventory(skillsRoot string, m model.UserManifest) []advisorRow
 		})
 	}
 
-	// ── 2. Custom advisors (local then catalog, sorted) ───────────────────────
-	// Separate into local and catalog groups for ordered output.
+	// ── 2. External advisors (sorted: empty/local source first, then catalog) ─
 	type customEntry struct {
-		def        model.AdvisorDef
-		catalogURL string
+		row     advisorRow
+		sortKey string // CatalogURL (empty for local: sources sorts first)
 	}
 
 	var customEntries []customEntry
-	for _, def := range m.CustomAdvisors {
-		ce := customEntry{
-			def:        def,
-			catalogURL: catalogURLByName[def.Name],
+	for _, r := range resolved {
+		var catalogURL string
+		if r.Origin == "catalog" {
+			catalogURL = r.Source
 		}
-		customEntries = append(customEntries, ce)
+
+		// Scope: prefer the SKILL.md frontmatter parsed by the Scanner (carried
+		// in r.Def.Scope). For native-name overrides we may also have a value in
+		// nativeScopes — Scanner output wins because it reflects the on-disk
+		// SKILL.md inside the source dir, which is the new single source of
+		// truth.
+		scope := append([]string(nil), r.Def.Scope...)
+
+		row := advisorRow{
+			Name:        r.Def.Name,
+			Description: r.Def.Description,
+			Scope:       scope,
+			Origin:      r.Origin,
+			CatalogURL:  catalogURL,
+			Installed:   true, // resolved advisors are explicitly registered
+		}
+		customEntries = append(customEntries, customEntry{row: row, sortKey: catalogURL})
 	}
 
-	// Sort: by CatalogURL (empty/local first) then by Name.
 	sort.Slice(customEntries, func(i, j int) bool {
 		ci, cj := customEntries[i], customEntries[j]
-		if ci.catalogURL != cj.catalogURL {
-			return ci.catalogURL < cj.catalogURL
+		if ci.sortKey != cj.sortKey {
+			return ci.sortKey < cj.sortKey
 		}
-		return ci.def.Name < cj.def.Name
+		return ci.row.Name < cj.row.Name
 	})
 
 	for _, ce := range customEntries {
-		// Scope comes from the on-disk SKILL.md frontmatter — the single
-		// source of truth. nativeScopes[name] returns nil (= universal) when
-		// the advisor's SKILL.md is missing or has no scope; that is the
-		// correct fallback.
-		scope := append([]string(nil), nativeScopes[ce.def.Name]...)
-		rows = append(rows, advisorRow{
-			Name:        ce.def.Name,
-			Description: ce.def.Description,
-			Scope:       scope,
-			Origin:      string(ce.def.Origin),
-			CatalogURL:  ce.catalogURL,
-			Installed:   true, // custom advisors are always explicitly registered
-		})
+		rows = append(rows, ce.row)
 	}
 
 	return rows
@@ -156,7 +149,10 @@ func buildAdvisorInventory(skillsRoot string, m model.UserManifest) []advisorRow
 //
 // On add:
 //   - The name must be a known native advisor (via model.ReservedAdvisorNames)
-//     OR already present in m.CustomAdvisors. Unknown names → error.
+//     OR present in any AdvisorSource.Select (or implied by an empty Select).
+//     For non-native names not yet present anywhere, we accept the add only
+//     when the name is already known (i.e. registered explicitly under some
+//     AdvisorSource). Pure native names are always accepted.
 //   - The skill is appended to m.Packages[primaryIdx].Select.Skills where
 //     primaryIdx is the index of the first package that already has any advisor
 //     skill; falls back to 0 when no package has advisors yet.
@@ -165,7 +161,10 @@ func buildAdvisorInventory(skillsRoot string, m model.UserManifest) []advisorRow
 //
 // On remove:
 //   - The skill name is stripped from every package's Select.Skills.
-//   - Also stripped from m.CustomAdvisors (for custom/catalog entries).
+//   - The name is also stripped from every AdvisorSource.Select. If a Select
+//     becomes empty AND was previously non-empty, the AdvisorSource entry is
+//     removed entirely (an empty Select on a still-present source would mean
+//     "install everything", which is the wrong intent after an explicit remove).
 //   - Removing a name not present anywhere is a no-op (no error).
 func applyManifestDiff(m *model.UserManifest, toAdd, toRemove []string) error {
 	// ── build lookup sets ─────────────────────────────────────────────────────
@@ -174,10 +173,7 @@ func applyManifestDiff(m *model.UserManifest, toAdd, toRemove []string) error {
 		nativeSet[n] = true
 	}
 
-	customSet := make(map[string]bool, len(m.CustomAdvisors))
-	for _, def := range m.CustomAdvisors {
-		customSet[def.Name] = true
-	}
+	customSet := buildAdvisorSourceSelectionSet(m)
 
 	// ── process additions ─────────────────────────────────────────────────────
 	for _, name := range toAdd {
@@ -247,15 +243,52 @@ func applyManifestDiff(m *model.UserManifest, toAdd, toRemove []string) error {
 			m.Packages[i].Select.Skills = filtered
 		}
 
-		// Strip from CustomAdvisors.
-		filtered := m.CustomAdvisors[:0]
-		for _, def := range m.CustomAdvisors {
-			if def.Name != name {
-				filtered = append(filtered, def)
+		// Strip from each AdvisorSource.Select. If a source had a non-empty
+		// Select that now becomes empty, drop the source entirely (empty Select
+		// would otherwise mean "install everything", which is the wrong intent
+		// after an explicit removal).
+		nextAdvisors := m.Advisors[:0]
+		for _, src := range m.Advisors {
+			if len(src.Select) == 0 {
+				// Source installs everything — leave intact. The remove is a
+				// no-op for this source (the user can drop the whole source
+				// via the dedicated remove-advisor flow if that is the intent).
+				nextAdvisors = append(nextAdvisors, src)
+				continue
 			}
+			filtered := src.Select[:0]
+			for _, n := range src.Select {
+				if n != name {
+					filtered = append(filtered, n)
+				}
+			}
+			src.Select = filtered
+			if len(src.Select) == 0 {
+				// All explicit selections removed → drop the source.
+				continue
+			}
+			nextAdvisors = append(nextAdvisors, src)
 		}
-		m.CustomAdvisors = filtered
+		m.Advisors = nextAdvisors
 	}
 
 	return nil
+}
+
+// buildAdvisorSourceSelectionSet returns the set of advisor names that are
+// EXPLICITLY listed in any AdvisorSource.Select. Sources with empty Select
+// (= install everything) do not contribute to this set because we cannot
+// enumerate their contents without I/O — applyManifestDiff is pure.
+//
+// This is a tradeoff: applyManifestDiff cannot know about advisors only
+// implied by an empty Select. Callers that need that resolution must consult
+// resolveAdvisors which DOES perform fetch+scan.
+func buildAdvisorSourceSelectionSet(m *model.UserManifest) map[string]bool {
+	set := make(map[string]bool)
+	for _, src := range m.Advisors {
+		for _, n := range src.Select {
+			set[n] = true
+		}
+	}
+	return set
 }

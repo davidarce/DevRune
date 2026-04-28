@@ -7,6 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.29] — 2026-04-28
 
+### Breaking Changes — Unified `advisors` manifest field
+
+The `customAdvisors[]` and `advisorCatalogs[]` fields in `devrune.yaml`
+are removed and replaced by a single `advisors[]` field that mirrors
+the existing `packages[]` shape:
+
+```yaml
+advisors:
+  - source: local:/path/to/advisors          # or github:owner/repo[@ref]
+    lastFetched: "2026-04-27T11:47:09Z"      # set by fetcher; optional
+    select:                                   # optional: empty/omitted = all
+      - performance-advisor
+      - security-advisor
+```
+
+**What changed**
+
+- `model.UserManifest.CustomAdvisors []AdvisorDef` → removed.
+- `model.UserManifest.AdvisorCatalogs []CatalogSource` → removed.
+- `model.UserManifest.Advisors []AdvisorSource` → new field.
+- New type `model.AdvisorSource{Source, LastFetched, Select}`. The
+  `AsCatalogSource()` helper converts to the `CatalogSource` primitive
+  the `advisorcatalog` package's `Fetcher` consumes — same URL grammar
+  as before (`local:/`, `github:owner/repo[@ref]`,
+  `gitlab:owner/repo[@ref]`).
+- `model.AdvisorDef` is now runtime-only: `{Name, Description, Scope}`.
+  `SkillSource` and `Origin` fields are removed; `description` and
+  `scope` are no longer persisted to `devrune.yaml`. SKILL.md
+  frontmatter on disk remains the single source of truth, populated
+  at runtime by `advisorcatalog.Scanner`.
+- `model.AdvisorOrigin` type and the `AdvisorOriginLocal` /
+  `AdvisorOriginCatalog` constants are removed. Origin is derived from
+  the `Source` URL scheme (`local:` → local; `github:`/`gitlab:` →
+  catalog).
+- New helper `cli.resolveAdvisors(manifest, fetcher, scanner)` walks
+  `manifest.Advisors[]`, fetches+scans each source, applies the
+  `Select` filter (or installs everything when `Select` is empty), and
+  returns flat `[]ResolvedAdvisor` tuples for downstream consumers.
+  Replaces the old "iterate `customAdvisors` then cross-lookup
+  `advisorCatalogs`" pattern.
+
+**Why**
+
+- One mental model. `packages[]` and `advisors[]` now have the same
+  shape (`source` + optional `select`); users who already understand
+  the `packages` config understand `advisors` instantly.
+- No duplication. Description and scope live in SKILL.md (single
+  source of truth). The previous schema persisted both into the
+  manifest — values drifted when the upstream catalog updated.
+- Cleaner refresh semantics. `--refresh-catalogs` now re-fetches each
+  `Advisors[].Source` and re-scans for new advisors; description and
+  scope updates flow in automatically.
+
+**No backward compatibility**
+
+This was an unreleased feature, so no migration path is provided.
+Manifests that still have `customAdvisors:` or `advisorCatalogs:` will
+fail to parse (unrecognized YAML field) or silently lose those
+sections (the `yaml.v3` default for unknown fields). Re-author the
+manifest using the new `advisors:` shape before upgrading.
+
+**Migration example**
+
+Before:
+
+```yaml
+customAdvisors:
+  - name: performance-advisor
+    description: 'Performance review adviser: …'
+    skillSource: local:./advisors
+    scope:
+      - performance
+    origin: catalog
+  - name: security-advisor
+    description: 'Security review adviser: …'
+    skillSource: local:./advisors
+    scope:
+      - security
+    origin: catalog
+
+advisorCatalogs:
+  - url: local:./advisors
+    lastFetched: "2026-04-27T11:47:09Z"
+```
+
+After:
+
+```yaml
+advisors:
+  - source: local:./advisors
+    lastFetched: "2026-04-27T11:47:09Z"
+    select:
+      - performance-advisor
+      - security-advisor
+```
+
+Or even shorter (omit `select` to install every `*-advisor/`
+discovered under the source):
+
+```yaml
+advisors:
+  - source: local:./advisors
+    lastFetched: "2026-04-27T11:47:09Z"
+```
+
 ### Internal — Modernize generics and copy patterns in renderers
 
 Sweep across renderer test files and renderer source: replaced 120

@@ -104,17 +104,23 @@ func TestFilterAvailableEntries_CollisionWithNative(t *testing.T) {
 	}
 }
 
-// TestFilterAvailableEntries_CollisionWithRegistered verifies that entries
-// already registered in manifest.CustomAdvisors are filtered out.
-func TestFilterAvailableEntries_CollisionWithRegistered(t *testing.T) {
-	existingDef := AnAdvisorDef().Named("already-registered-advisor").Build()
+// TestFilterAvailableEntries_CollisionWithRegisteredSelect verifies that
+// entries whose names appear in any AdvisorSource.Select are filtered out.
+//
+// This replaces the legacy "registered in CustomAdvisors" check — under the
+// new schema, advisor names are tracked exclusively via Select lists.
+func TestFilterAvailableEntries_CollisionWithRegisteredSelect(t *testing.T) {
+	src := AnAdvisorSource().
+		WithSource("local:./advisors/custom-bundle").
+		WithSelect("already-registered-advisor").
+		Build()
 
 	entries := []advisorcatalog.CatalogEntry{
 		{Name: "already-registered-advisor", Description: "Already registered"},
 		{Name: "fresh-advisor", Description: "Not yet registered"},
 	}
 
-	manifest := AUserManifest().WithCustom(existingDef).Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 	filtered := filterAvailableEntries(entries, &manifest)
 
 	if len(filtered) != 1 {
@@ -138,76 +144,6 @@ func TestFilterAvailableEntries_AllAllowed(t *testing.T) {
 
 	if len(filtered) != 2 {
 		t.Errorf("filterAvailableEntries returned %d entries, want 2", len(filtered))
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// advisorBelongsToCatalog tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-// TestAdvisorBelongsToCatalog_ExactURLMatch verifies that an advisor with
-// SkillSource == catalog URL is attributed to that catalog.
-func TestAdvisorBelongsToCatalog_ExactURLMatch(t *testing.T) {
-	wd := t.TempDir()
-	cat := ACatalogSource().WithURL("github:acme/catalog@main").Build()
-	def := AnAdvisorDef().Named("my-advisor").WithSkillSource("github:acme/catalog@main").Build()
-	all := []model.CatalogSource{cat}
-
-	if !advisorBelongsToCatalog(def, cat, all, wd) {
-		t.Error("expected advisor to belong to catalog (exact URL match)")
-	}
-}
-
-// TestAdvisorBelongsToCatalog_PathPrefixMatch verifies that an advisor whose
-// SkillSource is a path inside the catalog's cache directory is attributed to that catalog.
-func TestAdvisorBelongsToCatalog_PathPrefixMatch(t *testing.T) {
-	wd := t.TempDir()
-	cat := ACatalogSource().WithURL("github:acme/catalog@main").Build()
-
-	// Compute the cache key for this catalog URL and build a path inside it.
-	cacheKey := advisorcatalog.CacheKey(cat)
-	cacheDir := filepath.Join(wd, ".devrune", "advisor-catalogs", cacheKey)
-	skillSrc := filepath.Join(cacheDir, "my-advisor")
-
-	def := AnAdvisorDef().Named("my-advisor").WithSkillSource(skillSrc).Build()
-	all := []model.CatalogSource{cat}
-
-	if !advisorBelongsToCatalog(def, cat, all, wd) {
-		t.Errorf("expected advisor to belong to catalog via path-prefix match; cacheDir=%q skillSrc=%q", cacheDir, skillSrc)
-	}
-}
-
-// TestAdvisorBelongsToCatalog_SingleCatalog_LocalOrigin_NoHeuristic verifies
-// that a local-origin advisor is NOT attributed to a github: catalog even when
-// only one catalog is registered (the old single-catalog heuristic is removed).
-func TestAdvisorBelongsToCatalog_SingleCatalog_LocalOrigin_NoHeuristic(t *testing.T) {
-	wd := t.TempDir()
-	cat := ACatalogSource().WithURL("github:acme/catalog@main").Build()
-	// SkillSource is a local path, not the catalog URL and not under the cache dir.
-	def := AnAdvisorDef().Named("my-advisor").WithSkillSource(filepath.Join(wd, "local", "my-advisor")).Build()
-	all := []model.CatalogSource{cat}
-
-	if advisorBelongsToCatalog(def, cat, all, wd) {
-		t.Error("local-origin advisor should NOT be attributed to a github: catalog")
-	}
-}
-
-// TestAdvisorBelongsToCatalog_MultipleCatalogs_NoMatch verifies that when
-// multiple catalogs are registered and the SkillSource doesn't match, the
-// advisor is NOT attributed to the catalog.
-func TestAdvisorBelongsToCatalog_MultipleCatalogs_NoMatch(t *testing.T) {
-	wd := t.TempDir()
-	cat1 := ACatalogSource().WithURL("github:acme/catalog@main").Build()
-	cat2 := ACatalogSource().WithURL("github:other/catalog@main").Build()
-	def := AnAdvisorDef().Named("my-advisor").WithSkillSource("github:other/catalog@main").Build()
-	all := []model.CatalogSource{cat1, cat2}
-
-	// def.SkillSource matches cat2, not cat1.
-	if advisorBelongsToCatalog(def, cat1, all, wd) {
-		t.Error("advisor should NOT belong to cat1 (SkillSource matches cat2 instead)")
-	}
-	if !advisorBelongsToCatalog(def, cat2, all, wd) {
-		t.Error("advisor SHOULD belong to cat2 (exact SkillSource match)")
 	}
 }
 
@@ -316,25 +252,25 @@ func TestIsSingleAdvisorDir_MissingSkillMD(t *testing.T) {
 // runRefreshCatalogsFlow integration tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TestRunRefreshCatalogsFlow_NoCatalogsRegistered verifies that calling
-// runRefreshCatalogsFlow with an empty AdvisorCatalogs returns an error.
-func TestRunRefreshCatalogsFlow_NoCatalogsRegistered(t *testing.T) {
+// TestRunRefreshCatalogsFlow_NoAdvisorsRegistered verifies that calling
+// runRefreshCatalogsFlow with an empty Advisors list returns an error.
+func TestRunRefreshCatalogsFlow_NoAdvisorsRegistered(t *testing.T) {
 	wd := t.TempDir()
-	manifest := AUserManifest().Build() // no catalogs
+	manifest := AUserManifest().Build() // no advisor sources
 
 	_, err := runRefreshCatalogsFlow(context.Background(), wd, &manifest)
 	if err == nil {
-		t.Fatal("runRefreshCatalogsFlow expected error when no catalogs are registered, got nil")
+		t.Fatal("runRefreshCatalogsFlow expected error when no advisors are registered, got nil")
 	}
 	if !strings.Contains(err.Error(), "no advisor catalogs registered") {
 		t.Errorf("error should mention 'no advisor catalogs registered'; got: %v", err)
 	}
 }
 
-// TestRunRefreshCatalogsFlow_LocalCatalog_ContentUpdate verifies that after
+// TestRunRefreshCatalogsFlow_LocalSource_ContentUpdate verifies that after
 // a SKILL.md is modified in the source catalog, calling runRefreshCatalogsFlow
 // updates the installed copy and sets LastFetched.
-func TestRunRefreshCatalogsFlow_LocalCatalog_ContentUpdate(t *testing.T) {
+func TestRunRefreshCatalogsFlow_LocalSource_ContentUpdate(t *testing.T) {
 	wd := t.TempDir()
 
 	// Create catalog root with one advisor.
@@ -351,19 +287,9 @@ func TestRunRefreshCatalogsFlow_LocalCatalog_ContentUpdate(t *testing.T) {
 		t.Fatalf("WriteFile (installed SKILL.md): %v", err)
 	}
 
-	catalogURL := "local:" + catalogRoot
-	cat := ACatalogSource().WithURL(catalogURL).Build()
-	def := AnAdvisorDef().
-		Named("refresh-advisor").
-		WithSkillSource(catalogURL).
-		WithOrigin(model.AdvisorOriginCatalog).
-		WithDescription("Initial description").
-		Build()
-
-	manifest := AUserManifest().
-		WithCatalog(cat).
-		WithCustom(def).
-		Build()
+	sourceURL := "local:" + catalogRoot
+	src := AnAdvisorSource().WithSource(sourceURL).WithSelect("refresh-advisor").Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	// Now modify the source SKILL.md to have different content.
 	updatedContent := "---\nname: refresh-advisor\ndescription: Updated description\n---\n\n# Updated\n"
@@ -387,23 +313,23 @@ func TestRunRefreshCatalogsFlow_LocalCatalog_ContentUpdate(t *testing.T) {
 		t.Errorf("installed SKILL.md should contain updated content; got:\n%s", string(installedData))
 	}
 
-	// LastFetched must have been updated on the catalog entry.
-	if manifest.AdvisorCatalogs[0].LastFetched == "" {
-		t.Error("catalog LastFetched should be set after refresh")
+	// LastFetched must have been updated on the source entry.
+	if manifest.Advisors[0].LastFetched == "" {
+		t.Error("source LastFetched should be set after refresh")
 	}
 	// Parse the timestamp to verify it's a valid RFC3339 timestamp at or after our before marker.
-	ts, parseErr := time.Parse(time.RFC3339, manifest.AdvisorCatalogs[0].LastFetched)
+	ts, parseErr := time.Parse(time.RFC3339, manifest.Advisors[0].LastFetched)
 	if parseErr != nil {
-		t.Errorf("LastFetched %q is not a valid RFC3339 timestamp: %v", manifest.AdvisorCatalogs[0].LastFetched, parseErr)
+		t.Errorf("LastFetched %q is not a valid RFC3339 timestamp: %v", manifest.Advisors[0].LastFetched, parseErr)
 	} else if ts.UTC().Before(before) {
-		t.Errorf("LastFetched %q (UTC: %v) should be >= before marker %v", manifest.AdvisorCatalogs[0].LastFetched, ts.UTC(), before)
+		t.Errorf("LastFetched %q (UTC: %v) should be >= before marker %v", manifest.Advisors[0].LastFetched, ts.UTC(), before)
 	}
 }
 
-// TestRunRefreshCatalogsFlow_LocalCatalog_NoChange_SkipsRecopy verifies that
+// TestRunRefreshCatalogsFlow_LocalSource_NoChange_SkipsRecopy verifies that
 // when source SKILL.md is identical to the installed copy, the file is not
 // re-copied (content stays the same).
-func TestRunRefreshCatalogsFlow_LocalCatalog_NoChange_SkipsRecopy(t *testing.T) {
+func TestRunRefreshCatalogsFlow_LocalSource_NoChange_SkipsRecopy(t *testing.T) {
 	wd := t.TempDir()
 	catalogRoot := t.TempDir()
 
@@ -424,10 +350,8 @@ func TestRunRefreshCatalogsFlow_LocalCatalog_NoChange_SkipsRecopy(t *testing.T) 
 		t.Fatalf("WriteFile src: %v", err)
 	}
 
-	catalogURL := "local:" + catalogRoot
-	cat := ACatalogSource().WithURL(catalogURL).Build()
-	def := AnAdvisorDef().Named("stable-advisor").WithSkillSource(catalogURL).WithOrigin(model.AdvisorOriginCatalog).Build()
-	manifest := AUserManifest().WithCatalog(cat).WithCustom(def).Build()
+	src := AnAdvisorSource().WithSource("local:" + catalogRoot).WithSelect("stable-advisor").Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	_, err := runRefreshCatalogsFlow(context.Background(), wd, &manifest)
 	if err != nil {
@@ -446,17 +370,17 @@ func TestRunRefreshCatalogsFlow_LocalCatalog_NoChange_SkipsRecopy(t *testing.T) 
 
 // TestRunRefreshCatalogsFlow_FetchError_ReturnsAggregatedError verifies that
 // when a local: source path does not exist, the refresh flow aggregates the
-// error and returns it after processing all catalogs (fail-aggregating semantics).
+// error and returns it after processing all sources (fail-aggregating semantics).
 func TestRunRefreshCatalogsFlow_FetchError_ReturnsAggregatedError(t *testing.T) {
 	wd := t.TempDir()
 
-	cat := ACatalogSource().WithURL("local:/nonexistent/catalog/path").Build()
-	manifest := AUserManifest().WithCatalog(cat).Build()
+	src := AnAdvisorSource().WithSource("local:/nonexistent/catalog/path").Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
-	// runRefreshCatalogsFlow aggregates per-catalog errors and returns them.
+	// runRefreshCatalogsFlow aggregates per-source errors and returns them.
 	_, err := runRefreshCatalogsFlow(context.Background(), wd, &manifest)
 	if err == nil {
-		t.Fatal("runRefreshCatalogsFlow should return an error when a catalog fetch fails")
+		t.Fatal("runRefreshCatalogsFlow should return an error when a source fetch fails")
 	}
 	if !strings.Contains(err.Error(), "failed to fetch") {
 		t.Errorf("error should mention 'failed to fetch'; got: %v", err)
@@ -464,15 +388,12 @@ func TestRunRefreshCatalogsFlow_FetchError_ReturnsAggregatedError(t *testing.T) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Import from catalog (via inner helpers) — non-interactive path
+// Import from local catalog (via inner helpers) — non-interactive path
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestImportFromLocalCatalog_HappyPath verifies the full import flow via the
 // inner helpers (fetchCatalogSource + DirScanner.Scan + filterAvailableEntries
 // + copyAdvisorDir + manifest mutation), bypassing the interactive TUI.
-//
-// This is the integration test for "Import from local catalog (non-interactive)"
-// described in the task spec.
 func TestImportFromLocalCatalog_HappyPath(t *testing.T) {
 	wd := t.TempDir()
 
@@ -485,16 +406,16 @@ func TestImportFromLocalCatalog_HappyPath(t *testing.T) {
 	seedCatalogAdvisor(t, catalogRoot, "alpha-catalog-advisor", "Alpha advisor from catalog", true)
 	seedCatalogAdvisor(t, catalogRoot, "beta-catalog-advisor", "Beta advisor from catalog", true)
 
-	catalogURL := "local:" + catalogRoot
-	cat := model.CatalogSource{URL: catalogURL}
+	sourceURL := "local:" + catalogRoot
+	cs := model.CatalogSource{URL: sourceURL}
 
-	// Step 1: fetch the catalog root.
-	rootDir, err := fetchCatalogSource(context.Background(), wd, cat)
+	// Step 1: fetch the source root.
+	rootDir, err := fetchCatalogSource(context.Background(), wd, cs)
 	if err != nil {
 		t.Fatalf("fetchCatalogSource returned error: %v", err)
 	}
 
-	// Step 2: scan the catalog.
+	// Step 2: scan the source.
 	entries, err := advisorcatalog.DirScanner{}.Scan(rootDir)
 	if err != nil {
 		t.Fatalf("DirScanner.Scan returned error: %v", err)
@@ -510,34 +431,26 @@ func TestImportFromLocalCatalog_HappyPath(t *testing.T) {
 		t.Fatalf("filterAvailableEntries returned %d entries, want 2", len(filtered))
 	}
 
-	// Step 4: copy advisors and register in manifest.
-	// Mimic what runAddAdvisorFlow does after selection.
-	manifest.AdvisorCatalogs = append(manifest.AdvisorCatalogs, cat)
+	// Step 4: copy advisors and register a single AdvisorSource entry.
+	selectNames := make([]string, 0, len(filtered))
 	for _, entry := range filtered {
 		dst := filepath.Join(wd, ".claude", "skills", entry.Name)
 		if _, copyErr := copyAdvisorDir(entry.DirPath, dst); copyErr != nil {
 			t.Fatalf("copyAdvisorDir(%q): %v", entry.Name, copyErr)
 		}
-		manifest.CustomAdvisors = append(manifest.CustomAdvisors, model.AdvisorDef{
-			Name:        entry.Name,
-			Description: entry.Description,
-			SkillSource: catalogURL,
-			Scope:       append([]string(nil), entry.Scope...),
-			Origin:      model.AdvisorOriginCatalog,
-		})
+		selectNames = append(selectNames, entry.Name)
 	}
+	manifest.Advisors = append(manifest.Advisors, model.AdvisorSource{
+		Source: sourceURL,
+		Select: selectNames,
+	})
 
-	// Assert manifest has 2 customAdvisors with Origin=catalog and 1 advisorCatalog.
-	if len(manifest.CustomAdvisors) != 2 {
-		t.Errorf("manifest.CustomAdvisors length = %d, want 2", len(manifest.CustomAdvisors))
+	// Assert manifest has 1 AdvisorSource entry with 2 Select names.
+	if len(manifest.Advisors) != 1 {
+		t.Errorf("manifest.Advisors length = %d, want 1", len(manifest.Advisors))
 	}
-	if len(manifest.AdvisorCatalogs) != 1 {
-		t.Errorf("manifest.AdvisorCatalogs length = %d, want 1", len(manifest.AdvisorCatalogs))
-	}
-	for _, def := range manifest.CustomAdvisors {
-		if def.Origin != model.AdvisorOriginCatalog {
-			t.Errorf("advisor %q: Origin = %q, want %q", def.Name, def.Origin, model.AdvisorOriginCatalog)
-		}
+	if len(manifest.Advisors[0].Select) != 2 {
+		t.Errorf("manifest.Advisors[0].Select length = %d, want 2", len(manifest.Advisors[0].Select))
 	}
 
 	// Assert .claude/skills/{name}/SKILL.md exists for both advisors.
@@ -557,8 +470,9 @@ func TestImportFromLocalCatalog_HappyPath(t *testing.T) {
 // TestImportFromLocalCatalog_RendererSpyCalled verifies that SyncAdvisors
 // (which follows import) calls the renderer with both advisors in Installed.
 //
-// SyncAdvisors copies advisor dirs using def.SkillSource as a filesystem path,
-// so we set SkillSource to the actual advisor directory (not the catalog URL).
+// Under the new schema, SyncAdvisors resolves manifest.Advisors[] via
+// resolveAdvisors → Scanner — so the AdvisorSource.Source is the catalog
+// directory and its Select list names the advisors to install.
 func TestImportFromLocalCatalog_RendererSpyCalled(t *testing.T) {
 	wd := t.TempDir()
 
@@ -571,18 +485,11 @@ func TestImportFromLocalCatalog_RendererSpyCalled(t *testing.T) {
 	seedCatalogAdvisor(t, catalogRoot, "spy-alpha-advisor", "Alpha", false)
 	seedCatalogAdvisor(t, catalogRoot, "spy-beta-advisor", "Beta", false)
 
-	// For catalog-origin advisors, SkillSource must be a real directory path
-	// that SyncAdvisors can copy from (it uses SkillSource as an fs path).
-	alphaDir := filepath.Join(catalogRoot, "spy-alpha-advisor")
-	betaDir := filepath.Join(catalogRoot, "spy-beta-advisor")
-
-	manifest := AUserManifest().
-		WithCatalog(ACatalogSource().WithURL("local:" + catalogRoot).Build()).
-		WithCustom(
-			AnAdvisorDef().Named("spy-alpha-advisor").WithSkillSource(alphaDir).WithOrigin(model.AdvisorOriginCatalog).WithDescription("Alpha").Build(),
-			AnAdvisorDef().Named("spy-beta-advisor").WithSkillSource(betaDir).WithOrigin(model.AdvisorOriginCatalog).WithDescription("Beta").Build(),
-		).
+	src := AnAdvisorSource().
+		WithSource("local:" + catalogRoot).
+		WithSelect("spy-alpha-advisor", "spy-beta-advisor").
 		Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	// Inject spy renderer.
 	spy := &fakeAdvisorRenderer{}
@@ -611,7 +518,7 @@ func TestImportFromLocalCatalog_RendererSpyCalled(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// singleAdvisorEntry scope propagation tests (T017)
+// singleAdvisorEntry scope propagation tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 // writeSingleAdvisorSkill creates <dir>/<name>/SKILL.md with the given raw
@@ -815,7 +722,7 @@ func TestSingleAdvisorEntry_AcceptsMissingScope(t *testing.T) {
 }
 
 // TestImportFromLocalCatalog_CollisionWithNative_NoFileSystemChanges verifies
-// that when all catalog advisors collide with native advisors, the manifest
+// that when all source advisors collide with native advisors, the manifest
 // is not mutated and no files are written.
 func TestImportFromLocalCatalog_CollisionWithNative_NoFileSystemChanges(t *testing.T) {
 	wd := t.TempDir()
@@ -825,11 +732,10 @@ func TestImportFromLocalCatalog_CollisionWithNative_NoFileSystemChanges(t *testi
 	catalogRoot := t.TempDir()
 	seedCatalogAdvisor(t, catalogRoot, nativeName, "Collides with native", false)
 
-	catalogURL := "local:" + catalogRoot
-	cat := model.CatalogSource{URL: catalogURL}
+	cs := model.CatalogSource{URL: "local:" + catalogRoot}
 
 	// Fetch and scan.
-	rootDir, err := fetchCatalogSource(context.Background(), wd, cat)
+	rootDir, err := fetchCatalogSource(context.Background(), wd, cs)
 	if err != nil {
 		t.Fatalf("fetchCatalogSource: %v", err)
 	}
@@ -853,7 +759,7 @@ func TestImportFromLocalCatalog_CollisionWithNative_NoFileSystemChanges(t *testi
 	}
 
 	// Verify manifest was not mutated.
-	if len(manifest.CustomAdvisors) != 0 {
-		t.Errorf("manifest.CustomAdvisors should be empty after collision; got %d entries", len(manifest.CustomAdvisors))
+	if len(manifest.Advisors) != 0 {
+		t.Errorf("manifest.Advisors should be empty after collision; got %d entries", len(manifest.Advisors))
 	}
 }

@@ -3,7 +3,7 @@
 // Package cli provides the Object Mother fluent builders for advisor-related
 // test fixtures. These builders are used by advisors_inventory_test.go,
 // advisors_sync_test.go, and any other test that needs well-formed
-// model.AdvisorDef, model.CatalogSource, or model.UserManifest values.
+// model.AdvisorDef, model.AdvisorSource, or model.UserManifest values.
 //
 // None of these functions are part of the production CLI surface; they live
 // here (rather than in a _test.go file) so that both internal (package cli)
@@ -29,16 +29,15 @@ type advisorDefBuilder struct {
 // AnAdvisorDef returns a new advisorDefBuilder pre-populated with safe defaults:
 //   - Name:        "test-advisor"
 //   - Description: "A test advisor"
-//   - SkillSource: "./testdata/test-advisor"
 //   - Scope:       nil (universal — applies to every project)
-//   - Origin:      model.AdvisorOriginLocal
+//
+// AdvisorDef no longer carries SkillSource or Origin — those concepts live on
+// AdvisorSource (the persisted shape). Use AnAdvisorSource() to build sources.
 func AnAdvisorDef() *advisorDefBuilder {
 	return &advisorDefBuilder{
 		def: model.AdvisorDef{
 			Name:        "test-advisor",
 			Description: "A test advisor",
-			SkillSource: "./testdata/test-advisor",
-			Origin:      model.AdvisorOriginLocal,
 		},
 	}
 }
@@ -63,18 +62,6 @@ func (b *advisorDefBuilder) WithScope(scope ...string) *advisorDefBuilder {
 	return b
 }
 
-// WithSkillSource overrides the SkillSource field.
-func (b *advisorDefBuilder) WithSkillSource(p string) *advisorDefBuilder {
-	b.def.SkillSource = p
-	return b
-}
-
-// WithOrigin overrides the Origin field.
-func (b *advisorDefBuilder) WithOrigin(o model.AdvisorOrigin) *advisorDefBuilder {
-	b.def.Origin = o
-	return b
-}
-
 // WithDescription overrides the Description field.
 func (b *advisorDefBuilder) WithDescription(desc string) *advisorDefBuilder {
 	b.def.Description = desc
@@ -87,8 +74,62 @@ func (b *advisorDefBuilder) Build() model.AdvisorDef {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// advisorSourceBuilder — fluent builder for model.AdvisorSource
+// ─────────────────────────────────────────────────────────────────────────────
+
+// advisorSourceBuilder is the fluent builder for model.AdvisorSource.
+// Construct via AnAdvisorSource().
+type advisorSourceBuilder struct {
+	src model.AdvisorSource
+}
+
+// AnAdvisorSource returns a new advisorSourceBuilder pre-populated with safe defaults:
+//   - Source:      "github:acme/advisor-catalog@main"
+//   - LastFetched: ""
+//   - Select:      nil (= install everything discovered in the source)
+func AnAdvisorSource() *advisorSourceBuilder {
+	return &advisorSourceBuilder{
+		src: model.AdvisorSource{
+			Source: "github:acme/advisor-catalog@main",
+		},
+	}
+}
+
+// WithSource overrides the Source field (scheme-prefixed URL).
+func (b *advisorSourceBuilder) WithSource(source string) *advisorSourceBuilder {
+	b.src.Source = source
+	return b
+}
+
+// WithLastFetched overrides the LastFetched field (RFC3339 string).
+func (b *advisorSourceBuilder) WithLastFetched(ts string) *advisorSourceBuilder {
+	b.src.LastFetched = ts
+	return b
+}
+
+// WithSelect overrides the Select field with the given names.
+// Passing no arguments sets Select to nil (= install everything).
+func (b *advisorSourceBuilder) WithSelect(names ...string) *advisorSourceBuilder {
+	if len(names) == 0 {
+		b.src.Select = nil
+		return b
+	}
+	b.src.Select = append([]string(nil), names...)
+	return b
+}
+
+// Build returns the fully constructed model.AdvisorSource.
+func (b *advisorSourceBuilder) Build() model.AdvisorSource {
+	return b.src
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // catalogSourceBuilder — fluent builder for model.CatalogSource
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// CatalogSource remains the Fetcher primitive. Tests for fetcher / refresh
+// flows still use it directly. AdvisorSource.AsCatalogSource() converts when
+// crossing the boundary into Fetcher territory.
 
 // catalogSourceBuilder is the fluent builder for model.CatalogSource.
 // Construct via ACatalogSource().
@@ -145,7 +186,7 @@ type userManifestBuilder struct {
 // AUserManifest returns a new userManifestBuilder pre-populated with safe defaults:
 //   - SchemaVersion: "devrune/v1"
 //   - Agents:        [{Name: "claude"}]
-//   - Packages, CustomAdvisors, AdvisorCatalogs: empty slices
+//   - Packages, Advisors: empty slices
 func AUserManifest() *userManifestBuilder {
 	return &userManifestBuilder{
 		manifest: model.UserManifest{
@@ -168,15 +209,11 @@ func (b *userManifestBuilder) WithPackage(source string, skills ...string) *user
 	return b
 }
 
-// WithCustom appends the given AdvisorDef entries to CustomAdvisors.
-func (b *userManifestBuilder) WithCustom(defs ...model.AdvisorDef) *userManifestBuilder {
-	b.manifest.CustomAdvisors = append(b.manifest.CustomAdvisors, defs...)
-	return b
-}
-
-// WithCatalog appends the given CatalogSource entries to AdvisorCatalogs.
-func (b *userManifestBuilder) WithCatalog(sources ...model.CatalogSource) *userManifestBuilder {
-	b.manifest.AdvisorCatalogs = append(b.manifest.AdvisorCatalogs, sources...)
+// WithAdvisorSource appends the given AdvisorSource entries to Advisors.
+// This replaces the legacy WithCustom + WithCatalog combo: everything is now
+// modeled as a single AdvisorSource (with optional Select).
+func (b *userManifestBuilder) WithAdvisorSource(sources ...model.AdvisorSource) *userManifestBuilder {
+	b.manifest.Advisors = append(b.manifest.Advisors, sources...)
 	return b
 }
 

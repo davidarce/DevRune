@@ -454,11 +454,19 @@ func TestSyncAdvisors_SDDSkillMissingMarkers(t *testing.T) {
 // TestSyncAdvisors_CustomAdvisorHappyPathCopy verifies that a custom advisor
 // directory with SKILL.md and a sibling file are both copied under
 // .claude/skills/{name}/.
+//
+// Layout: single-advisor-mode — the AdvisorSource.Source points DIRECTLY at
+// the advisor directory whose basename ends in "-advisor".
 func TestSyncAdvisors_CustomAdvisorHappyPathCopy(t *testing.T) {
 	wd := t.TempDir()
 
-	// Create source advisor directory.
-	srcDir := t.TempDir()
+	// Create source advisor directory (basename must end in "-advisor" for
+	// single-advisor-mode detection).
+	srcRoot := t.TempDir()
+	srcDir := filepath.Join(srcRoot, "security-advisor")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 	writeFile(t, filepath.Join(srcDir, "SKILL.md"), "---\nname: security-advisor\ndescription: Security advisor\n---\n")
 	writeFile(t, filepath.Join(srcDir, "gotchas.md"), "# Gotchas\n\nVarious gotchas.\n")
 
@@ -468,13 +476,11 @@ func TestSyncAdvisors_CustomAdvisorHappyPathCopy(t *testing.T) {
 	spy := &fakeAdvisorRenderer{}
 	injectRenderer(t, spy)
 
-	def := AnAdvisorDef().
-		Named("security-advisor").
-		WithSkillSource(srcDir).
-		WithDescription("Security advisor").
+	src := AnAdvisorSource().
+		WithSource("local:" + srcDir).
 		Build()
 
-	manifest := AUserManifest().WithCustom(def).Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	_, err := SyncAdvisors(context.Background(), wd, manifest)
 	if err != nil {
@@ -494,7 +500,11 @@ func TestSyncAdvisors_CustomAdvisorHappyPathCopy(t *testing.T) {
 // are recursively copied to the destination.
 func TestSyncAdvisors_CustomAdvisorRecursiveCopy(t *testing.T) {
 	wd := t.TempDir()
-	srcDir := t.TempDir()
+	srcRoot := t.TempDir()
+	srcDir := filepath.Join(srcRoot, "security-advisor")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 
 	writeFile(t, filepath.Join(srcDir, "SKILL.md"), "---\nname: security-advisor\ndescription: Security\n---\n")
 	writeFile(t, filepath.Join(srcDir, "references", "foo.md"), "# Foo\n")
@@ -507,8 +517,8 @@ func TestSyncAdvisors_CustomAdvisorRecursiveCopy(t *testing.T) {
 	spy := &fakeAdvisorRenderer{}
 	injectRenderer(t, spy)
 
-	def := AnAdvisorDef().Named("security-advisor").WithSkillSource(srcDir).WithDescription("Security").Build()
-	manifest := AUserManifest().WithCustom(def).Build()
+	src := AnAdvisorSource().WithSource("local:" + srcDir).Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	_, err := SyncAdvisors(context.Background(), wd, manifest)
 	if err != nil {
@@ -534,7 +544,11 @@ func TestSyncAdvisors_CustomAdvisorRecursiveCopy(t *testing.T) {
 // symlinks have their target content copied as a regular file.
 func TestSyncAdvisors_DotfileAndSymlinkHandling(t *testing.T) {
 	wd := t.TempDir()
-	srcDir := t.TempDir()
+	srcRoot := t.TempDir()
+	srcDir := filepath.Join(srcRoot, "security-advisor")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 
 	writeFile(t, filepath.Join(srcDir, "SKILL.md"), "---\nname: security-advisor\ndescription: Security\n---\n")
 	writeFile(t, filepath.Join(srcDir, ".gitignore"), "*.log\n")
@@ -555,8 +569,8 @@ func TestSyncAdvisors_DotfileAndSymlinkHandling(t *testing.T) {
 	spy := &fakeAdvisorRenderer{}
 	injectRenderer(t, spy)
 
-	def := AnAdvisorDef().Named("security-advisor").WithSkillSource(srcDir).WithDescription("Security").Build()
-	manifest := AUserManifest().WithCustom(def).Build()
+	src := AnAdvisorSource().WithSource("local:" + srcDir).Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	_, err := SyncAdvisors(context.Background(), wd, manifest)
 	if err != nil {
@@ -588,13 +602,17 @@ func TestSyncAdvisors_DotfileAndSymlinkHandling(t *testing.T) {
 	}
 }
 
-// TestSyncAdvisors_ErrorNoSKILLMD verifies that a custom advisor source dir
-// without SKILL.md causes SyncAdvisors to return an error mentioning
-// "skillSource" and "SKILL.md", and the spy is never called.
-func TestSyncAdvisors_ErrorNoSKILLMD(t *testing.T) {
+// TestSyncAdvisors_NoAdvisorsDiscovered_NoOp verifies that when an
+// AdvisorSource points at a directory that contains neither SKILL.md (so
+// it's not single-advisor-mode) nor any "-advisor" subdirectories,
+// resolveAdvisors silently returns no advisors and SyncAdvisors completes
+// without error. This is the new graceful-degradation contract: an empty
+// source is not a hard failure.
+func TestSyncAdvisors_NoAdvisorsDiscovered_NoOp(t *testing.T) {
 	wd := t.TempDir()
 	srcDir := t.TempDir()
-	// srcDir has NO SKILL.md.
+	// srcDir has NO SKILL.md and no -advisor subdirectories — Scanner returns
+	// an empty entry list (other names are warned-and-skipped).
 	writeFile(t, filepath.Join(srcDir, "gotchas.md"), "# Gotchas\n")
 
 	writeFile(t, filepath.Join(wd, "CLAUDE.md"), "# My project\n")
@@ -603,49 +621,22 @@ func TestSyncAdvisors_ErrorNoSKILLMD(t *testing.T) {
 	spy := &fakeAdvisorRenderer{}
 	injectRenderer(t, spy)
 
-	def := AnAdvisorDef().Named("security-advisor").WithSkillSource(srcDir).WithDescription("Security").Build()
-	manifest := AUserManifest().WithCustom(def).Build()
+	src := AnAdvisorSource().WithSource("local:" + srcDir).Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	_, err := SyncAdvisors(context.Background(), wd, manifest)
-	if err == nil {
-		t.Fatal("expected error for missing SKILL.md in source, got nil")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "skill.md") {
-		t.Errorf("error should mention 'SKILL.md'; got: %v", err)
+	if err != nil {
+		t.Fatalf("SyncAdvisors should not error on empty advisor source, got: %v", err)
 	}
 
-	if len(spy.Calls) != 0 {
-		t.Errorf("spy should not be called, but got %d call(s)", len(spy.Calls))
-	}
-}
-
-// TestSyncAdvisors_ErrorSourceIsFile verifies that passing a bare SKILL.md
-// file (not a directory) as the skill source causes an appropriate error.
-func TestSyncAdvisors_ErrorSourceIsFile(t *testing.T) {
-	wd := t.TempDir()
-	srcFile := filepath.Join(t.TempDir(), "SKILL.md")
-	writeFile(t, srcFile, "---\nname: security-advisor\n---\n")
-
-	writeFile(t, filepath.Join(wd, "CLAUDE.md"), "# My project\n")
-	writeFile(t, filepath.Join(wd, "AGENTS.md"), "# Agents\n")
-
-	spy := &fakeAdvisorRenderer{}
-	injectRenderer(t, spy)
-
-	def := AnAdvisorDef().Named("security-advisor").WithSkillSource(srcFile).WithDescription("Security").Build()
-	manifest := AUserManifest().WithCustom(def).Build()
-
-	_, err := SyncAdvisors(context.Background(), wd, manifest)
-	if err == nil {
-		t.Fatal("expected error for bare SKILL.md file source, got nil")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "must be a directory") {
-		t.Errorf("error should mention 'must be a directory'; got: %v", err)
+	// Spy should still be called (with empty installed list).
+	if len(spy.Calls) != 1 {
+		t.Errorf("spy should be called once, got %d call(s)", len(spy.Calls))
 	}
 }
 
 // TestSyncAdvisors_ErrorNonExistentSource verifies that a non-existent source
-// path causes a clear error.
+// path causes a clear error during resolution.
 func TestSyncAdvisors_ErrorNonExistentSource(t *testing.T) {
 	wd := t.TempDir()
 
@@ -655,8 +646,8 @@ func TestSyncAdvisors_ErrorNonExistentSource(t *testing.T) {
 	spy := &fakeAdvisorRenderer{}
 	injectRenderer(t, spy)
 
-	def := AnAdvisorDef().Named("security-advisor").WithSkillSource("/nonexistent/path/that/cannot/exist").WithDescription("Security").Build()
-	manifest := AUserManifest().WithCustom(def).Build()
+	src := AnAdvisorSource().WithSource("local:/nonexistent/path/that/cannot/exist").Build()
+	manifest := AUserManifest().WithAdvisorSource(src).Build()
 
 	_, err := SyncAdvisors(context.Background(), wd, manifest)
 	if err == nil {
@@ -670,8 +661,12 @@ func TestSyncAdvisors_ErrorNonExistentSource(t *testing.T) {
 func TestSyncAdvisors_RemoveCustomRecursiveDeletion(t *testing.T) {
 	wd := t.TempDir()
 
-	// Step 1: Install security-advisor.
-	srcDir := t.TempDir()
+	// Step 1: Install security-advisor (single-advisor-mode source layout).
+	srcRoot := t.TempDir()
+	srcDir := filepath.Join(srcRoot, "security-advisor")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 	writeFile(t, filepath.Join(srcDir, "SKILL.md"), "---\nname: security-advisor\ndescription: Security\n---\n")
 	writeFile(t, filepath.Join(srcDir, "references", "foo.md"), "# Foo\n")
 	writeFile(t, filepath.Join(srcDir, "templates", "bar.md"), "# Bar\n")
@@ -682,8 +677,8 @@ func TestSyncAdvisors_RemoveCustomRecursiveDeletion(t *testing.T) {
 	spy := &fakeAdvisorRenderer{}
 	injectRenderer(t, spy)
 
-	def := AnAdvisorDef().Named("security-advisor").WithSkillSource(srcDir).WithDescription("Security").Build()
-	manifestWithAdvisor := AUserManifest().WithCustom(def).Build()
+	advisorSrc := AnAdvisorSource().WithSource("local:" + srcDir).Build()
+	manifestWithAdvisor := AUserManifest().WithAdvisorSource(advisorSrc).Build()
 
 	_, err := SyncAdvisors(context.Background(), wd, manifestWithAdvisor)
 	if err != nil {

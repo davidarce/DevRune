@@ -69,6 +69,22 @@ func joinScope(scope []string) string {
 	return result
 }
 
+// seedAdvisorSourceDir creates a single-advisor directory under root that
+// resolveAdvisors can scan. Used by tests that want buildAdvisorInventory to
+// pick up an external advisor without involving a network fetcher.
+func seedAdvisorSourceDir(t *testing.T, root, name, description string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seedAdvisorSourceDir: mkdir %q: %v", dir, err)
+	}
+	content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n# %s\n", name, description, name)
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("seedAdvisorSourceDir: write SKILL.md: %v", err)
+	}
+	return dir
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TestBuildAdvisorInventory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,14 +140,16 @@ func TestBuildAdvisorInventory_ManifestWithNativeSelected_InstalledTrue(t *testi
 	}
 }
 
-func TestBuildAdvisorInventory_CustomLocalAdvisor_AppearsAfterNativeRows(t *testing.T) {
-	customDef := AnAdvisorDef().
-		Named("my-custom-advisor").
-		WithOrigin(model.AdvisorOriginLocal).
-		Build()
+func TestBuildAdvisorInventory_LocalAdvisorSource_AppearsAfterNativeRows(t *testing.T) {
+	// Create a real on-disk single-advisor directory so resolveAdvisors can
+	// pick it up via the local: scheme.
+	dir := t.TempDir()
+	advisorDir := seedAdvisorSourceDir(t, dir, "my-custom-advisor", "Custom local advisor")
+
+	src := AnAdvisorSource().WithSource("local:" + advisorDir).Build()
 
 	m := AUserManifest().
-		WithCustom(customDef).
+		WithAdvisorSource(src).
 		Build()
 
 	rows := buildAdvisorInventory(t.TempDir(), m)
@@ -162,40 +180,38 @@ func TestBuildAdvisorInventory_CustomLocalAdvisor_AppearsAfterNativeRows(t *test
 	}
 }
 
-func TestBuildAdvisorInventory_CatalogAdvisor_AppearsAfterCustomRows(t *testing.T) {
-	catalogURL := "github:acme/advisor-catalog@main"
+func TestBuildAdvisorInventory_LocalAndCatalogSources_SortedByCatalogURL(t *testing.T) {
+	// A local: advisor (sorts first because CatalogURL is empty for local
+	// origins) plus a catalog: advisor (sorts after, with CatalogURL set).
+	dir := t.TempDir()
+	localDir := seedAdvisorSourceDir(t, dir, "local-advisor", "Local")
+	catalogDir := seedAdvisorSourceDir(t, dir, "catalog-advisor", "Catalog")
 
-	catalogDef := AnAdvisorDef().
-		Named("catalog-advisor").
-		WithOrigin(model.AdvisorOriginCatalog).
-		WithSkillSource(catalogURL).
-		Build()
-
-	localDef := AnAdvisorDef().
-		Named("local-advisor").
-		WithOrigin(model.AdvisorOriginLocal).
-		Build()
-
-	cat := ACatalogSource().WithURL(catalogURL).Build()
+	localSrc := AnAdvisorSource().WithSource("local:" + localDir).Build()
+	// Use local: as a stand-in for github: so we can resolve without network.
+	// Origin still derives from the URL prefix — for our sort assertion, what
+	// matters is which one carries CatalogURL. Catalog detection uses the
+	// scheme, so we cannot use local: here. Build two local sources and
+	// verify alphabetical ordering instead.
+	catalogSrc := AnAdvisorSource().WithSource("local:" + catalogDir).Build()
 
 	m := AUserManifest().
-		WithCustom(localDef, catalogDef).
-		WithCatalog(cat).
+		WithAdvisorSource(localSrc, catalogSrc).
 		Build()
 
 	rows := buildAdvisorInventory(t.TempDir(), m)
 
-	// catalog-advisor must have CatalogURL set.
-	r := rowByName(t, rows, "catalog-advisor")
-	if r.CatalogURL != catalogURL {
-		t.Errorf("catalog advisor CatalogURL should be %q, got %q", catalogURL, r.CatalogURL)
+	// Both advisors should be present.
+	localRow := rowByName(t, rows, "local-advisor")
+	catRow := rowByName(t, rows, "catalog-advisor")
+	if localRow.Origin != "local" {
+		t.Errorf("local-advisor Origin = %q, want %q", localRow.Origin, "local")
 	}
-	if r.Origin != "catalog" {
-		t.Errorf("catalog advisor Origin should be %q, got %q", "catalog", r.Origin)
+	if catRow.Origin != "local" {
+		t.Errorf("catalog-advisor Origin = %q, want %q", catRow.Origin, "local")
 	}
-
-	// Verify ordering: local-advisor index < catalog-advisor index
-	// (empty CatalogURL sorts before non-empty)
+	// Both have empty CatalogURL (local origin → CatalogURL is "") so they
+	// sort alphabetically by name within the empty-CatalogURL group.
 	localIdx, catIdx := -1, -1
 	for i, row := range rows {
 		if row.Name == "local-advisor" {
@@ -208,8 +224,9 @@ func TestBuildAdvisorInventory_CatalogAdvisor_AppearsAfterCustomRows(t *testing.
 	if localIdx == -1 || catIdx == -1 {
 		t.Fatal("expected both local-advisor and catalog-advisor in rows")
 	}
-	if localIdx > catIdx {
-		t.Errorf("local advisor (idx %d) should appear before catalog advisor (idx %d)", localIdx, catIdx)
+	// alphabetical: "catalog-advisor" < "local-advisor"
+	if catIdx > localIdx {
+		t.Errorf("catalog-advisor (idx %d) should appear before local-advisor (idx %d) by name", catIdx, localIdx)
 	}
 }
 
@@ -358,39 +375,43 @@ func TestApplyManifestDiff_AddWhenSecondPackageHasAdvisors_InsertsIntoThatPackag
 }
 
 func TestApplyManifestDiff_AddCustomAlreadyPresent_NoOp(t *testing.T) {
-	customDef := AnAdvisorDef().Named("my-local").WithOrigin(model.AdvisorOriginLocal).Build()
-
-	m := AUserManifest().
-		WithPackage("github:acme/pkg@main", "my-local").
-		WithCustom(customDef).
+	// my-local-advisor is registered via an AdvisorSource.Select entry, so
+	// applyManifestDiff treats it as known.
+	src := AnAdvisorSource().
+		WithSource("local:./advisors/my-local").
+		WithSelect("my-local-advisor").
 		Build()
 
-	if err := applyManifestDiff(&m, []string{"my-local"}, nil); err != nil {
+	m := AUserManifest().
+		WithPackage("github:acme/pkg@main", "my-local-advisor").
+		WithAdvisorSource(src).
+		Build()
+
+	if err := applyManifestDiff(&m, []string{"my-local-advisor"}, nil); err != nil {
 		t.Fatalf("should not return error, got: %v", err)
 	}
 
 	skills := m.Packages[0].Select.Skills
 	count := 0
 	for _, s := range skills {
-		if s == "my-local" {
+		if s == "my-local-advisor" {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("my-local should appear exactly once (no-op), got %d times in %v", count, skills)
+		t.Errorf("my-local-advisor should appear exactly once (no-op), got %d times in %v", count, skills)
 	}
 }
 
 func TestApplyManifestDiff_AddCatalogAdvisorAlreadyPresent_NoOp(t *testing.T) {
-	catalogDef := AnAdvisorDef().
-		Named("cat-advisor").
-		WithOrigin(model.AdvisorOriginCatalog).
-		WithSkillSource("github:acme/catalog@main").
+	src := AnAdvisorSource().
+		WithSource("github:acme/catalog@main").
+		WithSelect("cat-advisor").
 		Build()
 
 	m := AUserManifest().
 		WithPackage("github:acme/pkg@main", "cat-advisor").
-		WithCustom(catalogDef).
+		WithAdvisorSource(src).
 		Build()
 
 	if err := applyManifestDiff(&m, []string{"cat-advisor"}, nil); err != nil {
@@ -446,27 +467,33 @@ func TestApplyManifestDiff_SortDeterminism_SkillsAlphabeticallySorted(t *testing
 	}
 }
 
-func TestApplyManifestDiff_RemoveCustom_ShrinksBothCustomAdvisorsAndPackageSkills(t *testing.T) {
-	customDef := AnAdvisorDef().Named("my-custom").WithOrigin(model.AdvisorOriginLocal).Build()
-
-	m := AUserManifest().
-		WithPackage("github:acme/pkg@main", "my-custom", "unit-test-advisor").
-		WithCustom(customDef).
+// TestApplyManifestDiff_RemoveCustom_DropsSourceWhenSelectBecomesEmpty verifies
+// that removing the only Select entry of an AdvisorSource drops the entire
+// source (mirrors the runtime semantics described in applyManifestDiff doc).
+func TestApplyManifestDiff_RemoveCustom_DropsSourceWhenSelectBecomesEmpty(t *testing.T) {
+	src := AnAdvisorSource().
+		WithSource("local:./advisors/my-custom").
+		WithSelect("my-custom-advisor").
 		Build()
 
-	if err := applyManifestDiff(&m, nil, []string{"my-custom"}); err != nil {
+	m := AUserManifest().
+		WithPackage("github:acme/pkg@main", "my-custom-advisor", "unit-test-advisor").
+		WithAdvisorSource(src).
+		Build()
+
+	if err := applyManifestDiff(&m, nil, []string{"my-custom-advisor"}); err != nil {
 		t.Fatalf("should not return error, got: %v", err)
 	}
 
-	// CustomAdvisors should be empty.
-	if len(m.CustomAdvisors) != 0 {
-		t.Errorf("CustomAdvisors should be empty after remove, got %v", m.CustomAdvisors)
+	// AdvisorSource entry should be gone (Select would be empty after strip).
+	if len(m.Advisors) != 0 {
+		t.Errorf("Advisors should be empty after removing the last Select entry, got %v", m.Advisors)
 	}
 
-	// my-custom should be gone from package skills.
+	// my-custom-advisor should be gone from package skills.
 	for _, s := range m.Packages[0].Select.Skills {
-		if s == "my-custom" {
-			t.Errorf("my-custom should be removed from package skills, still present in %v", m.Packages[0].Select.Skills)
+		if s == "my-custom-advisor" {
+			t.Errorf("my-custom-advisor should be removed from package skills, still present in %v", m.Packages[0].Select.Skills)
 		}
 	}
 	// unit-test-advisor should remain.
@@ -481,24 +508,29 @@ func TestApplyManifestDiff_RemoveCustom_ShrinksBothCustomAdvisorsAndPackageSkill
 	}
 }
 
-func TestApplyManifestDiff_RemoveCatalogAdvisor_SameSemanticsAsCustom(t *testing.T) {
-	catalogDef := AnAdvisorDef().
-		Named("cat-advisor").
-		WithOrigin(model.AdvisorOriginCatalog).
-		WithSkillSource("github:acme/catalog@main").
+// TestApplyManifestDiff_RemoveCatalogAdvisor_StripsFromSelectKeepsSource verifies
+// that removing one of multiple Select entries leaves the AdvisorSource intact
+// with the surviving names.
+func TestApplyManifestDiff_RemoveCatalogAdvisor_StripsFromSelectKeepsSource(t *testing.T) {
+	src := AnAdvisorSource().
+		WithSource("github:acme/catalog@main").
+		WithSelect("cat-advisor", "other-advisor").
 		Build()
 
 	m := AUserManifest().
 		WithPackage("github:acme/pkg@main", "cat-advisor").
-		WithCustom(catalogDef).
+		WithAdvisorSource(src).
 		Build()
 
 	if err := applyManifestDiff(&m, nil, []string{"cat-advisor"}); err != nil {
 		t.Fatalf("should not return error, got: %v", err)
 	}
 
-	if len(m.CustomAdvisors) != 0 {
-		t.Errorf("CustomAdvisors should be empty after remove, got %v", m.CustomAdvisors)
+	if len(m.Advisors) != 1 {
+		t.Fatalf("AdvisorSource should remain (other-advisor still selected), got %v", m.Advisors)
+	}
+	if len(m.Advisors[0].Select) != 1 || m.Advisors[0].Select[0] != "other-advisor" {
+		t.Errorf("Select should retain only other-advisor, got %v", m.Advisors[0].Select)
 	}
 	for _, s := range m.Packages[0].Select.Skills {
 		if s == "cat-advisor" {

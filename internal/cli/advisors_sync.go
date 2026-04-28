@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/davidarce/devrune/internal/materialize"
 	"github.com/davidarce/devrune/internal/model"
@@ -71,7 +70,8 @@ func buildDefaultRenderers(_ string, agents []model.AgentRef) ([]materialize.Age
 
 // SyncAdvisors orchestrates advisor file management for the workspace:
 //  1. Reads prior state (for allowlist-based managed-path tracking).
-//  2. Copies full custom advisor directories (T017b).
+//  2. Resolves manifest.Advisors[] via resolveAdvisors and copies each
+//     advisor's directory under .claude/skills/.
 //  3. Builds native ContentItems from installed SKILL.md frontmatter.
 //  4. Combines native + custom into the installed list.
 //  5. Computes the removed list via allowlist.
@@ -82,8 +82,6 @@ func buildDefaultRenderers(_ string, agents []model.AgentRef) ([]materialize.Age
 //
 // State is NOT written if any renderer call or catalog-doc sync fails (transactional ordering).
 func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (AdvisorsSyncResult, error) {
-	_ = ctx // reserved for future cancellation propagation
-
 	var result AdvisorsSyncResult
 
 	// ── Step 1: Read existing state ──────────────────────────────────────────
@@ -93,24 +91,25 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 		return result, fmt.Errorf("SyncAdvisors: read state: %w", err)
 	}
 
-	// ── Step 1a (T017b): Full-directory copy for custom/catalog advisors ─────
-	// Build ContentItems for custom advisors while copying their dirs.
-	var customItems []model.ContentItem
-	for _, def := range manifest.CustomAdvisors {
-		srcResolved, resolveErr := resolveCustomAdvisorSource(ctx, wd, def, manifest.AdvisorCatalogs)
-		if resolveErr != nil {
-			return result, fmt.Errorf("SyncAdvisors: resolve advisor %q: %w", def.Name, resolveErr)
-		}
+	// ── Step 1a: Resolve external advisors via the new Advisors[] schema ─────
+	// Each AdvisorSource is fetched + scanned, then its (possibly filtered)
+	// advisors are copied into .claude/skills/<name>/.
+	resolved, err := resolveAdvisors(ctx, wd, manifest)
+	if err != nil {
+		return result, fmt.Errorf("SyncAdvisors: resolve advisors: %w", err)
+	}
 
-		destDir := filepath.Join(wd, ".claude", "skills", def.Name)
-		if _, err := copyAdvisorDir(srcResolved, destDir); err != nil {
-			return result, fmt.Errorf("SyncAdvisors: copy advisor %q: %w", def.Name, err)
+	var customItems []model.ContentItem
+	for _, r := range resolved {
+		destDir := filepath.Join(wd, ".claude", "skills", r.Def.Name)
+		if _, err := copyAdvisorDir(r.DirPath, destDir); err != nil {
+			return result, fmt.Errorf("SyncAdvisors: copy advisor %q: %w", r.Def.Name, err)
 		}
 
 		customItems = append(customItems, model.ContentItem{
 			Kind:        model.KindSkill,
-			Name:        def.Name,
-			Description: def.Description,
+			Name:        r.Def.Name,
+			Description: r.Def.Description,
 			Custom:      true,
 		})
 	}
@@ -175,7 +174,7 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 	installed = append(installed, customItems...)
 
 	// ── Step 4: Build removed list via allowlist ──────────────────────────────
-	// allowlist = ReservedAdvisorNames ∪ prior.CustomAdvisors.Names ∪ current.CustomAdvisors.Names
+	// allowlist = ReservedAdvisorNames ∪ prior.skill-dirs ∪ current.resolved-names
 	nativeSet := make(map[string]bool)
 	for _, n := range model.ReservedAdvisorNames() {
 		nativeSet[n] = true
@@ -198,9 +197,9 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 			}
 		}
 	}
-	// Current custom advisor names.
-	for _, def := range manifest.CustomAdvisors {
-		allowlist[def.Name] = true
+	// Current resolved external advisor names.
+	for _, r := range resolved {
+		allowlist[r.Def.Name] = true
 	}
 
 	// Determine the installed name set for removal computation.
@@ -250,14 +249,10 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 	// Only run after all renderer calls succeed (transactional ordering).
 	//
 	// A name is deletable if it was previously tracked as a custom advisor in
-	// state (prevStateCustomSet) OR appears in the current manifest's custom list.
-	// A name that is ONLY in nativeSet (never installed as custom) is left alone —
-	// its skill dir is owned by the resolver (devrune sync), not by SyncAdvisors.
-	//
-	// Note: a user may install a custom advisor whose name matches a native advisor
-	// (e.g. overriding "security-advisor"). In that case the name appears in both
-	// nativeSet AND prevStateCustomSet. The prevStateCustomSet membership wins:
-	// we delete the directory we copied, restoring the native state.
+	// state (prevStateCustomSet) OR appears in the current resolved set under
+	// a name override. A name that is ONLY in nativeSet (never installed as
+	// custom) is left alone — its skill dir is owned by the resolver
+	// (devrune sync), not by SyncAdvisors.
 	prevStateCustomSet := make(map[string]bool)
 	for _, p := range prevState.ManagedPaths {
 		rel, relErr := filepath.Rel(skillsBase, p)
@@ -265,9 +260,9 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 			prevStateCustomSet[rel] = true
 		}
 	}
-	currentCustomNames := make(map[string]bool, len(manifest.CustomAdvisors))
-	for _, def := range manifest.CustomAdvisors {
-		currentCustomNames[def.Name] = true
+	currentCustomNames := make(map[string]bool, len(resolved))
+	for _, r := range resolved {
+		currentCustomNames[r.Def.Name] = true
 	}
 
 	for _, name := range removed {
@@ -284,7 +279,7 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 		}
 	}
 
-	// ── Step 7 (T041c): SyncCatalogDocs ──────────────────────────────────────
+	// ── Step 7: SyncCatalogDocs ──────────────────────────────────────────────
 	catalogResult, catalogErr := SyncCatalogDocs(wd, manifest, installed)
 	result.Warnings = append(result.Warnings, catalogResult.Warnings...)
 	if catalogErr != nil {
@@ -371,55 +366,4 @@ func SyncAdvisors(ctx context.Context, wd string, manifest model.UserManifest) (
 
 	// ── Step 9: Return ────────────────────────────────────────────────────────
 	return result, nil
-}
-
-// resolveCustomAdvisorSource resolves a custom advisor's SkillSource to an
-// absolute filesystem directory ready for copying.
-//
-//   - Local origin (AdvisorOriginLocal): SkillSource is a filesystem path
-//     pointing directly at the advisor directory. Used as-is (joined with wd
-//     if relative).
-//   - Catalog origin (AdvisorOriginCatalog): SkillSource is the catalog URL
-//     (e.g. "local:/path", "github:owner/repo"). The URL is resolved to a
-//     root directory via the matching catalog fetcher, then the advisor's
-//     name is appended to locate its sub-directory.
-//   - Unknown/empty origin: best-effort fallback — strip a "local:" prefix if
-//     present, then treat as a filesystem path.
-func resolveCustomAdvisorSource(ctx context.Context, wd string, def model.AdvisorDef, catalogs []model.CatalogSource) (string, error) {
-	switch def.Origin {
-	case model.AdvisorOriginLocal:
-		path := strings.TrimPrefix(def.SkillSource, "local:")
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(wd, path)
-		}
-		return path, nil
-
-	case model.AdvisorOriginCatalog:
-		// Preferred: SkillSource matches a registered catalog URL — resolve via
-		// the matching fetcher and append the advisor name.
-		for _, cat := range catalogs {
-			if cat.URL != def.SkillSource {
-				continue
-			}
-			rootDir, fetchErr := fetchCatalogSource(ctx, wd, cat)
-			if fetchErr != nil {
-				return "", fmt.Errorf("fetch catalog %q: %w", cat.URL, fetchErr)
-			}
-			return filepath.Join(rootDir, def.Name), nil
-		}
-		// Fallback: legacy/test data where SkillSource is already an advisor
-		// directory path. Strip a "local:" prefix if present.
-		path := strings.TrimPrefix(def.SkillSource, "local:")
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(wd, path)
-		}
-		return path, nil
-
-	default:
-		path := strings.TrimPrefix(def.SkillSource, "local:")
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(wd, path)
-		}
-		return path, nil
-	}
 }

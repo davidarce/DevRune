@@ -23,8 +23,6 @@ func anAdvisorDef() *advisorDefBuilder {
 		def: model.AdvisorDef{
 			Name:        "test-advisor",
 			Description: "A test advisor",
-			SkillSource: "./testdata/test-advisor",
-			Origin:      model.AdvisorOriginLocal,
 		},
 	}
 }
