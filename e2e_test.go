@@ -63,13 +63,13 @@ Automate git commits following Conventional Commits specification.
 		t.Fatalf("write SKILL.md: %v", err)
 	}
 
-	// Skill: architect-adviser
-	architectDir := filepath.Join(pkgContent, "skills", "architect-adviser")
+	// Skill: architect-advisor
+	architectDir := filepath.Join(pkgContent, "skills", "architect-advisor")
 	if err := os.MkdirAll(architectDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
 	architectSkill := `---
-name: architect-adviser
+name: architect-advisor
 description: "Clean architecture patterns: hexagonal, DDD, ports and adapters."
 allowed-tools:
   - Read
@@ -77,7 +77,7 @@ allowed-tools:
 model: sonnet
 ---
 
-# architect-adviser Skill
+# architect-advisor Skill
 
 Provides clean architecture guidance.
 `
@@ -242,7 +242,7 @@ Create a detailed implementation plan.
 		}
 	}
 	if len(skillNames) != 2 {
-		t.Errorf("skills = %v, want 2 skills (git-commit, architect-adviser)", skillNames)
+		t.Errorf("skills = %v, want 2 skills (git-commit, architect-advisor)", skillNames)
 	}
 	if len(ruleNames) != 1 {
 		t.Errorf("rules = %v, want 1 rule", ruleNames)
@@ -317,10 +317,10 @@ Create a detailed implementation plan.
 		t.Errorf("git-commit/SKILL.md not installed: %v", err)
 	}
 
-	// architect-adviser skill must have SKILL.md.
-	architectInstalled := filepath.Join(skillsDir, "architect-adviser", "SKILL.md")
+	// architect-advisor skill must have SKILL.md.
+	architectInstalled := filepath.Join(skillsDir, "architect-advisor", "SKILL.md")
 	if _, err := os.Stat(architectInstalled); err != nil {
-		t.Errorf("architect-adviser/SKILL.md not installed: %v", err)
+		t.Errorf("architect-advisor/SKILL.md not installed: %v", err)
 	}
 
 	// Installed SKILL.md should have correct frontmatter (name field present).
@@ -444,11 +444,11 @@ func TestE2E_PackageOnly(t *testing.T) {
 
 	// Create fixture package with a single skill.
 	pkgDir := filepath.Join(projectRoot, "fixtures", "simple-pkg")
-	skillDir := filepath.Join(pkgDir, "skills", "unit-test-adviser")
+	skillDir := filepath.Join(pkgDir, "skills", "unit-test-advisor")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: unit-test-adviser\ndescription: Unit test guidance.\n---\n# Unit Test Adviser\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: unit-test-advisor\ndescription: Unit test guidance.\n---\n# Unit Test Adviser\n"), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
 	}
 
@@ -504,12 +504,12 @@ func TestE2E_PackageOnly(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	installed := filepath.Join(projectRoot, ".claude", "skills", "unit-test-adviser", "SKILL.md")
+	installed := filepath.Join(projectRoot, ".claude", "skills", "unit-test-advisor", "SKILL.md")
 	data, err := os.ReadFile(installed)
 	if err != nil {
 		t.Fatalf("read installed skill: %v", err)
 	}
-	if !strings.Contains(string(data), "unit-test-adviser") {
+	if !strings.Contains(string(data), "unit-test-advisor") {
 		t.Errorf("installed skill missing name, content:\n%s", data)
 	}
 }

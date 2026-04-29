@@ -28,8 +28,8 @@ func TestMerge_AddsRecommendedItems(t *testing.T) {
 	prev := makePrevSelection([]string{"git-commit"}, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
-		{Name: "unit-test-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.85},
+		{Name: "architect-advisor", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
+		{Name: "unit-test-advisor", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.85},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -43,7 +43,7 @@ func TestMerge_AddsRecommendedItems(t *testing.T) {
 	for _, s := range skills {
 		has[s] = true
 	}
-	for _, expected := range []string{"git-commit", "architect-adviser", "unit-test-adviser"} {
+	for _, expected := range []string{"git-commit", "architect-advisor", "unit-test-advisor"} {
 		if !has[expected] {
 			t.Errorf("expected %q in merged skills", expected)
 		}
@@ -55,7 +55,7 @@ func TestMerge_BelowThresholdNotAdded(t *testing.T) {
 	prev := makePrevSelection(nil, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.45},
+		{Name: "architect-advisor", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.45},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -67,10 +67,10 @@ func TestMerge_BelowThresholdNotAdded(t *testing.T) {
 
 // TestMerge_NoDuplicates verifies already-selected items are not duplicated.
 func TestMerge_NoDuplicates(t *testing.T) {
-	prev := makePrevSelection([]string{"architect-adviser"}, nil)
+	prev := makePrevSelection([]string{"architect-advisor"}, nil)
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
+		{Name: "architect-advisor", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)
@@ -85,7 +85,7 @@ func TestMerge_PreservesOriginalSelection(t *testing.T) {
 	prev := makePrevSelection([]string{"git-commit"}, []string{"clean-architecture"})
 
 	recs := []recommend.Recommendation{
-		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
+		{Name: "architect-advisor", Kind: "skill", Source: "github:owner/catalog", Confidence: 0.92},
 	}
 
 	merged := steps.MergeRecommendationsIntoSelection(prev, recs, 0.7)

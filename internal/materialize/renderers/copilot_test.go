@@ -1818,7 +1818,7 @@ func TestCopilotRenderer_RegenerateAdvisorFiles_RemoveNonExistent(t *testing.T) 
 }
 
 // TestCopilotRenderer_RegenerateAdvisorFiles_NonAdvisorNamesIgnored verifies that
-// items without "-advisor" or "-adviser" suffix and Custom=false are silently ignored.
+// items without "-advisor" or "-advisor" suffix and Custom=false are silently ignored.
 func TestCopilotRenderer_RegenerateAdvisorFiles_NonAdvisorNamesIgnored(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
@@ -1843,32 +1843,6 @@ func TestCopilotRenderer_RegenerateAdvisorFiles_NonAdvisorNamesIgnored(t *testin
 		if _, err := os.Stat(agentPath); err == nil {
 			t.Errorf("%s.agent.md must NOT be created for non-advisor skill", name)
 		}
-	}
-}
-
-// TestCopilotRenderer_RegenerateAdvisorFiles_LegacySuffixCompat verifies that a
-// ContentItem with legacy "-adviser" suffix still produces an .agent.md file.
-func TestCopilotRenderer_RegenerateAdvisorFiles_LegacySuffixCompat(t *testing.T) {
-	workspaceRoot := t.TempDir()
-	r := renderers.NewCopilotRenderer(copilotAdvisorDef(workspaceRoot))
-
-	installed := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "security-adviser", Path: "skills/security-adviser/", Description: "Security advice"},
-	}
-
-	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil)
-	if err != nil {
-		t.Fatalf("RegenerateAdvisorFiles: %v", err)
-	}
-
-	if len(result.Written) != 1 {
-		t.Errorf("Written = %d paths, want 1; paths: %v", len(result.Written), result.Written)
-	}
-
-	// File must use the original name (security-adviser) with .agent.md extension.
-	agentPath := filepath.Join(workspaceRoot, "agents", "security-adviser.agent.md")
-	if _, err := os.Stat(agentPath); err != nil {
-		t.Errorf("security-adviser.agent.md must exist (legacy suffix compat): %v", err)
 	}
 }
 

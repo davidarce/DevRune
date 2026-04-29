@@ -5,23 +5,16 @@ package renderers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/davidarce/devrune/internal/materialize/matypes"
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
 )
-
-// copilotLegacyAdviserOnce gates the one-time deprecation log for "-adviser" suffixed
-// advisor names detected in RegenerateAdvisorFiles. Mirrors the Claude renderer's
-// behaviour so both renderers emit the warning at most once per process.
-var copilotLegacyAdviserOnce sync.Once
 
 // copilotToolAliases maps canonical tool names to GitHub Copilot tool aliases.
 var copilotToolAliases = map[string]string{
@@ -53,21 +46,13 @@ var copilotSubAgentTools = map[string][]string{
 	"sdd-implement": {"read", "search", "edit", "execute"},
 	"sdd-review":    {"read", "search", "execute"},
 	// Advisor roles — read and search only; they analyse the plan and their SKILL.md.
-	// Both -adviser (legacy) and -advisor (new) keys are kept for transition compat.
-	"architect-adviser":          {"read", "search"},
-	"architect-advisor":          {"read", "search"},
-	"api-first-adviser":          {"read", "search"},
-	"api-first-advisor":          {"read", "search"},
-	"unit-test-adviser":          {"read", "search"},
-	"unit-test-advisor":          {"read", "search"},
-	"integration-test-adviser":   {"read", "search"},
-	"integration-test-advisor":   {"read", "search"},
-	"component-adviser":          {"read", "search"},
-	"component-advisor":          {"read", "search"},
-	"frontend-test-adviser":      {"read", "search"},
-	"frontend-test-advisor":      {"read", "search"},
-	"web-accessibility-adviser":  {"read", "search"},
-	"web-accessibility-advisor":  {"read", "search"},
+	"architect-advisor":         {"read", "search"},
+	"api-first-advisor":         {"read", "search"},
+	"unit-test-advisor":         {"read", "search"},
+	"integration-test-advisor":  {"read", "search"},
+	"component-advisor":         {"read", "search"},
+	"frontend-test-advisor":     {"read", "search"},
+	"web-accessibility-advisor": {"read", "search"},
 }
 
 // copilotBodyReplacements maps Claude Code MCP shorthand tool calls to Copilot
@@ -538,7 +523,7 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	}
 
 	// T018: Generate native sub-agent .agent.md files for each subagent role.
-	// Skip sentinel roles (e.g. sdd-adviser with skill "*-adviser") — these exist
+	// Skip sentinel roles (e.g. sdd-advisor with skill "*-advisor") — these exist
 	// only for model placeholder generation, not for .agent.md synthesis.
 	for _, role := range wf.Components.Roles {
 		if role.Kind != "subagent" || role.Skill == "" || strings.Contains(role.Skill, "*") {
@@ -558,7 +543,7 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// than embedding the full content (avoiding duplication).
 	if advisorEntries, err := os.ReadDir(skillsBase); err == nil {
 		for _, entry := range advisorEntries {
-			if !entry.IsDir() || (!strings.HasSuffix(entry.Name(), "-advisor") && !strings.HasSuffix(entry.Name(), "-adviser")) {
+			if !entry.IsDir() || !strings.HasSuffix(entry.Name(), "-advisor") {
 				continue
 			}
 			advisorName := entry.Name()
@@ -818,15 +803,13 @@ func (r *CopilotRenderer) generateAdvisorAgentFile(agentsBase, advisorName strin
 		"user-invocable":           false,
 		"disable-model-invocation": false,
 	}
-	// Add model: check for an exact override first, then fall back to the SDD advisor/adviser
-	// sentinel. sdd-adviser (skill: "*-adviser") is the sentinel that represents all advisors
-	// in the SDD workflow, so its model override applies to any advisor wrapper without its own override.
+	// Add model: check for an exact override first, then fall back to the SDD advisor
+	// sentinel. sdd-advisor (skill: "*-advisor") is the sentinel that represents all
+	// advisors in the SDD workflow, so its model override applies to any advisor wrapper
+	// without its own override.
 	advisorModel := modelOverrides[advisorName]
 	if advisorModel == "" || advisorModel == model.ModelInheritOption {
-		advisorModel = modelOverrides["sdd-advisor"] // primary sentinel
-	}
-	if advisorModel == "" || advisorModel == model.ModelInheritOption {
-		advisorModel = modelOverrides["sdd-adviser"] // legacy compat shim
+		advisorModel = modelOverrides["sdd-advisor"]
 	}
 	if advisorModel != "" && advisorModel != model.ModelInheritOption {
 		fm["model"] = advisorModel
@@ -855,11 +838,7 @@ func (r *CopilotRenderer) generateAdvisorAgentFile(agentsBase, advisorName strin
 //
 // Detection rule (identical across all AdvisorRenderer implementations):
 //
-//	hasAdvisorSuffix := strings.HasSuffix(strings.ToLower(item.Name), "-advisor")
-//	hasLegacySuffix  := strings.HasSuffix(strings.ToLower(item.Name), "-adviser") // compat shim
-//	isAdvisor        := hasAdvisorSuffix || hasLegacySuffix || item.Custom
-//
-// The legacy "-adviser" suffix triggers a one-time deprecation log via sync.Once.
+//	isAdvisor := strings.HasSuffix(strings.ToLower(item.Name), "-advisor") || item.Custom
 func (r *CopilotRenderer) RegenerateAdvisorFiles(
 	workspaceRoot string,
 	installed []model.ContentItem,
@@ -878,20 +857,9 @@ func (r *CopilotRenderer) RegenerateAdvisorFiles(
 
 	// Process installed advisors.
 	for _, item := range installed {
-		name := strings.ToLower(item.Name)
-		hasAdvisorSuffix := strings.HasSuffix(name, "-advisor")
-		hasLegacySuffix := strings.HasSuffix(name, "-adviser")
-		isAdvisor := hasAdvisorSuffix || hasLegacySuffix || item.Custom
-
+		isAdvisor := strings.HasSuffix(strings.ToLower(item.Name), "-advisor") || item.Custom
 		if !isAdvisor {
 			continue
-		}
-
-		// Emit one-time deprecation log for legacy "-adviser" suffix.
-		if hasLegacySuffix && !item.Custom {
-			copilotLegacyAdviserOnce.Do(func() {
-				log.Printf("copilot: deprecated advisor suffix \"-adviser\" detected for %q; rename to \"-advisor\" (support will be removed in the next minor release)", item.Name)
-			})
 		}
 
 		written, err := r.generateAdvisorAgentFile(agentsBase, item.Name, modelOverrides, workspaceRoot)

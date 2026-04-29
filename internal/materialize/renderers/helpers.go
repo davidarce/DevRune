@@ -777,7 +777,6 @@ func buildWorkflowPlaceholderReplacements(
 		"IMPLEMENTER": "{SDD_MODEL_IMPLEMENT}",
 		"REVIEWER":    "{SDD_MODEL_REVIEW}",
 		"ADVISOR":     "{SDD_MODEL_ADVISOR}",
-		"ADVISER":     "{SDD_MODEL_ADVISER}",
 	}
 
 	for _, role := range wf.Components.Roles {
@@ -1124,19 +1123,19 @@ func skillDescriptionForRole(skill string) string {
 		return "SDD Implement sub-agent"
 	case "sdd-review":
 		return "SDD Review sub-agent"
-	case "architect-advisor", "architect-adviser":
+	case "architect-advisor":
 		return "Clean architecture advisor: hexagonal, DDD, ports and adapters"
-	case "api-first-advisor", "api-first-adviser":
+	case "api-first-advisor":
 		return "API-first design advisor: OpenAPI, REST conventions, error models"
-	case "unit-test-advisor", "unit-test-adviser":
+	case "unit-test-advisor":
 		return "Unit test advisor: test structure, mocking, Given-When-Then"
-	case "integration-test-advisor", "integration-test-adviser":
+	case "integration-test-advisor":
 		return "Integration test advisor: adapter testing, external service mocking"
-	case "component-advisor", "component-adviser":
+	case "component-advisor":
 		return "React component advisor: composition, hooks, state management"
-	case "frontend-test-advisor", "frontend-test-adviser":
+	case "frontend-test-advisor":
 		return "Frontend test advisor: React Testing Library, Vitest, Cypress"
-	case "web-accessibility-advisor", "web-accessibility-adviser":
+	case "web-accessibility-advisor":
 		return "Web accessibility advisor: WCAG 2.1 AA, ARIA, keyboard navigation"
 	default:
 		return skill + " sub-agent"

@@ -465,16 +465,16 @@ func TestMaterializer_Install_CallsRenderSettings(t *testing.T) {
 
 // TestMaterializer_Install_SetsInstalledSkillsBeforeWorkflow verifies that the
 // materializer calls SetInstalledSkills on the renderer before InstallWorkflow,
-// so that workflow post-processing (adviser table injection) can use them.
+// so that workflow post-processing (advisor table injection) can use them.
 func TestMaterializer_Install_SetsInstalledSkillsBeforeWorkflow(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a fake skill package in the cache.
 	skillPkgDir := t.TempDir()
-	skillDir := filepath.Join(skillPkgDir, "skills", "architect-adviser")
+	skillDir := filepath.Join(skillPkgDir, "skills", "architect-advisor")
 	_ = os.MkdirAll(skillDir, 0o755)
 	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
-		[]byte("---\nname: architect-adviser\ndescription: Architecture advice\n---\nBody.\n"), 0o644)
+		[]byte("---\nname: architect-advisor\ndescription: Architecture advice\n---\nBody.\n"), 0o644)
 
 	// Create a fake workflow in the cache.
 	wfDir := t.TempDir()
@@ -513,7 +513,7 @@ components:
 			{
 				Hash: skillHash,
 				Contents: []model.ContentItem{
-					{Kind: model.KindSkill, Name: "architect-adviser", Path: "skills/architect-adviser"},
+					{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor"},
 				},
 			},
 		},
@@ -530,9 +530,9 @@ components:
 	if len(renderer.setInstalledSkills) != 1 {
 		t.Errorf("SetInstalledSkills received %d skills, want 1", len(renderer.setInstalledSkills))
 	}
-	if len(renderer.setInstalledSkills) > 0 && renderer.setInstalledSkills[0].Name != "architect-adviser" {
+	if len(renderer.setInstalledSkills) > 0 && renderer.setInstalledSkills[0].Name != "architect-advisor" {
 		t.Errorf("setInstalledSkills[0].Name = %q, want %q",
-			renderer.setInstalledSkills[0].Name, "architect-adviser")
+			renderer.setInstalledSkills[0].Name, "architect-advisor")
 	}
 }
 
@@ -1212,10 +1212,10 @@ func TestMaterializer_Install_RootCatalogContainsSkillNames(t *testing.T) {
 
 	// Create a fake skill package in the cache.
 	pkgDir := t.TempDir()
-	skillDir := filepath.Join(pkgDir, "skills", "unit-test-adviser")
+	skillDir := filepath.Join(pkgDir, "skills", "unit-test-advisor")
 	_ = os.MkdirAll(skillDir, 0o755)
 	_ = os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
-		[]byte("---\nname: unit-test-adviser\ndescription: Domain unit test patterns\n---\nBody.\n"), 0o644)
+		[]byte("---\nname: unit-test-advisor\ndescription: Domain unit test patterns\n---\nBody.\n"), 0o644)
 
 	cache := newStubCache()
 	pkgHash := "sha256:skill-catalog-test"
@@ -1241,7 +1241,7 @@ func TestMaterializer_Install_RootCatalogContainsSkillNames(t *testing.T) {
 			{
 				Hash: pkgHash,
 				Contents: []model.ContentItem{
-					{Kind: model.KindSkill, Name: "unit-test-adviser", Path: "skills/unit-test-adviser", Description: "Domain unit test patterns"},
+					{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor", Description: "Domain unit test patterns"},
 				},
 			},
 		},
@@ -1258,8 +1258,8 @@ func TestMaterializer_Install_RootCatalogContainsSkillNames(t *testing.T) {
 	}
 	content := string(data)
 
-	if !strings.Contains(content, "unit-test-adviser") {
-		t.Errorf("AGENTS.md should contain skill name 'unit-test-adviser'; got:\n%s", content)
+	if !strings.Contains(content, "unit-test-advisor") {
+		t.Errorf("AGENTS.md should contain skill name 'unit-test-advisor'; got:\n%s", content)
 	}
 }
 
@@ -1428,12 +1428,12 @@ func TestMaterializer_Install_SkillDeduplication_SharedDirRenderedOnce(t *testin
 
 	// Create a fake skill package in the cache.
 	pkgDir := t.TempDir()
-	skillSubDir := filepath.Join(pkgDir, "skills", "unit-test-adviser")
+	skillSubDir := filepath.Join(pkgDir, "skills", "unit-test-advisor")
 	if err := os.MkdirAll(skillSubDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(skillSubDir, "SKILL.md"),
-		[]byte("---\nname: unit-test-adviser\ndescription: Domain unit tests\n---\nBody.\n"), 0o644); err != nil {
+		[]byte("---\nname: unit-test-advisor\ndescription: Domain unit tests\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
 	}
 
@@ -1458,7 +1458,7 @@ func TestMaterializer_Install_SkillDeduplication_SharedDirRenderedOnce(t *testin
 			{
 				Hash: pkgHash,
 				Contents: []model.ContentItem{
-					{Kind: model.KindSkill, Name: "unit-test-adviser", Path: "skills/unit-test-adviser"},
+					{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor"},
 				},
 			},
 		},
@@ -1496,15 +1496,15 @@ func TestMaterializer_Install_SkillDeduplication_SharedDirRenderedOnce(t *testin
 	}
 
 	// The skill file must exist in .agents/skills/ (written by whichever renderer won).
-	skillPath := filepath.Join(agentsSkillsDir, "unit-test-adviser", "SKILL.md")
+	skillPath := filepath.Join(agentsSkillsDir, "unit-test-advisor", "SKILL.md")
 	if _, err := os.Stat(skillPath); err != nil {
-		t.Errorf("skill file should exist in .agents/skills/unit-test-adviser/SKILL.md: %v", err)
+		t.Errorf("skill file should exist in .agents/skills/unit-test-advisor/SKILL.md: %v", err)
 	}
 
 	// The skill file must also exist in .claude/skills/.
-	claudeSkillPath := filepath.Join(claudeWorkspace, "skills", "unit-test-adviser", "SKILL.md")
+	claudeSkillPath := filepath.Join(claudeWorkspace, "skills", "unit-test-advisor", "SKILL.md")
 	if _, err := os.Stat(claudeSkillPath); err != nil {
-		t.Errorf("skill file should exist in .claude/skills/unit-test-adviser/SKILL.md: %v", err)
+		t.Errorf("skill file should exist in .claude/skills/unit-test-advisor/SKILL.md: %v", err)
 	}
 }
 

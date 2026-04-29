@@ -21,12 +21,10 @@ import (
 )
 
 // newSddAdvisorsCmd constructs the "sdd-advisors" Cobra subcommand.
-// An alias "sdd-advisers" is registered for one-release backward compat.
 func newSddAdvisorsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "sdd-advisors",
-		Aliases: []string{"sdd-advisers"},
-		Short:   "Manage SDD advisors — list, install, uninstall, and register custom advisors",
+		Use:   "sdd-advisors",
+		Short: "Manage SDD advisors — list, install, uninstall, and register custom advisors",
 		Long: `Manage SDD advisors interactively or via flags.
 
 devrune sdd-advisors provides a TUI to list, toggle (install/uninstall),
@@ -64,10 +62,7 @@ Examples:
   devrune sdd-advisors --refresh-catalogs
 
   Note: --refresh-catalogs returns an error if any source fetch fails.
-  All sources are attempted; per-source errors are aggregated and reported together.
-
-  Note: the alias 'sdd-advisers' (British spelling) is accepted for one
-  release as a backward-compat shim and will be removed in a future version.`,
+  All sources are attempted; per-source errors are aggregated and reported together.`,
 		RunE:          runSddAdvisors,
 		SilenceErrors: true,
 		SilenceUsage:  true,

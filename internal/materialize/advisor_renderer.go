@@ -17,13 +17,7 @@ import (
 //
 // Detection rule (applied identically by every implementing renderer):
 //
-//	hasAdvisorSuffix := strings.HasSuffix(strings.ToLower(item.Name), "-advisor")
-//	hasLegacySuffix  := strings.HasSuffix(strings.ToLower(item.Name), "-adviser") // compat shim
-//	isAdvisor        := hasAdvisorSuffix || hasLegacySuffix || item.Custom
-//
-// The legacy "-adviser" branch is gated behind a log-once deprecation warning
-// (via log.Printf on first detection per process) and will be removed in the
-// next minor release.
+//	isAdvisor := strings.HasSuffix(strings.ToLower(item.Name), "-advisor") || item.Custom
 //
 // Statelessness requirement: RegenerateAdvisorFiles MUST be stateless on the
 // receiver. Two consecutive calls with different installed sets MUST NOT leak
