@@ -66,9 +66,9 @@ func sampleProfile() detect.ProjectProfile {
 // sampleCatalog returns a minimal catalog for testing.
 func sampleCatalog() []recommend.CatalogItem {
 	return []recommend.CatalogItem{
-		{Name: "architect-adviser", Kind: "skill", Source: "github:owner/catalog", Description: "Clean architecture patterns"},
+		{Name: "architect-advisor", Kind: "skill", Source: "github:owner/catalog", Description: "Clean architecture patterns"},
 		{Name: "react", Kind: "rule", Source: "github:owner/catalog", Description: "React coding standards"},
-		{Name: "unit-test-adviser", Kind: "skill", Source: "github:owner/catalog", Description: "Unit test patterns"},
+		{Name: "unit-test-advisor", Kind: "skill", Source: "github:owner/catalog", Description: "Unit test patterns"},
 	}
 }
 
@@ -136,8 +136,8 @@ func TestRecommend_MockAgent_ReturnsFilteredRecommendations(t *testing.T) {
 	for _, r := range result.Recommendations {
 		names[r.Name] = r.Confidence
 	}
-	if c, ok := names["architect-adviser"]; !ok || c != 0.92 {
-		t.Errorf("expected architect-adviser with confidence=0.92, got: %v", names)
+	if c, ok := names["architect-advisor"]; !ok || c != 0.92 {
+		t.Errorf("expected architect-advisor with confidence=0.92, got: %v", names)
 	}
 	if c, ok := names["react"]; !ok || c != 0.85 {
 		t.Errorf("expected react with confidence=0.85, got: %v", names)
@@ -186,7 +186,7 @@ func TestWriteRecommendedYAML_WritesValidYAML(t *testing.T) {
 	result := &recommend.RecommendResult{
 		Recommendations: []recommend.Recommendation{
 			{
-				Name:       "architect-adviser",
+				Name:       "architect-advisor",
 				Kind:       "skill",
 				Source:     "github:owner/catalog",
 				Confidence: 0.92,
@@ -217,8 +217,8 @@ func TestWriteRecommendedYAML_WritesValidYAML(t *testing.T) {
 	if !strings.Contains(content, "devrune/recommend/v1") {
 		t.Errorf("expected schemaVersion in output; got:\n%s", content)
 	}
-	if !strings.Contains(content, "architect-adviser") {
-		t.Errorf("expected architect-adviser in output; got:\n%s", content)
+	if !strings.Contains(content, "architect-advisor") {
+		t.Errorf("expected architect-advisor in output; got:\n%s", content)
 	}
 	if !strings.Contains(content, "generatedAt") {
 		t.Errorf("expected generatedAt in output; got:\n%s", content)

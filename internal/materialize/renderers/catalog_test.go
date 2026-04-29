@@ -48,7 +48,7 @@ func TestRenderRootCatalog_EmptyInputs(t *testing.T) {
 func TestRenderRootCatalog_WithSkills(t *testing.T) {
 	skills := []model.ContentItem{
 		{Kind: model.KindSkill, Name: "git-commit", Path: "skills/git-commit/", Description: "Automate git commits"},
-		{Kind: model.KindSkill, Name: "architect-adviser", Path: "skills/architect-adviser/", Description: "Clean architecture patterns"},
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Clean architecture patterns"},
 	}
 
 	out, err := renderers.RenderRootCatalog(skills, nil, nil, nil, nil)
@@ -71,8 +71,8 @@ func TestRenderRootCatalog_WithSkills(t *testing.T) {
 	if !strings.Contains(out, "Automate git commits") {
 		t.Errorf("output missing skill description")
 	}
-	if !strings.Contains(out, "`architect-adviser`") {
-		t.Errorf("output missing architect-adviser skill row")
+	if !strings.Contains(out, "`architect-advisor`") {
+		t.Errorf("output missing architect-advisor skill row")
 	}
 }
 
@@ -87,7 +87,7 @@ func TestRenderRootCatalog_WithRules(t *testing.T) {
 			RuleMeta: &model.RuleMeta{
 				Scope:       "architecture",
 				Technology:  "",
-				AppliesTo:   "architect-adviser",
+				AppliesTo:   "architect-advisor",
 				Description: "Hexagonal architecture, DDD patterns",
 				DisplayName: "clean-architecture",
 			},
@@ -100,7 +100,7 @@ func TestRenderRootCatalog_WithRules(t *testing.T) {
 			RuleMeta: &model.RuleMeta{
 				Scope:      "tech",
 				Technology: "java",
-				AppliesTo:  "architect-adviser, unit-test-adviser",
+				AppliesTo:  "architect-advisor, unit-test-advisor",
 			},
 		},
 	}

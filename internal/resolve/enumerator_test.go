@@ -404,8 +404,8 @@ description: React and TypeScript coding standards
 scope: tech
 technology: any
 applies-to:
-  - component-adviser
-  - frontend-test-adviser
+  - component-advisor
+  - frontend-test-advisor
 ---
 # React rules body
 `)
@@ -424,7 +424,7 @@ scope: architecture
 	writeFile(t, dir, "rules/api/legacy-rule.md", `---
 description: Legacy rule with underscore key
 scope: api
-applies_to: adviser-a, adviser-b
+applies_to: advisor-a, advisor-b
 ---
 # Legacy rule body
 `)
@@ -459,8 +459,8 @@ applies_to: adviser-a, adviser-b
 	if reactRule.RuleMeta.Technology != "any" {
 		t.Errorf("Technology = %q, want %q", reactRule.RuleMeta.Technology, "any")
 	}
-	if reactRule.RuleMeta.AppliesTo != "component-adviser, frontend-test-adviser" {
-		t.Errorf("AppliesTo = %q, want %q", reactRule.RuleMeta.AppliesTo, "component-adviser, frontend-test-adviser")
+	if reactRule.RuleMeta.AppliesTo != "component-advisor, frontend-test-advisor" {
+		t.Errorf("AppliesTo = %q, want %q", reactRule.RuleMeta.AppliesTo, "component-advisor, frontend-test-advisor")
 	}
 	if reactRule.RuleMeta.DisplayName != "react" {
 		t.Errorf("DisplayName = %q, want %q", reactRule.RuleMeta.DisplayName, "react")
@@ -508,7 +508,7 @@ applies_to: adviser-a, adviser-b
 	if legacyRule.RuleMeta == nil {
 		t.Fatal("api/legacy-rule RuleMeta should not be nil")
 	}
-	if legacyRule.RuleMeta.AppliesTo != "adviser-a, adviser-b" {
-		t.Errorf("legacy AppliesTo = %q, want %q", legacyRule.RuleMeta.AppliesTo, "adviser-a, adviser-b")
+	if legacyRule.RuleMeta.AppliesTo != "advisor-a, advisor-b" {
+		t.Errorf("legacy AppliesTo = %q, want %q", legacyRule.RuleMeta.AppliesTo, "advisor-a, advisor-b")
 	}
 }

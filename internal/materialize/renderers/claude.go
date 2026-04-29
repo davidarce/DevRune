@@ -9,20 +9,14 @@ package renderers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/davidarce/devrune/internal/materialize/matypes"
 	"github.com/davidarce/devrune/internal/model"
 	"github.com/davidarce/devrune/internal/parse"
 )
-
-// deprecateAdviserSuffixOnce gates the one-time deprecation log emitted when
-// RegenerateAdvisorFiles encounters a legacy "-adviser" suffix item.
-var deprecateAdviserSuffixOnce sync.Once
 
 // claudeDropFields lists frontmatter fields that Claude does not use and should be stripped.
 // Claude's format is the canonical format, so most fields pass through unchanged.
@@ -46,25 +40,16 @@ var claudeDropFields = []string{
 // what the skill body invokes; duplicating that list here would drift as skills
 // evolve without adding restriction value (phases legitimately need broad access).
 //
-// ADVISER/ADVISOR sub-agents ARE listed because Read/Grep/Glob is STRICTER than the
+// ADVISOR sub-agents ARE listed because Read/Grep/Glob is STRICTER than the
 // parent's allowlist; the explicit `tools:` field enforces read-only behavior.
-// Both -adviser (legacy) and -advisor (new) keys are kept during the transition
-// period until T040 renames the installed skill directories.
 var claudeSubAgentTools = map[string][]string{
-	"architect-adviser":          {"Read", "Grep", "Glob"},
-	"architect-advisor":          {"Read", "Grep", "Glob"},
-	"api-first-adviser":          {"Read", "Grep", "Glob"},
-	"api-first-advisor":          {"Read", "Grep", "Glob"},
-	"unit-test-adviser":          {"Read", "Grep", "Glob"},
-	"unit-test-advisor":          {"Read", "Grep", "Glob"},
-	"integration-test-adviser":   {"Read", "Grep", "Glob"},
-	"integration-test-advisor":   {"Read", "Grep", "Glob"},
-	"component-adviser":          {"Read", "Grep", "Glob"},
-	"component-advisor":          {"Read", "Grep", "Glob"},
-	"frontend-test-adviser":      {"Read", "Grep", "Glob"},
-	"frontend-test-advisor":      {"Read", "Grep", "Glob"},
-	"web-accessibility-adviser":  {"Read", "Grep", "Glob"},
-	"web-accessibility-advisor":  {"Read", "Grep", "Glob"},
+	"architect-advisor":         {"Read", "Grep", "Glob"},
+	"api-first-advisor":         {"Read", "Grep", "Glob"},
+	"unit-test-advisor":         {"Read", "Grep", "Glob"},
+	"integration-test-advisor":  {"Read", "Grep", "Glob"},
+	"component-advisor":         {"Read", "Grep", "Glob"},
+	"frontend-test-advisor":     {"Read", "Grep", "Glob"},
+	"web-accessibility-advisor": {"Read", "Grep", "Glob"},
 }
 
 // claudeSubAgentMCPServers defines the `mcpServers:` frontmatter list per
@@ -77,24 +62,17 @@ var claudeSubAgentTools = map[string][]string{
 //     and sdd-review SKILL.md bodies do NOT reference Atlassian, so they do NOT
 //     receive it.
 var claudeSubAgentMCPServers = map[string][]string{
-	"sdd-explore":                {"engram", "atlassian"},
-	"sdd-plan":                   {"engram"},
-	"sdd-implement":              {"engram"},
-	"sdd-review":                 {"engram"},
-	"architect-adviser":          {"engram"},
-	"architect-advisor":          {"engram"},
-	"api-first-adviser":          {"engram"},
-	"api-first-advisor":          {"engram"},
-	"unit-test-adviser":          {"engram"},
-	"unit-test-advisor":          {"engram"},
-	"integration-test-adviser":   {"engram"},
-	"integration-test-advisor":   {"engram"},
-	"component-adviser":          {"engram"},
-	"component-advisor":          {"engram"},
-	"frontend-test-adviser":      {"engram"},
-	"frontend-test-advisor":      {"engram"},
-	"web-accessibility-adviser":  {"engram"},
-	"web-accessibility-advisor":  {"engram"},
+	"sdd-explore":               {"engram", "atlassian"},
+	"sdd-plan":                  {"engram"},
+	"sdd-implement":             {"engram"},
+	"sdd-review":                {"engram"},
+	"architect-advisor":         {"engram"},
+	"api-first-advisor":         {"engram"},
+	"unit-test-advisor":         {"engram"},
+	"integration-test-advisor":  {"engram"},
+	"component-advisor":         {"engram"},
+	"frontend-test-advisor":     {"engram"},
+	"web-accessibility-advisor": {"engram"},
 }
 
 // ClaudeRenderer materializes skills, commands, MCPs, and catalog entries for
@@ -278,7 +256,7 @@ func (r *ClaudeRenderer) MCPAgentInstructions() map[string]string {
 //     ORCHESTRATOR.claude.md is preferred when present in the cache; suffix is stripped
 //     at write time so the destination filename remains wf.Components.Entrypoint)
 //   - .claude/agents/{role-name}.md for every subagent role in workflow.yaml
-//   - .claude/agents/{advisor-name}.md for every installed `*-advisor` or `*-adviser` skill
+//   - .claude/agents/{advisor-name}.md for every installed `*-advisor` skill
 //
 // Hook script assets are copied as before; this logic is preserved verbatim.
 // T021: Loads Registry content during installation and stores it for RenderCatalog.
@@ -405,8 +383,6 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	// stripped) and IS referenced by ORCHESTRATOR.claude.md — do NOT remove it.
 	// advisor-templates.md is only needed by Codex/Factory via the generic ORCHESTRATOR.md.
 	_ = os.Remove(filepath.Join(destBase, "_shared", "advisor-templates.md"))
-	// Also remove the legacy filename if present (one-release transition shim).
-	_ = os.Remove(filepath.Join(destBase, "_shared", "adviser-templates.md"))
 
 	// 5. If the entrypoint was not present in the cache directory (cache lacks the
 	//    generic ORCHESTRATOR.md) but a Claude variant IS present, install the variant
@@ -473,11 +449,10 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		agentFilePaths = append(agentFilePaths, dstPath)
 	}
 
-	// 7. Synthesize advisor wrapper .md files — one per installed *-advisor or *-adviser skill.
-	//    Both suffixes are checked for transition compat until T040 renames installed skill dirs.
+	// 7. Synthesize advisor wrapper .md files — one per installed *-advisor skill.
 	//    Skip if a file already exists (e.g. generated by the subagent role loop above).
 	for _, skill := range r.installedSkills {
-		if !strings.HasSuffix(skill.Name, "-advisor") && !strings.HasSuffix(skill.Name, "-adviser") {
+		if !strings.HasSuffix(skill.Name, "-advisor") {
 			continue
 		}
 		dstPath := filepath.Join(agentsBase, skill.Name+".md")
@@ -661,12 +636,10 @@ func (r *ClaudeRenderer) generateAdvisorAgentFile(agentsBase string, advisorName
 }
 
 // postProcessWorkflow runs post-installation processing on a workflow's rendered files.
-// T017: For SKILL.md files containing <!-- ADVISOR_TABLE_PLACEHOLDER --> (or its
-// legacy ADVISER_TABLE_PLACEHOLDER alias), replaces it with a markdown table of
-// installed advisor skills. For ALL .md files (including ORCHESTRATOR.md),
-// resolves shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
+// For SKILL.md files containing <!-- ADVISOR_TABLE_PLACEHOLDER -->, replaces it with
+// a markdown table of installed advisor skills. For ALL .md files (including
+// ORCHESTRATOR.md), resolves shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
 func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[string]string) error {
-	// Build the advisor table from installed skills whose names contain "advisor" or "adviser".
 	advisorTable := r.buildAdvisorTable()
 
 	// Walk all .md files under destBase and apply replacements.
@@ -689,7 +662,6 @@ func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[s
 		content := string(data)
 		modified := false
 
-		// Resolve all shared placeholders ({SKILLS_PATH}, {SDD_MODEL_*}).
 		for placeholder, value := range replacements {
 			if strings.Contains(content, placeholder) {
 				content = strings.ReplaceAll(content, placeholder, value)
@@ -697,18 +669,10 @@ func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[s
 			}
 		}
 
-		// Replace <!-- ADVISOR_TABLE_PLACEHOLDER --> (and legacy ADVISER_ alias) only in SKILL.md files.
-		if d.Name() == "SKILL.md" {
-			for _, marker := range []string{"<!-- ADVISOR_TABLE_PLACEHOLDER -->", "<!-- ADVISER_TABLE_PLACEHOLDER -->"} {
-				if strings.Contains(content, marker) {
-					if advisorTable == "" {
-						content = strings.ReplaceAll(content, marker, "")
-					} else {
-						content = strings.ReplaceAll(content, marker, advisorTable)
-					}
-					modified = true
-				}
-			}
+		const advisorTableMarker = "<!-- ADVISOR_TABLE_PLACEHOLDER -->"
+		if d.Name() == "SKILL.md" && strings.Contains(content, advisorTableMarker) {
+			content = strings.ReplaceAll(content, advisorTableMarker, advisorTable)
+			modified = true
 		}
 
 		if modified {
@@ -721,11 +685,11 @@ func (r *ClaudeRenderer) postProcessWorkflow(destBase string, replacements map[s
 }
 
 // buildAdvisorTable creates a markdown table of installed advisor skills.
-// Advisor skills are those whose Name contains "advisor" (or the legacy "adviser" alias).
+// Advisor skills are those whose Name contains "advisor".
 func (r *ClaudeRenderer) buildAdvisorTable() string {
 	var advisors []model.ContentItem
 	for _, skill := range r.installedSkills {
-		if strings.Contains(skill.Name, "advisor") || strings.Contains(skill.Name, "adviser") {
+		if strings.Contains(skill.Name, "advisor") {
 			advisors = append(advisors, skill)
 		}
 	}
@@ -844,11 +808,8 @@ func (r *ClaudeRenderer) Finalize(workspaceRoot string) error { return nil }
 //
 // Detection rule (applied uniformly across all renderers):
 //
-//	hasAdvisorSuffix := strings.HasSuffix(strings.ToLower(item.Name), "-advisor")
-//	hasLegacySuffix  := strings.HasSuffix(strings.ToLower(item.Name), "-adviser") // compat shim
-//	isAdvisor        := hasAdvisorSuffix || hasLegacySuffix || item.Custom
+//	isAdvisor := strings.HasSuffix(strings.ToLower(item.Name), "-advisor") || item.Custom
 //
-// Legacy "-adviser" names emit a one-per-process deprecation log via sync.Once.
 // Non-advisor entries in installed are silently ignored.
 //
 // The method is stateless on the receiver — it does NOT assign installed to
@@ -873,19 +834,9 @@ func (r *ClaudeRenderer) RegenerateAdvisorFiles(
 
 	// Write advisor files for each installed item that passes the detection rule.
 	for _, item := range installed {
-		nameLower := strings.ToLower(item.Name)
-		hasAdvisorSuffix := strings.HasSuffix(nameLower, "-advisor")
-		hasLegacySuffix := strings.HasSuffix(nameLower, "-adviser")
-		isAdvisor := hasAdvisorSuffix || hasLegacySuffix || item.Custom
-
+		isAdvisor := strings.HasSuffix(strings.ToLower(item.Name), "-advisor") || item.Custom
 		if !isAdvisor {
 			continue
-		}
-
-		if hasLegacySuffix && !hasAdvisorSuffix {
-			deprecateAdviserSuffixOnce.Do(func() {
-				log.Printf("DEPRECATION: advisor name %q uses legacy '-adviser' suffix; rename to '-advisor' before next minor release", item.Name)
-			})
 		}
 
 		if err := r.generateAdvisorAgentFile(agentsBase, item.Name); err != nil {

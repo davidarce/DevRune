@@ -461,21 +461,21 @@ func TestClaudeRenderer_RenderSettings_DeduplicatesPermissions(t *testing.T) {
 
 // --- T029: Workflow post-processing ---
 
-// TestClaudeRenderer_InstallWorkflow_ReplacesAdviserTablePlaceholder verifies that
-// <!-- ADVISER_TABLE_PLACEHOLDER --> in a SKILL.md is replaced with the adviser skills table.
-func TestClaudeRenderer_InstallWorkflow_ReplacesAdviserTablePlaceholder(t *testing.T) {
+// TestClaudeRenderer_InstallWorkflow_ReplacesAdvisorTablePlaceholder verifies that
+// <!-- ADVISOR_TABLE_PLACEHOLDER --> in a SKILL.md is replaced with the advisor skills table.
+func TestClaudeRenderer_InstallWorkflow_ReplacesAdvisorTablePlaceholder(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeAgentDef())
 
-	// Set up installed skills containing an adviser-type skill.
-	advisers := []model.ContentItem{
+	// Set up installed skills containing an advisor-type skill.
+	advisors := []model.ContentItem{
 		{
 			Kind:        model.KindSkill,
-			Name:        "unit-test-adviser",
-			Path:        "skills/unit-test-adviser/",
+			Name:        "unit-test-advisor",
+			Path:        "skills/unit-test-advisor/",
 			Description: "Unit test patterns and structure",
 		},
 	}
-	r.SetInstalledSkills(advisers)
+	r.SetInstalledSkills(advisors)
 
 	// Create a temporary workflow directory with a SKILL.md containing the placeholder.
 	wfCacheDir := t.TempDir()
@@ -484,7 +484,7 @@ func TestClaudeRenderer_InstallWorkflow_ReplacesAdviserTablePlaceholder(t *testi
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
-	skillContent := "---\nname: sdd-explore\ndescription: Explore and investigate\n---\n<!-- ADVISER_TABLE_PLACEHOLDER -->\n"
+	skillContent := "---\nname: sdd-explore\ndescription: Explore and investigate\n---\n<!-- ADVISOR_TABLE_PLACEHOLDER -->\n"
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
 	}
@@ -525,11 +525,11 @@ components:
 	data := mustReadFile(t, destSkillMD)
 	content := string(data)
 
-	if strings.Contains(content, "<!-- ADVISER_TABLE_PLACEHOLDER -->") {
+	if strings.Contains(content, "<!-- ADVISOR_TABLE_PLACEHOLDER -->") {
 		t.Errorf("placeholder was not replaced; SKILL.md content:\n%s", content)
 	}
-	if !strings.Contains(content, "unit-test-adviser") {
-		t.Errorf("adviser table not injected; SKILL.md content:\n%s", content)
+	if !strings.Contains(content, "unit-test-advisor") {
+		t.Errorf("advisor table not injected; SKILL.md content:\n%s", content)
 	}
 }
 
@@ -842,12 +842,12 @@ func TestClaudeRenderer_InstallWorkflow_RegistryFallsBackWhenVariantMissing(t *t
 	}
 }
 
-// TestClaudeRenderer_InstallWorkflow_NoAdviserSkills verifies that when no adviser
+// TestClaudeRenderer_InstallWorkflow_NoAdvisorSkills verifies that when no advisor
 // skills are installed, the placeholder is removed (replaced with empty string).
-func TestClaudeRenderer_InstallWorkflow_NoAdviserSkills(t *testing.T) {
+func TestClaudeRenderer_InstallWorkflow_NoAdvisorSkills(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeAgentDef())
 
-	// No adviser skills set — installedSkills is empty.
+	// No advisor skills set — installedSkills is empty.
 	r.SetInstalledSkills([]model.ContentItem{
 		{Kind: model.KindSkill, Name: "git-commit", Path: "skills/git-commit/", Description: "Commit changes"},
 	})
@@ -858,7 +858,7 @@ func TestClaudeRenderer_InstallWorkflow_NoAdviserSkills(t *testing.T) {
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
-	skillContent := "---\nname: sdd-explore\ndescription: Explore\n---\n<!-- ADVISER_TABLE_PLACEHOLDER -->\n"
+	skillContent := "---\nname: sdd-explore\ndescription: Explore\n---\n<!-- ADVISOR_TABLE_PLACEHOLDER -->\n"
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
 	}
@@ -885,8 +885,8 @@ func TestClaudeRenderer_InstallWorkflow_NoAdviserSkills(t *testing.T) {
 	content := string(data)
 
 	// Placeholder should be gone.
-	if strings.Contains(content, "<!-- ADVISER_TABLE_PLACEHOLDER -->") {
-		t.Errorf("placeholder should be removed when no adviser skills installed; content:\n%s", content)
+	if strings.Contains(content, "<!-- ADVISOR_TABLE_PLACEHOLDER -->") {
+		t.Errorf("placeholder should be removed when no advisor skills installed; content:\n%s", content)
 	}
 }
 
@@ -1342,7 +1342,7 @@ func TestClaudeRenderer_RenderSettings_MultipleHookFilesForClaudeAgentMerged(t *
 // --- T007: Claude-native renderer variant and subagent coverage ---
 
 // sddTestWorkflow returns the canonical SDD workflow manifest used by the T007
-// test suite: four phase subagents + orchestrator + adviser sentinel, matching
+// test suite: four phase subagents + orchestrator + advisor sentinel, matching
 // the real `devrune-starter-catalog/workflows/sdd/workflow.yaml`.
 func sddTestWorkflow() model.WorkflowManifest {
 	return model.WorkflowManifest{
@@ -1357,7 +1357,7 @@ func sddTestWorkflow() model.WorkflowManifest {
 				{Name: "sdd-implementer", Kind: "subagent", Skill: "sdd-implement", Model: "sonnet"},
 				{Name: "sdd-reviewer", Kind: "subagent", Skill: "sdd-review", Model: "opus"},
 				{Name: "sdd-orchestrator", Kind: "orchestrator"},
-				{Name: "sdd-adviser", Kind: "subagent", Skill: "*-adviser", Model: "opus"},
+				{Name: "sdd-advisor", Kind: "subagent", Skill: "*-advisor", Model: "opus"},
 			},
 		},
 	}
@@ -1496,13 +1496,13 @@ func TestClaudeRenderer_InstallWorkflow_PhaseSubagents_OmitToolsField(t *testing
 	}
 }
 
-// TestClaudeRenderer_InstallWorkflow_AdviserSubagents_DeclareReadOnlyTools
-// asserts that adviser subagent files have explicit `tools: [Read, Grep, Glob]`.
-func TestClaudeRenderer_InstallWorkflow_AdviserSubagents_DeclareReadOnlyTools(t *testing.T) {
+// TestClaudeRenderer_InstallWorkflow_AdvisorSubagents_DeclareReadOnlyTools
+// asserts that advisor subagent files have explicit `tools: [Read, Grep, Glob]`.
+func TestClaudeRenderer_InstallWorkflow_AdvisorSubagents_DeclareReadOnlyTools(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeNativeAgentDef())
 	r.SetInstalledSkills([]model.ContentItem{
-		{Kind: model.KindSkill, Name: "architect-adviser", Path: "skills/architect-adviser/", Description: "Clean architecture"},
-		{Kind: model.KindSkill, Name: "unit-test-adviser", Path: "skills/unit-test-adviser/", Description: "Unit tests"},
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Clean architecture"},
+		{Kind: model.KindSkill, Name: "unit-test-advisor", Path: "skills/unit-test-advisor/", Description: "Unit tests"},
 	})
 
 	cache := writeClaudeSDDCache(t, "")
@@ -1513,12 +1513,12 @@ func TestClaudeRenderer_InstallWorkflow_AdviserSubagents_DeclareReadOnlyTools(t 
 	}
 
 	wantTools := map[string]bool{"Read": true, "Grep": true, "Glob": true}
-	for _, name := range []string{"architect-adviser", "unit-test-adviser"} {
+	for _, name := range []string{"architect-advisor", "unit-test-advisor"} {
 		t.Run(name, func(t *testing.T) {
 			fm := readAgentFrontmatter(t, workspace, name)
 			toolsVal, ok := fm["tools"]
 			if !ok {
-				t.Fatalf("%s.md: tools field is missing — advisers must declare read-only tools", name)
+				t.Fatalf("%s.md: tools field is missing — advisors must declare read-only tools", name)
 			}
 			toolsList, ok := toolsVal.([]any)
 			if !ok {
@@ -1547,7 +1547,7 @@ func TestClaudeRenderer_InstallWorkflow_AdviserSubagents_DeclareReadOnlyTools(t 
 func TestClaudeRenderer_InstallWorkflow_MCPServers(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeNativeAgentDef())
 	r.SetInstalledSkills([]model.ContentItem{
-		{Kind: model.KindSkill, Name: "architect-adviser", Path: "skills/architect-adviser/", Description: "arch"},
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "arch"},
 	})
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
@@ -1580,7 +1580,7 @@ func TestClaudeRenderer_InstallWorkflow_MCPServers(t *testing.T) {
 		{"sdd-planner", map[string]bool{"engram": true}},
 		{"sdd-implementer", map[string]bool{"engram": true}},
 		{"sdd-reviewer", map[string]bool{"engram": true}},
-		{"architect-adviser", map[string]bool{"engram": true}},
+		{"architect-advisor", map[string]bool{"engram": true}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent, func(t *testing.T) {
@@ -1767,7 +1767,7 @@ func TestClaudeRenderer_InstallWorkflow_ManagedPaths_PreserveUserAgents(t *testi
 func TestClaudeRenderer_InstallWorkflow_SubagentFileSizeUnder1KB(t *testing.T) {
 	r := renderers.NewClaudeRenderer(claudeNativeAgentDef())
 	r.SetInstalledSkills([]model.ContentItem{
-		{Kind: model.KindSkill, Name: "architect-adviser", Path: "skills/architect-adviser/", Description: "arch"},
+		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "arch"},
 	})
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
@@ -1777,7 +1777,7 @@ func TestClaudeRenderer_InstallWorkflow_SubagentFileSizeUnder1KB(t *testing.T) {
 	}
 
 	const maxBytes = 1024
-	agents := []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "architect-adviser"}
+	agents := []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "architect-advisor"}
 	for _, name := range agents {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(workspace, "agents", name+".md")
@@ -1921,27 +1921,6 @@ func TestClaudeRenderer_RegenerateAdvisorFiles_NonAdvisorNamesIgnored(t *testing
 
 	assertAgentFileAbsent(t, workspaceRoot, "git-commit")
 	assertAgentFileAbsent(t, workspaceRoot, "sdd-plan")
-}
-
-// TestClaudeRenderer_RegenerateAdvisorFiles_LegacySuffix verifies that the legacy
-// "-adviser" suffix is accepted as a compat shim and produces an output file.
-func TestClaudeRenderer_RegenerateAdvisorFiles_LegacySuffix(t *testing.T) {
-	r := renderers.NewClaudeRenderer(advisorAgentDef())
-	workspaceRoot := t.TempDir()
-
-	installed := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "security-adviser"},
-	}
-
-	result, err := r.RegenerateAdvisorFiles(workspaceRoot, installed, nil, nil)
-	if err != nil {
-		t.Fatalf("RegenerateAdvisorFiles: %v", err)
-	}
-
-	if len(result.Written) != 1 {
-		t.Errorf("Written = %v, want 1 entry for legacy '-adviser' suffix", result.Written)
-	}
-	assertAgentFileExists(t, workspaceRoot, "security-adviser")
 }
 
 // TestClaudeRenderer_RegenerateAdvisorFiles_IdempotencyByteIdentical verifies that
@@ -2107,7 +2086,7 @@ func TestClaudeRenderer_InstallWorkflow_NoSharedClaudeMdFiles(t *testing.T) {
 	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
 		t.Fatalf("mkdir _shared: %v", err)
 	}
-	for _, name := range []string{"launch-templates.md", "adviser-templates.md", "envelope-contract.md"} {
+	for _, name := range []string{"launch-templates.md", "advisor-templates.md", "envelope-contract.md"} {
 		if err := os.WriteFile(filepath.Join(sharedDir, name), []byte("# "+name+"\n"), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
