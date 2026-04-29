@@ -377,7 +377,7 @@ func (m *Materializer) Install(
 	}
 
 	// T021: Generate CLAUDE.md with Claude-specific paths.
-	claudeCatalog, err := renderers.RenderRootCatalog(allSkills, allRules, allWorkflows, mcpInstructions, claudeRegistryContents)
+	claudeCatalog, err := renderers.RenderRootCatalog(allWorkflows, mcpInstructions, claudeRegistryContents)
 	if err != nil {
 		return fmt.Errorf("materializer: render CLAUDE.md catalog: %w", err)
 	}
@@ -386,7 +386,7 @@ func (m *Materializer) Install(
 	}
 
 	// Generate AGENTS.md with .agents/ paths for factory, codex, opencode, copilot.
-	agentsCatalog, err := renderers.RenderRootCatalog(allSkills, allRules, allWorkflows, mcpInstructions, agentsRegistryContents)
+	agentsCatalog, err := renderers.RenderRootCatalog(allWorkflows, mcpInstructions, agentsRegistryContents)
 	if err != nil {
 		return fmt.Errorf("materializer: render AGENTS.md catalog: %w", err)
 	}

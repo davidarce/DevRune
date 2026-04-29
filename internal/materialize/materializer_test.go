@@ -1205,9 +1205,13 @@ func TestMaterializer_Install_RemovesOldWorkspaceCatalogs(t *testing.T) {
 	}
 }
 
-// TestMaterializer_Install_RootCatalogContainsSkillNames verifies that the root
-// AGENTS.md includes skill names when skills are installed.
-func TestMaterializer_Install_RootCatalogContainsSkillNames(t *testing.T) {
+// TestMaterializer_Install_RootCatalogOmitsSkillNames verifies that the root
+// AGENTS.md does NOT include a Skills table or per-skill rows when skills are
+// installed: agents discover skills through their own runtime mechanisms, so
+// the Skills table was intentionally removed from RenderRootCatalog. The
+// generated managed block only carries the header (and would carry workflows /
+// MCP-instruction sections when those are present).
+func TestMaterializer_Install_RootCatalogOmitsSkillNames(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a fake skill package in the cache.
@@ -1258,8 +1262,17 @@ func TestMaterializer_Install_RootCatalogContainsSkillNames(t *testing.T) {
 	}
 	content := string(data)
 
-	if !strings.Contains(content, "unit-test-advisor") {
-		t.Errorf("AGENTS.md should contain skill name 'unit-test-advisor'; got:\n%s", content)
+	// Header is always rendered.
+	if !strings.Contains(content, "# Agent Catalog") {
+		t.Errorf("AGENTS.md should contain the auto-generated header; got:\n%s", content)
+	}
+
+	// Skills table must NOT appear.
+	if strings.Contains(content, "## Skills") {
+		t.Errorf("AGENTS.md must NOT contain a Skills section; got:\n%s", content)
+	}
+	if strings.Contains(content, "unit-test-advisor") {
+		t.Errorf("AGENTS.md must NOT contain skill name 'unit-test-advisor'; got:\n%s", content)
 	}
 }
 

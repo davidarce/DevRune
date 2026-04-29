@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidarce/devrune/internal/materialize/renderers"
 	"github.com/davidarce/devrune/internal/model"
 )
 
@@ -59,38 +58,18 @@ func containsPath(paths []string, absPath string) bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T1 — CLAUDE.md + AGENTS.md round-trip
+// T1 — Root files are NOT touched
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TestSyncCatalogDocs_RootFilesRoundTrip verifies that running SyncCatalogDocs
-// on a tmpdir that already has CLAUDE.md and AGENTS.md with a managed block
-// (listing 3 skills) replaces the managed block to reflect 2 installed advisors
-// while leaving unmanaged content above and below the block byte-for-byte.
-func TestSyncCatalogDocs_RootFilesRoundTrip(t *testing.T) {
+// TestSyncCatalogDocs_DoesNotTouchRootFiles verifies that SyncCatalogDocs no
+// longer rewrites CLAUDE.md / AGENTS.md (the Skills table that motivated this
+// sync was removed from the root catalog renderer; only `devrune sync` rebuilds
+// root catalog content now).
+func TestSyncCatalogDocs_DoesNotTouchRootFiles(t *testing.T) {
 	wd := t.TempDir()
-
-	// Build a file that has unmanaged content above and below the managed block.
-	prefix := "# My project notes\n\nThis is not managed.\n\n"
-	suffix := "\n## Other section\n\nMore unmanaged content.\n"
-
-	managed := renderers.CatalogBeginMarker + "\n" +
-		"# Agent Catalog\n\n" +
-		"## Skills\n\n" +
-		"| Skill | Invocation | Use When |\n" +
-		"|-------|------------|----------|\n" +
-		"| `alpha` | `/alpha` | Skill A |\n" +
-		"| `beta` | `/beta` | Skill B |\n" +
-		"| `gamma` | `/gamma` | Skill C |\n" +
-		renderers.CatalogEndMarker + "\n"
-
-	fullContent := prefix + managed + suffix
-
-	writeFile(t, filepath.Join(wd, "CLAUDE.md"), fullContent)
-	writeFile(t, filepath.Join(wd, "AGENTS.md"), fullContent)
 
 	advisors := []model.ContentItem{
 		anAdvisorItem("alpha", "Advisor alpha"),
-		anAdvisorItem("beta", "Advisor beta"),
 	}
 
 	manifest := AUserManifest().Build()
@@ -99,81 +78,19 @@ func TestSyncCatalogDocs_RootFilesRoundTrip(t *testing.T) {
 		t.Fatalf("SyncCatalogDocs returned error: %v", err)
 	}
 
-	// Both root files must be listed in WrittenRootFiles.
-	claudePath := filepath.Join(wd, "CLAUDE.md")
-	agentsPath := filepath.Join(wd, "AGENTS.md")
-
-	if !containsPath(result.WrittenRootFiles, claudePath) {
-		t.Errorf("WrittenRootFiles does not contain CLAUDE.md; got %v", result.WrittenRootFiles)
-	}
-	if !containsPath(result.WrittenRootFiles, agentsPath) {
-		t.Errorf("WrittenRootFiles does not contain AGENTS.md; got %v", result.WrittenRootFiles)
+	if len(result.WrittenRootFiles) != 0 {
+		t.Errorf("WrittenRootFiles must be empty; got %v", result.WrittenRootFiles)
 	}
 
-	for _, path := range []string{claudePath, agentsPath} {
-		content := readFile(t, path)
-
-		// Unmanaged prefix must be preserved.
-		if !strings.HasPrefix(content, prefix) {
-			t.Errorf("%s: unmanaged prefix not preserved; got:\n%s", filepath.Base(path), content)
-		}
-
-		// Unmanaged suffix must be preserved.
-		if !strings.HasSuffix(content, suffix) {
-			t.Errorf("%s: unmanaged suffix not preserved; got:\n%s", filepath.Base(path), content)
-		}
-
-		// The managed block must now list only 2 advisors (alpha, beta), not 3.
-		if strings.Contains(content, "gamma") {
-			t.Errorf("%s: gamma advisor should have been removed from the managed block", filepath.Base(path))
-		}
-		if !strings.Contains(content, "alpha") {
-			t.Errorf("%s: alpha advisor missing from the managed block", filepath.Base(path))
-		}
-		if !strings.Contains(content, "beta") {
-			t.Errorf("%s: beta advisor missing from the managed block", filepath.Base(path))
+	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
+		if _, err := os.Stat(filepath.Join(wd, name)); err == nil {
+			t.Errorf("%s should not have been created by SyncCatalogDocs", name)
 		}
 	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T2 — CLAUDE.md missing file
-// ─────────────────────────────────────────────────────────────────────────────
-
-// TestSyncCatalogDocs_CLAUDEMDMissing verifies that when CLAUDE.md does not
-// exist, SyncCatalogDocs creates it and places the managed block inside.
-func TestSyncCatalogDocs_CLAUDEMDMissing(t *testing.T) {
-	wd := t.TempDir()
-
-	// CLAUDE.md intentionally absent; AGENTS.md also absent.
-
-	advisors := []model.ContentItem{
-		anAdvisorItem("my-advisor", "Does something useful"),
-	}
-
-	manifest := AUserManifest().Build()
-	result, err := SyncCatalogDocs(wd, manifest, advisors)
-	if err != nil {
-		t.Fatalf("SyncCatalogDocs returned error: %v", err)
-	}
-
-	claudePath := filepath.Join(wd, "CLAUDE.md")
-	if !containsPath(result.WrittenRootFiles, claudePath) {
-		t.Errorf("WrittenRootFiles does not contain CLAUDE.md; got %v", result.WrittenRootFiles)
-	}
-
-	content := readFile(t, claudePath)
-
-	if !strings.Contains(content, renderers.CatalogBeginMarker) {
-		t.Errorf("CLAUDE.md missing CatalogBeginMarker; content:\n%s", content)
-	}
-	if !strings.Contains(content, renderers.CatalogEndMarker) {
-		t.Errorf("CLAUDE.md missing CatalogEndMarker; content:\n%s", content)
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// T3 — SDD skill file happy path
+// T2 — SDD skill file happy path
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestSyncCatalogDocs_SDDSkillHappyPath verifies that when an SDD skill
@@ -237,7 +154,7 @@ func TestSyncCatalogDocs_SDDSkillHappyPath(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T4 — SDD skill file missing markers
+// T3 — SDD skill file missing markers
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestSyncCatalogDocs_SDDSkillMissingMarkers verifies that when an SDD skill
@@ -274,7 +191,7 @@ func TestSyncCatalogDocs_SDDSkillMissingMarkers(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T5 — SDD skill file missing entirely
+// T4 — SDD skill file missing entirely
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestSyncCatalogDocs_SDDSkillMissingFile verifies that a missing SDD skill
@@ -302,15 +219,14 @@ func TestSyncCatalogDocs_SDDSkillMissingFile(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T6 — Idempotency
+// T5 — Idempotency (SDD skill file)
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestSyncCatalogDocs_Idempotency verifies that calling SyncCatalogDocs twice
-// with identical inputs produces the same bytes on disk.
+// with identical inputs produces the same bytes on disk for the SDD skill file.
 func TestSyncCatalogDocs_Idempotency(t *testing.T) {
 	wd := t.TempDir()
 
-	// Seed the SDD skill file with markers so it participates in both runs.
 	relPath := filepath.Join(".claude", "skills", "sdd-plan", "SKILL.md")
 	absPath := filepath.Join(wd, relPath)
 
@@ -326,27 +242,13 @@ func TestSyncCatalogDocs_Idempotency(t *testing.T) {
 
 	manifest := AUserManifest().Build()
 
-	// First run.
 	if _, err := SyncCatalogDocs(wd, manifest, advisors); err != nil {
 		t.Fatalf("SyncCatalogDocs (run 1) returned error: %v", err)
 	}
-
-	// Capture disk state after first run.
-	claudeAfterRun1 := readFile(t, filepath.Join(wd, "CLAUDE.md"))
-	agentsAfterRun1 := readFile(t, filepath.Join(wd, "AGENTS.md"))
 	sddAfterRun1 := readFile(t, absPath)
 
-	// Second run.
 	if _, err := SyncCatalogDocs(wd, manifest, advisors); err != nil {
 		t.Fatalf("SyncCatalogDocs (run 2) returned error: %v", err)
-	}
-
-	// Files must be byte-identical.
-	if got := readFile(t, filepath.Join(wd, "CLAUDE.md")); got != claudeAfterRun1 {
-		t.Errorf("CLAUDE.md not idempotent:\nrun1:\n%s\nrun2:\n%s", claudeAfterRun1, got)
-	}
-	if got := readFile(t, filepath.Join(wd, "AGENTS.md")); got != agentsAfterRun1 {
-		t.Errorf("AGENTS.md not idempotent:\nrun1:\n%s\nrun2:\n%s", agentsAfterRun1, got)
 	}
 	if got := readFile(t, absPath); got != sddAfterRun1 {
 		t.Errorf("sdd-plan/SKILL.md not idempotent:\nrun1:\n%s\nrun2:\n%s", sddAfterRun1, got)
@@ -354,7 +256,7 @@ func TestSyncCatalogDocs_Idempotency(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T7 — Removed advisor
+// T6 — Removed advisor
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestSyncCatalogDocs_RemovedAdvisor verifies that when the SDD skill file
