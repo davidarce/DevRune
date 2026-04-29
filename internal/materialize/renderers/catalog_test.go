@@ -12,7 +12,7 @@ import (
 
 // TestRenderRootCatalog_Header verifies the output contains the standard header.
 func TestRenderRootCatalog_Header(t *testing.T) {
-	out, err := renderers.RenderRootCatalog(nil, nil, nil, nil, nil)
+	out, err := renderers.RenderRootCatalog(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderRootCatalog: %v", err)
 	}
@@ -26,111 +26,16 @@ func TestRenderRootCatalog_Header(t *testing.T) {
 
 // TestRenderRootCatalog_EmptyInputs verifies that empty inputs produce only the header.
 func TestRenderRootCatalog_EmptyInputs(t *testing.T) {
-	out, err := renderers.RenderRootCatalog(nil, nil, nil, nil, nil)
+	out, err := renderers.RenderRootCatalog(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderRootCatalog: %v", err)
-	}
-	if strings.Contains(out, "## Skills") {
-		t.Errorf("expected no Skills section with empty skills, got one")
-	}
-	if strings.Contains(out, "## Project Rules") {
-		t.Errorf("expected no Project Rules section with empty rules, got one")
 	}
 	if strings.Contains(out, "## Workflows") {
 		t.Errorf("expected no Workflows section with empty workflows, got one")
 	}
-	if strings.Contains(out, "## Decision Rules") {
-		t.Errorf("expected no Decision Rules section with empty workflows, got one")
-	}
 }
 
-// TestRenderRootCatalog_WithSkills verifies the skills table is rendered correctly.
-func TestRenderRootCatalog_WithSkills(t *testing.T) {
-	skills := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "git-commit", Path: "skills/git-commit/", Description: "Automate git commits"},
-		{Kind: model.KindSkill, Name: "architect-advisor", Path: "skills/architect-advisor/", Description: "Clean architecture patterns"},
-	}
-
-	out, err := renderers.RenderRootCatalog(skills, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("RenderRootCatalog: %v", err)
-	}
-
-	if !strings.Contains(out, "## Skills") {
-		t.Errorf("output missing Skills section")
-	}
-	if !strings.Contains(out, "| Skill | Invocation | Use When |") {
-		t.Errorf("output missing skills table header")
-	}
-	if !strings.Contains(out, "`git-commit`") {
-		t.Errorf("output missing git-commit skill row")
-	}
-	if !strings.Contains(out, "`/git-commit`") {
-		t.Errorf("output missing invocation column for git-commit")
-	}
-	if !strings.Contains(out, "Automate git commits") {
-		t.Errorf("output missing skill description")
-	}
-	if !strings.Contains(out, "`architect-advisor`") {
-		t.Errorf("output missing architect-advisor skill row")
-	}
-}
-
-// TestRenderRootCatalog_WithRules verifies the project rules table is rendered correctly.
-func TestRenderRootCatalog_WithRules(t *testing.T) {
-	rules := []model.ContentItem{
-		{
-			Kind:        model.KindRule,
-			Name:        "clean-architecture",
-			Path:        "rules/clean-architecture/",
-			Description: "Hexagonal architecture patterns",
-			RuleMeta: &model.RuleMeta{
-				Scope:       "architecture",
-				Technology:  "",
-				AppliesTo:   "architect-advisor",
-				Description: "Hexagonal architecture, DDD patterns",
-				DisplayName: "clean-architecture",
-			},
-		},
-		{
-			Kind:        model.KindRule,
-			Name:        "java-spring",
-			Path:        "rules/java-spring/",
-			Description: "Java Spring Boot conventions",
-			RuleMeta: &model.RuleMeta{
-				Scope:      "tech",
-				Technology: "java",
-				AppliesTo:  "architect-advisor, unit-test-advisor",
-			},
-		},
-	}
-
-	out, err := renderers.RenderRootCatalog(nil, rules, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("RenderRootCatalog: %v", err)
-	}
-
-	if !strings.Contains(out, "## Project Rules") {
-		t.Errorf("output missing Project Rules section")
-	}
-	if !strings.Contains(out, "| Rule | Scope | Technology | Applies To | Description |") {
-		t.Errorf("output missing project rules table header")
-	}
-	if !strings.Contains(out, "`clean-architecture`") {
-		t.Errorf("output missing clean-architecture rule")
-	}
-	if !strings.Contains(out, "architecture") {
-		t.Errorf("output missing scope for clean-architecture rule")
-	}
-	if !strings.Contains(out, "`java-spring`") {
-		t.Errorf("output missing java-spring rule")
-	}
-	if !strings.Contains(out, "java") {
-		t.Errorf("output missing technology column for java-spring rule")
-	}
-}
-
-// TestRenderRootCatalog_WithWorkflows verifies workflows section and decision rules are rendered.
+// TestRenderRootCatalog_WithWorkflows verifies workflows section and commands table are rendered.
 func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 	workflows := []model.WorkflowManifest{
 		{
@@ -139,12 +44,6 @@ func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 				DisplayName: "SDD (Spec-Driven Development)",
 			},
 			Components: model.WorkflowComponents{
-				DecisionRules: []model.DecisionRule{
-					{Scenario: `"commit", "commit my changes"`, Resolution: "Use `git:commit`"},
-				},
-				InvocationControls: []model.InvocationControl{
-					{Skills: "git:commit, git:pull-request", Description: "When user requests commit/PR operations"},
-				},
 				Commands: []model.WorkflowCommand{
 					{Name: "sdd-explore", Action: "Start SDD explore phase", Argument: "{topic}"},
 				},
@@ -152,7 +51,7 @@ func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 		},
 	}
 
-	out, err := renderers.RenderRootCatalog(nil, nil, workflows, nil, nil)
+	out, err := renderers.RenderRootCatalog(workflows, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderRootCatalog: %v", err)
 	}
@@ -162,18 +61,6 @@ func TestRenderRootCatalog_WithWorkflows(t *testing.T) {
 	}
 	if !strings.Contains(out, "### SDD (Spec-Driven Development)") {
 		t.Errorf("output missing sdd workflow heading")
-	}
-	if !strings.Contains(out, "## Decision Rules") {
-		t.Errorf("output missing Decision Rules section")
-	}
-	if !strings.Contains(out, `"commit", "commit my changes"`) {
-		t.Errorf("output missing decision rule scenario")
-	}
-	if !strings.Contains(out, "## Invocation Controls") {
-		t.Errorf("output missing Invocation Controls section")
-	}
-	if !strings.Contains(out, "git:commit, git:pull-request") {
-		t.Errorf("output missing invocation control")
 	}
 	if !strings.Contains(out, "`/sdd-explore {topic}`") {
 		t.Errorf("output missing sdd-explore command")
@@ -186,7 +73,7 @@ func TestRenderRootCatalog_WithMCPInstructions(t *testing.T) {
 		mcpInstructions := map[string]string{
 			"my-mcp": "## My Custom Header\n\nSome instructions.\n",
 		}
-		out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
+		out, err := renderers.RenderRootCatalog(nil, mcpInstructions, nil)
 		if err != nil {
 			t.Fatalf("RenderRootCatalog: %v", err)
 		}
@@ -205,7 +92,7 @@ func TestRenderRootCatalog_WithMCPInstructions(t *testing.T) {
 		mcpInstructions := map[string]string{
 			"my-mcp": "Use this tool for searching.\n",
 		}
-		out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
+		out, err := renderers.RenderRootCatalog(nil, mcpInstructions, nil)
 		if err != nil {
 			t.Fatalf("RenderRootCatalog: %v", err)
 		}
@@ -218,7 +105,7 @@ func TestRenderRootCatalog_WithMCPInstructions(t *testing.T) {
 		mcpInstructions := map[string]string{
 			"my-mcp": "   ",
 		}
-		out, err := renderers.RenderRootCatalog(nil, nil, nil, mcpInstructions, nil)
+		out, err := renderers.RenderRootCatalog(nil, mcpInstructions, nil)
 		if err != nil {
 			t.Fatalf("RenderRootCatalog: %v", err)
 		}
@@ -232,7 +119,7 @@ func TestRenderRootCatalog_WithMCPInstructions(t *testing.T) {
 func TestRenderRootCatalog_WithRegistryContents(t *testing.T) {
 	workflows := []model.WorkflowManifest{
 		{
-			Metadata: model.WorkflowMetadata{Name: "sdd"},
+			Metadata:   model.WorkflowMetadata{Name: "sdd"},
 			Components: model.WorkflowComponents{},
 		},
 	}
@@ -240,7 +127,7 @@ func TestRenderRootCatalog_WithRegistryContents(t *testing.T) {
 		"sdd": "## SDD — Evaluation Gate (HIGHEST PRIORITY)\n\nBefore starting ANY implementation...\n",
 	}
 
-	out, err := renderers.RenderRootCatalog(nil, nil, workflows, nil, registryContents)
+	out, err := renderers.RenderRootCatalog(workflows, nil, registryContents)
 	if err != nil {
 		t.Fatalf("RenderRootCatalog: %v", err)
 	}
@@ -252,41 +139,19 @@ func TestRenderRootCatalog_WithRegistryContents(t *testing.T) {
 
 // TestRenderRootCatalog_ReturnsString verifies the function returns a string (not writing to file).
 func TestRenderRootCatalog_ReturnsString(t *testing.T) {
-	skills := []model.ContentItem{
-		{Kind: model.KindSkill, Name: "test-skill", Path: "skills/test-skill/", Description: "A test skill"},
+	workflows := []model.WorkflowManifest{
+		{
+			Metadata:   model.WorkflowMetadata{Name: "test", DisplayName: "Test Workflow"},
+			Components: model.WorkflowComponents{},
+		},
 	}
 
-	out, err := renderers.RenderRootCatalog(skills, nil, nil, nil, nil)
+	out, err := renderers.RenderRootCatalog(workflows, nil, nil)
 	if err != nil {
 		t.Fatalf("RenderRootCatalog: %v", err)
 	}
 	if out == "" {
 		t.Errorf("expected non-empty string result")
-	}
-	// Verify it's truly a string result and not a side effect (file writing).
-	// The test itself doesn't create temp dirs — if the function wrote to disk,
-	// it would have to hardcode a path, which is clearly wrong.
-	if len(out) == 0 {
-		t.Errorf("expected content in returned string")
-	}
-}
-
-// TestRenderRootCatalog_RuleWithoutMeta verifies rules without RuleMeta use defaults.
-func TestRenderRootCatalog_RuleWithoutMeta(t *testing.T) {
-	rules := []model.ContentItem{
-		{Kind: model.KindRule, Name: "my-rule", Path: "rules/my-rule/", Description: "A plain rule"},
-	}
-
-	out, err := renderers.RenderRootCatalog(nil, rules, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("RenderRootCatalog: %v", err)
-	}
-
-	if !strings.Contains(out, "`my-rule`") {
-		t.Errorf("output missing rule name")
-	}
-	if !strings.Contains(out, "A plain rule") {
-		t.Errorf("output missing rule description")
 	}
 }
 

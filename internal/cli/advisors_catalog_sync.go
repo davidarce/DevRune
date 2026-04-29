@@ -9,9 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/davidarce/devrune/internal/materialize/renderers"
 	"github.com/davidarce/devrune/internal/model"
-	"github.com/davidarce/devrune/internal/parse"
 )
 
 // advisorsBeginMarker is the opening HTML comment that bounds the managed
@@ -32,8 +30,11 @@ var sddSkillFiles = []string{
 
 // SyncCatalogDocsResult carries the outcome of a SyncCatalogDocs call.
 type SyncCatalogDocsResult struct {
-	// WrittenRootFiles contains the absolute paths of root catalog files
-	// (CLAUDE.md, AGENTS.md) that were written or updated.
+	// WrittenRootFiles is retained for backward compatibility with downstream
+	// consumers (e.g. SyncAdvisors result aggregation) but is always nil:
+	// SyncCatalogDocs no longer rewrites CLAUDE.md / AGENTS.md, since the root
+	// catalog no longer carries an advisor-driven Skills table that needs
+	// per-advisor sync.
 	WrittenRootFiles []string
 
 	// WrittenSDDFiles contains the absolute paths of SDD skill instruction
@@ -53,9 +54,8 @@ type SyncCatalogDocsResult struct {
 	Warnings []string
 }
 
-// SyncCatalogDocs re-renders the advisor-visible sections of the root catalog
-// files (CLAUDE.md, AGENTS.md) and the advisor tables inside known SDD skill
-// instruction files.
+// SyncCatalogDocs splices the advisor table into known SDD skill instruction
+// files (sdd-plan, sdd-review, sdd-orchestrator).
 //
 // It is called from SyncAdvisors AFTER all renderer calls succeed and BEFORE
 // state.yaml is written. On error, state is not mutated.
@@ -65,72 +65,24 @@ type SyncCatalogDocsResult struct {
 //
 // The function is idempotent: calling it twice with identical inputs produces
 // byte-identical files on disk.
+//
+// The root catalog files (CLAUDE.md, AGENTS.md) are NOT touched: the
+// agent-discoverable Skills table was removed from RenderRootCatalog, so
+// there is nothing for an advisor add/remove to refresh in the managed block.
+// Run `devrune sync` to rebuild root catalog content (workflows + MCPs).
 func SyncCatalogDocs(
 	wd string,
 	manifest model.UserManifest,
 	installedAdvisors []model.ContentItem,
 ) (SyncCatalogDocsResult, error) {
+	_ = manifest // retained in signature for backward compatibility with callers
 	var result SyncCatalogDocsResult
 
-	// Step 1: Re-render CLAUDE.md and AGENTS.md managed blocks.
-	if err := syncRootCatalogFiles(wd, manifest, installedAdvisors, &result); err != nil {
-		return result, fmt.Errorf("SyncCatalogDocs: root catalog sync: %w", err)
-	}
-
-	// Step 2: Splice advisor tables into SDD skill instruction files.
 	if err := syncSDDSkillFiles(wd, installedAdvisors, &result); err != nil {
 		return result, fmt.Errorf("SyncCatalogDocs: SDD skill sync: %w", err)
 	}
 
 	return result, nil
-}
-
-// syncRootCatalogFiles re-renders CLAUDE.md and AGENTS.md using
-// renderers.RenderRootCatalog with the current set of all installed skills
-// (read from the lockfile) merged with installedAdvisors.
-func syncRootCatalogFiles(
-	wd string,
-	manifest model.UserManifest,
-	installedAdvisors []model.ContentItem,
-	result *SyncCatalogDocsResult,
-) error {
-	// Build the merged skills list from the lockfile + installedAdvisors.
-	allSkills, allRules, err := readInstalledSkillsAndRules(wd, manifest)
-	if err != nil {
-		// Non-fatal for rules: if the lockfile is absent (first run before devrune install),
-		// just use installedAdvisors alone. Skills is the critical set.
-		allSkills = nil
-		allRules = nil
-	}
-
-	// Merge installedAdvisors into allSkills (dedup by Name).
-	allSkills = mergeSkills(allSkills, installedAdvisors)
-
-	// Call RenderRootCatalog. For the narrow SyncAdvisors context we pass:
-	//   - skills = allSkills (deduplicated existing + advisors)
-	//   - rules  = allRules (from lockfile, may be empty)
-	//   - workflows, mcpInstructions, registryContents = empty (preserved via
-	//     the surrounding unmanaged content; only the managed block is replaced)
-	catalog, err := renderers.RenderRootCatalog(allSkills, allRules, nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("syncRootCatalogFiles: RenderRootCatalog: %w", err)
-	}
-
-	// Write CLAUDE.md managed block.
-	claudePath := filepath.Join(wd, "CLAUDE.md")
-	if err := renderers.WriteManagedBlock(claudePath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, catalog); err != nil {
-		return fmt.Errorf("syncRootCatalogFiles: write CLAUDE.md: %w", err)
-	}
-	result.WrittenRootFiles = append(result.WrittenRootFiles, claudePath)
-
-	// Write AGENTS.md managed block (same catalog content for non-Claude agents).
-	agentsPath := filepath.Join(wd, "AGENTS.md")
-	if err := renderers.WriteManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, catalog); err != nil {
-		return fmt.Errorf("syncRootCatalogFiles: write AGENTS.md: %w", err)
-	}
-	result.WrittenRootFiles = append(result.WrittenRootFiles, agentsPath)
-
-	return nil
 }
 
 // syncSDDSkillFiles splices the advisor table between the managed marker pair
@@ -203,8 +155,8 @@ func syncSDDSkillFiles(
 }
 
 // buildAdvisorTable renders a markdown table of all installedAdvisors, sorted
-// by name. The table shape matches the Skills table emitted by RenderRootCatalog
-// so both surfaces read identically.
+// by name. The table shape is the canonical advisor table shape used inside
+// SDD skill instruction files.
 //
 // Returns an empty string when installedAdvisors is empty.
 func buildAdvisorTable(installedAdvisors []model.ContentItem) string {
@@ -226,74 +178,6 @@ func buildAdvisorTable(installedAdvisors []model.ContentItem) string {
 		_, _ = fmt.Fprintf(&sb, "| `%s` | `/%s` | %s |\n", a.Name, a.Name, a.Description)
 	}
 	return sb.String()
-}
-
-// readInstalledSkillsAndRules reads the devrune.lock file from wd and
-// returns the installed ContentItems separated into skills and rules.
-// If the lockfile is absent or unreadable the function returns empty slices
-// and a nil error — callers treat missing lockfile as "nothing installed yet".
-func readInstalledSkillsAndRules(wd string, _ model.UserManifest) (skills []model.ContentItem, rules []model.ContentItem, err error) {
-	lockPath := filepath.Join(wd, "devrune.lock")
-	data, err := os.ReadFile(lockPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, nil
-		}
-		return nil, nil, fmt.Errorf("readInstalledSkillsAndRules: read %q: %w", lockPath, err)
-	}
-
-	lock, err := parse.ParseLockfile(data)
-	if err != nil {
-		return nil, nil, fmt.Errorf("readInstalledSkillsAndRules: parse lockfile: %w", err)
-	}
-
-	seenSkill := make(map[string]bool)
-	seenRule := make(map[string]bool)
-
-	for _, pkg := range lock.Packages {
-		for _, item := range pkg.Contents {
-			switch item.Kind {
-			case model.KindSkill:
-				if !seenSkill[item.Name] {
-					seenSkill[item.Name] = true
-					skills = append(skills, item)
-				}
-			case model.KindRule:
-				if !seenRule[item.Name] {
-					seenRule[item.Name] = true
-					rules = append(rules, item)
-				}
-			}
-		}
-	}
-
-	return skills, rules, nil
-}
-
-// mergeSkills returns a deduplicated union of base and additions.
-// Items in additions whose Name already appears in base are skipped.
-// The relative order of base is preserved; additions are appended after.
-func mergeSkills(base []model.ContentItem, additions []model.ContentItem) []model.ContentItem {
-	if len(additions) == 0 {
-		return base
-	}
-
-	seen := make(map[string]bool, len(base))
-	for _, item := range base {
-		seen[item.Name] = true
-	}
-
-	merged := make([]model.ContentItem, len(base), len(base)+len(additions))
-	copy(merged, base)
-
-	for _, item := range additions {
-		if !seen[item.Name] {
-			seen[item.Name] = true
-			merged = append(merged, item)
-		}
-	}
-
-	return merged
 }
 
 // atomicWriteFile writes data to path atomically by writing to a temporary file

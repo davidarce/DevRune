@@ -350,21 +350,25 @@ func TestSyncAdvisors_RetryConvergence(t *testing.T) {
 	}
 }
 
-// TestSyncAdvisors_CatalogDocSyncRegression verifies that after a successful
-// SyncAdvisors call, CLAUDE.md and AGENTS.md are updated and the result
-// contains non-empty WrittenCatalogDocs. Also verifies WrittenSkillDocs is
-// populated when SDD skill files have the managed markers.
-func TestSyncAdvisors_CatalogDocSyncRegression(t *testing.T) {
+// TestSyncAdvisors_CatalogDocSync verifies that after a successful
+// SyncAdvisors call, CLAUDE.md and AGENTS.md are NOT touched (the root catalog
+// no longer carries an advisor-driven Skills table; only `devrune sync` rebuilds
+// root catalog content) while SDD skill files WITH the managed advisor markers
+// ARE updated and listed in WrittenSkillDocs.
+func TestSyncAdvisors_CatalogDocSync(t *testing.T) {
 	wd := t.TempDir()
 
 	// Seed two native advisors.
 	seedNativeSkillMD(t, wd, "unit-test-advisor", "Unit test advisor")
 	seedNativeSkillMD(t, wd, "architect-advisor", "Architect advisor")
 
-	// Seed CLAUDE.md and AGENTS.md with managed block.
+	// Seed CLAUDE.md and AGENTS.md with managed block; SyncAdvisors must NOT
+	// touch them.
 	managedBlock := "# >>> devrune managed — do not edit\n# Agent Catalog\n# <<< devrune managed\n"
-	writeFile(t, filepath.Join(wd, "CLAUDE.md"), managedBlock)
-	writeFile(t, filepath.Join(wd, "AGENTS.md"), managedBlock)
+	claudePath := filepath.Join(wd, "CLAUDE.md")
+	agentsPath := filepath.Join(wd, "AGENTS.md")
+	writeFile(t, claudePath, managedBlock)
+	writeFile(t, agentsPath, managedBlock)
 
 	// Seed two SDD skill files WITH managed advisor markers.
 	sddPlanPath := filepath.Join(wd, ".claude", "skills", "sdd-plan", "SKILL.md")
@@ -393,16 +397,18 @@ func TestSyncAdvisors_CatalogDocSyncRegression(t *testing.T) {
 		t.Fatalf("SyncAdvisors returned error: %v", err)
 	}
 
-	// CLAUDE.md and AGENTS.md must be listed in WrittenCatalogDocs.
-	if len(result.WrittenCatalogDocs) == 0 {
-		t.Error("WrittenCatalogDocs should be non-empty")
+	// Root catalog files must NOT have been written by advisor sync.
+	if len(result.WrittenCatalogDocs) != 0 {
+		t.Errorf("WrittenCatalogDocs must be empty; got %v", result.WrittenCatalogDocs)
 	}
-	claudePath := filepath.Join(wd, "CLAUDE.md")
-	if !containsStr(result.WrittenCatalogDocs, claudePath) {
-		t.Errorf("WrittenCatalogDocs missing CLAUDE.md; got %v", result.WrittenCatalogDocs)
+	if got := readFile(t, claudePath); got != managedBlock {
+		t.Errorf("CLAUDE.md must be unchanged by advisor sync; got:\n%s", got)
+	}
+	if got := readFile(t, agentsPath); got != managedBlock {
+		t.Errorf("AGENTS.md must be unchanged by advisor sync; got:\n%s", got)
 	}
 
-	// SDD skill files with markers must be in WrittenSkillDocs.
+	// SDD skill files with markers must still be in WrittenSkillDocs.
 	if len(result.WrittenSkillDocs) == 0 {
 		t.Error("WrittenSkillDocs should be non-empty")
 	}
