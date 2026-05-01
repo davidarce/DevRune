@@ -51,6 +51,7 @@ Configuring AI development agents used to mean juggling `.claude/`, `.agents/`, 
 - [How It Works](#-how-it-works)
 - [Installation](#-installation)
 - [Development](#-development)
+- [Releases](#-releases)
 - [Community & Support](#-community--support)
 - [License](#-license)
 
@@ -382,6 +383,24 @@ DevRune/
 ### Adding a workflow, skill, rule, or MCP
 
 These live in **catalogs**, not in DevRune. See the [devrune-starter-catalog README](https://github.com/davidarce/devrune-starter-catalog) for the format, or fork it to start your own.
+
+---
+
+## 🚀 Releases
+
+Releases are fully automated by [release-please](https://github.com/googleapis/release-please) and driven by [Conventional Commits](https://www.conventionalcommits.org/). You don't tag manually.
+
+**Flow**
+
+1. Land a PR on `main` with a Conventional Commit (`feat:` → minor, `fix:` → patch, `feat!:` / `BREAKING CHANGE:` → major after 1.0).
+2. release-please opens (or updates) a Release PR titled `chore: release X.Y.Z` with the version bump and a generated `CHANGELOG.md` diff.
+3. Merging that Release PR creates the `vX.Y.Z` tag, publishes the GitHub Release as **Latest**, and triggers GoReleaser in the same workflow to upload the Darwin/Linux binaries.
+
+**Notes**
+
+- Pre-1.0 (`0.x.y`): `feat!:` bumps minor, not major. Major is reserved for the deliberate `1.0.0` graduation.
+- `chore:`, `docs:`, `test:`, `ci:`, `build:`, `style:` are excluded from the changelog. Use `feat:` / `fix:` / `refactor:` / `perf:` for changelog-worthy work.
+- Tags created by `GITHUB_TOKEN` don't trigger downstream `on: push: tags` workflows, so GoReleaser is chained as a job inside `release-please.yml` rather than living in a standalone tag-triggered workflow.
 
 ---
 

@@ -51,6 +51,9 @@ release:
   name_template: "v{{ .Version }}"
   draft: false
   prerelease: auto
+  # release-please creates the GitHub Release with the changelog as the body
+  # before this job runs. Keep its body intact; we only upload binaries here.
+  mode: keep-existing
 
 changelog:
   sort: asc
