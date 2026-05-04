@@ -359,7 +359,7 @@ Create a detailed implementation plan.
 		agentsMdContent, readErr := os.ReadFile(agentsMdPath)
 		if readErr != nil {
 			t.Errorf("could not read AGENTS.md: %v", readErr)
-		} else if !strings.Contains(string(agentsMdContent), "# >>> devrune managed") {
+		} else if !strings.Contains(string(agentsMdContent), "<!-- >>> devrune managed") {
 			t.Errorf("AGENTS.md missing managed begin marker")
 		}
 	}
