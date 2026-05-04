@@ -149,8 +149,9 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 }
 
 // cleanManagedBlock removes DevRune-managed marker blocks from a file.
-// Supports both marker formats:
-//   - "# >>> devrune managed — do not edit" / "# <<< devrune managed" (gitignore, AGENTS.md)
+// Supports three marker formats:
+//   - "<!-- >>> devrune managed — do not edit -->" / "<!-- <<< devrune managed -->" (current Markdown catalogs)
+//   - "# >>> devrune managed — do not edit" / "# <<< devrune managed" (gitignore, legacy Markdown)
 //   - "# devrune:start" / "# devrune:end" (legacy gitignore)
 //
 // If the file becomes empty (only whitespace) after cleaning, it is deleted.
@@ -164,8 +165,10 @@ func cleanManagedBlock(wd, filename string) error {
 		return err
 	}
 
-	// Pairs of start/end markers to strip.
+	// Pairs of start/end markers to strip. Order matters only for documentation;
+	// the loop tries each pair until a match is found.
 	markerPairs := [][2]string{
+		{"<!-- >>> devrune managed — do not edit -->", "<!-- <<< devrune managed -->"},
 		{"# >>> devrune managed — do not edit", "# <<< devrune managed"},
 		{"# devrune:start", "# devrune:end"},
 	}
