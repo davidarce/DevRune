@@ -351,23 +351,19 @@ Create a detailed implementation plan.
 		t.Errorf("ORCHESTRATOR.md not installed: %v", err)
 	}
 
-	// Root AGENTS.md must exist with managed markers.
-	agentsMdPath := filepath.Join(projectRoot, "AGENTS.md")
-	if _, err := os.Stat(agentsMdPath); err != nil {
-		t.Errorf("AGENTS.md not created at project root: %v", err)
-	} else {
-		agentsMdContent, readErr := os.ReadFile(agentsMdPath)
-		if readErr != nil {
-			t.Errorf("could not read AGENTS.md: %v", readErr)
-		} else if !strings.Contains(string(agentsMdContent), "<!-- >>> devrune managed") {
-			t.Errorf("AGENTS.md missing managed begin marker")
-		}
+	// Root CLAUDE.md must exist with managed markers (Claude-only install).
+	catalogPath := filepath.Join(projectRoot, "CLAUDE.md")
+	if claudeContent, err := os.ReadFile(catalogPath); err != nil {
+		t.Errorf("CLAUDE.md not created at project root: %v", err)
+	} else if !strings.Contains(string(claudeContent), "<!-- >>> devrune managed") {
+		t.Errorf("CLAUDE.md missing managed begin marker")
 	}
 
-	// Root CLAUDE.md must exist (symlink or copy pointing to AGENTS.md).
-	catalogPath := filepath.Join(projectRoot, "CLAUDE.md")
-	if _, err := os.Stat(catalogPath); err != nil {
-		t.Errorf("CLAUDE.md not created at project root: %v", err)
+	// AGENTS.md must NOT exist when only Claude is active — that catalog is
+	// rendered for non-Claude agents (factory, opencode, copilot, codex).
+	agentsMdPath := filepath.Join(projectRoot, "AGENTS.md")
+	if _, err := os.Stat(agentsMdPath); err == nil {
+		t.Errorf("AGENTS.md should not be created when only Claude is active")
 	}
 
 	// .claude/CLAUDE.md must NOT exist (workspace catalog removed).
@@ -419,9 +415,6 @@ Create a detailed implementation plan.
 	// Artifacts should still be present after reinstall.
 	if _, err := os.Stat(gitCommitInstalled); err != nil {
 		t.Errorf("git-commit/SKILL.md missing after reinstall: %v", err)
-	}
-	if _, err := os.Stat(agentsMdPath); err != nil {
-		t.Errorf("AGENTS.md missing after reinstall: %v", err)
 	}
 	if _, err := os.Stat(catalogPath); err != nil {
 		t.Errorf("CLAUDE.md missing after reinstall: %v", err)
