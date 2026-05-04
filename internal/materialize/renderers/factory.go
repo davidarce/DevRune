@@ -363,9 +363,11 @@ func (r *FactoryRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 					fmt.Fprintf(os.Stderr, "⚠️  factory: invalid hook JSON %s: %v (skipping asset copy)\n", def.Definition, err)
 					continue
 				}
-				if err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755); err != nil {
+				copied, err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755)
+				if err != nil {
 					return matypes.WorkflowInstallResult{}, fmt.Errorf("factory: copy hook script assets for %s: %w", def.Definition, err)
 				}
+				managedPaths = append(managedPaths, copied...)
 			}
 		}
 	}
