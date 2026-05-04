@@ -321,6 +321,22 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 			continue // Skip the manifest file itself.
 		}
 
+		// Skip the registry file — it is captured for catalog injection (loaded
+		// into the rendered AGENTS.md/CLAUDE.md) and must NOT leak into the
+		// workspace as a loose file.
+		if wf.Components.Registry != "" && name == wf.Components.Registry {
+			continue
+		}
+
+		// Skip all registry variant files (e.g. REGISTRY.claude.md,
+		// REGISTRY.copilot.md, REGISTRY.opencode.md). Only the variant whose
+		// agent matches is consumed by the renderer (resolved above for
+		// Claude); the rest are templates that must NOT be copied loose into
+		// the workspace.
+		if registryVariantNames[name] {
+			continue
+		}
+
 		// Skip all orchestrator variant files — none should be copied as loose files.
 		// The Claude-native variant (if present) is placed via the entrypoint branch
 		// below with the suffix stripped to wf.Components.Entrypoint.
