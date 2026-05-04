@@ -175,6 +175,63 @@ func (r *ClaudeRenderer) RenderSkill(canonicalPath string, destDir string) error
 	return nil
 }
 
+// RenderOrchestratorSkill writes an orchestrator skill SKILL.md whose body is
+// the resolved ORCHESTRATOR playbook. The frontmatter is read from the
+// canonical skill template (with non-Claude fields dropped) and the body is
+// replaced with the orchestrator entrypoint content. The result is a
+// self-contained skill — when invoked via Skill("sdd-orchestrator"), the agent
+// reads the full playbook from SKILL.md without following a "read
+// ORCHESTRATOR.md" pointer. ORCHESTRATOR.md is no longer copied loose to the
+// workspace; its content lives only inside this combined SKILL.md.
+//
+// skillTemplatePath may be either a SKILL.md file or a directory containing
+// SKILL.md. orchestratorPath must point to the resolved ORCHESTRATOR file
+// (variant or base) whose body should be embedded.
+func (r *ClaudeRenderer) RenderOrchestratorSkill(skillTemplatePath, orchestratorPath, destDir string) error {
+	skillFile, err := resolveSkillFile(skillTemplatePath)
+	if err != nil {
+		return fmt.Errorf("claude: resolve skill file %q: %w", skillTemplatePath, err)
+	}
+
+	skillData, err := os.ReadFile(skillFile)
+	if err != nil {
+		return fmt.Errorf("claude: read %q: %w", skillFile, err)
+	}
+
+	fm, _, err := parse.ParseFrontmatter(skillData)
+	if err != nil {
+		return fmt.Errorf("claude: parse frontmatter %q: %w", skillFile, err)
+	}
+
+	// Drop fields not supported by Claude.
+	for _, field := range claudeDropFields {
+		delete(fm, field)
+	}
+
+	orchestratorData, err := os.ReadFile(orchestratorPath)
+	if err != nil {
+		return fmt.Errorf("claude: read orchestrator %q: %w", orchestratorPath, err)
+	}
+
+	// Trim leading whitespace so the rendered body starts at the first
+	// meaningful heading immediately after the frontmatter delimiter.
+	body := strings.TrimLeft(string(orchestratorData), "\n\r\t ")
+
+	out, err := parse.SerializeFrontmatter(fm, body)
+	if err != nil {
+		return fmt.Errorf("claude: serialize orchestrator skill %q: %w", skillFile, err)
+	}
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("claude: mkdir %q: %w", destDir, err)
+	}
+	dest := filepath.Join(destDir, "SKILL.md")
+	if err := os.WriteFile(dest, out, 0o644); err != nil {
+		return fmt.Errorf("claude: write %q: %w", dest, err)
+	}
+	return nil
+}
+
 // RenderCommand writes a minimal SKILL.md stub for a workflow command.
 func (r *ClaudeRenderer) RenderCommand(cmd model.WorkflowCommand, destDir string) error {
 	fm := map[string]any{
@@ -347,8 +404,19 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		if skillsSet[name] {
 			// Install skills at first level so the Skill tool can discover them.
 			dstPath = filepath.Join(skillsBase, name)
-			// Apply frontmatter transform.
-			if err := r.RenderSkill(srcPath, dstPath); err != nil {
+			// For the orchestrator skill (the one whose dir name matches the
+			// workflow's working dir), merge the SKILL.md template's frontmatter
+			// with the resolved ORCHESTRATOR body so the skill is self-contained.
+			// Other skills get the standard frontmatter transform.
+			if name == wf.Metadata.EffectiveWorkingDir() {
+				orchestratorSrc := filepath.Join(cachePath, wf.Components.Entrypoint)
+				if variantOrchPath != "" {
+					orchestratorSrc = variantOrchPath
+				}
+				if err := r.RenderOrchestratorSkill(srcPath, orchestratorSrc, dstPath); err != nil {
+					return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: orchestrator skill %q: %w", name, err)
+				}
+			} else if err := r.RenderSkill(srcPath, dstPath); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow skill %q: %w", name, err)
 			}
 			if err := copySkillSubdirs(srcPath, dstPath); err != nil {
@@ -359,8 +427,21 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		}
 
 		if name == wf.Components.Entrypoint {
-			// Install the entrypoint, preferring the Claude-native variant when present.
-			// Destination filename is always wf.Components.Entrypoint (suffix-stripped).
+			// When the workflow declares an orchestrator skill (a skill whose
+			// dir name matches the working dir), the entrypoint body has been
+			// merged into that skill's SKILL.md (see RenderOrchestratorSkill
+			// above) and we must NOT also copy ORCHESTRATOR.md as a loose file
+			// — the skill is the single source of truth for the playbook.
+			//
+			// When the workflow has NO orchestrator skill (the workflow dir
+			// is just a container for workflow.yaml + entrypoint, no SKILL.md
+			// alongside it), fall back to the legacy behaviour and copy the
+			// entrypoint to the workspace as a loose file. This preserves
+			// minimal-test setups that don't model the orchestrator-as-skill
+			// pattern.
+			if skillsSet[wf.Metadata.EffectiveWorkingDir()] {
+				continue
+			}
 			effectiveSrc := srcPath
 			if variantOrchPath != "" {
 				effectiveSrc = variantOrchPath
@@ -400,11 +481,14 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	// advisor-templates.md is only needed by Codex/Factory via the generic ORCHESTRATOR.md.
 	_ = os.Remove(filepath.Join(destBase, "_shared", "advisor-templates.md"))
 
-	// 5. If the entrypoint was not present in the cache directory (cache lacks the
-	//    generic ORCHESTRATOR.md) but a Claude variant IS present, install the variant
-	//    under the generic filename. This preserves the suffix-stripping contract for
-	//    variant-only catalogs.
-	if variantOrchPath != "" {
+	// 5. Variant-only catalog fallback: if the cache lacks the generic
+	//    ORCHESTRATOR.md but a Claude variant IS present, install the variant
+	//    under the generic filename. This preserves the suffix-stripping
+	//    contract for variant-only catalogs in the LEGACY case (no
+	//    orchestrator skill). When the workflow declares an orchestrator
+	//    skill, the variant body has already been merged into SKILL.md by
+	//    RenderOrchestratorSkill above and no loose file is needed.
+	if variantOrchPath != "" && !skillsSet[wf.Metadata.EffectiveWorkingDir()] {
 		destEntrypoint := filepath.Join(destBase, wf.Components.Entrypoint)
 		if _, statErr := os.Stat(destEntrypoint); os.IsNotExist(statErr) {
 			if err := copySingleFile(variantOrchPath, destEntrypoint, 0o644); err != nil {
