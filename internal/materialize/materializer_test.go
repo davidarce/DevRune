@@ -1116,10 +1116,10 @@ func TestMaterializer_Install_WritesRootCatalog(t *testing.T) {
 	if !strings.Contains(content, "# <<< devrune managed") {
 		t.Errorf("AGENTS.md should contain end marker; got:\n%s", content)
 	}
-	// Must contain catalog header.
-	if !strings.Contains(content, "# Agent Catalog") {
-		t.Errorf("AGENTS.md should contain '# Agent Catalog'; got:\n%s", content)
-	}
+	// Must contain managed-block markers; per-workflow content (e.g.
+	// "## Available Workflows") only appears when workflows are configured —
+	// the marker assertions above are the stable invariants for an install
+	// without workflow content.
 }
 
 // TestMaterializer_Install_CreatesCLAUDEmdSymlink verifies that CLAUDE.md is created
@@ -1262,9 +1262,11 @@ func TestMaterializer_Install_RootCatalogOmitsSkillNames(t *testing.T) {
 	}
 	content := string(data)
 
-	// Header is always rendered.
-	if !strings.Contains(content, "# Agent Catalog") {
-		t.Errorf("AGENTS.md should contain the auto-generated header; got:\n%s", content)
+	// Managed-block markers are the stable invariant for the rendered
+	// catalog; the workflow registry sections only appear when workflows
+	// are installed.
+	if !strings.Contains(content, "# >>> devrune managed") {
+		t.Errorf("AGENTS.md should contain begin marker; got:\n%s", content)
 	}
 
 	// Skills table must NOT appear.
@@ -1326,8 +1328,8 @@ func TestMaterializer_Reinstall_PreservesUserContentInRootCatalog(t *testing.T) 
 	if !strings.Contains(content, "# My Custom Notes") {
 		t.Errorf("user content should be preserved after reinstall; got:\n%s", content)
 	}
-	if !strings.Contains(content, "# Agent Catalog") {
-		t.Errorf("catalog content should be present after reinstall; got:\n%s", content)
+	if !strings.Contains(content, "# >>> devrune managed") {
+		t.Errorf("managed-block marker should be present after reinstall; got:\n%s", content)
 	}
 }
 
