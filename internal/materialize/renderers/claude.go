@@ -504,6 +504,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	// For each hook definition, read the JSON and copy any .sh files referenced
 	// (string values ending in .sh) from the workflow cache to the agent workspace
 	// with executable permissions (0o755).
+	var hookAssetPaths []string
 	if wf.Components.Hooks != nil {
 		if defs, ok := wf.Components.Hooks.Agents["claude"]; ok {
 			for _, def := range defs {
@@ -513,9 +514,11 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 					fmt.Fprintf(os.Stderr, "⚠️  claude: invalid hook JSON %s: %v (skipping asset copy)\n", def.Definition, err)
 					continue
 				}
-				if err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755); err != nil {
+				copied, err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755)
+				if err != nil {
 					return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy hook assets for %s: %w", def.Definition, err)
 				}
+				hookAssetPaths = append(hookAssetPaths, copied...)
 			}
 		}
 	}
@@ -605,10 +608,11 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	//     — the materializer calls os.RemoveAll on every managed path on reinstall,
 	//     so listing agentsBase would wipe user-authored subagents in .claude/agents/.
 	//     Listing individual files keeps cleanup scoped to the renderer's own output.
-	managedPaths := make([]string, 0, 1+len(skillDirs)+len(agentFilePaths))
+	managedPaths := make([]string, 0, 1+len(skillDirs)+len(agentFilePaths)+len(hookAssetPaths))
 	managedPaths = append(managedPaths, destBase)
 	managedPaths = append(managedPaths, skillDirs...)
 	managedPaths = append(managedPaths, agentFilePaths...)
+	managedPaths = append(managedPaths, hookAssetPaths...)
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil
 }
 
