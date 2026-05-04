@@ -1077,8 +1077,9 @@ func TestMaterializer_Install_RenderSettingsReceivesSkillsAndWorkflows(t *testin
 
 // --- T023: Root catalog generation tests ---
 
-// TestMaterializer_Install_WritesRootCatalog verifies that Install creates AGENTS.md
-// at the project root containing a managed block with catalog content.
+// TestMaterializer_Install_WritesRootCatalog verifies that Install creates the
+// agent-specific root catalog (CLAUDE.md when Claude is active) at the project
+// root containing a managed block with catalog content.
 func TestMaterializer_Install_WritesRootCatalog(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -1101,30 +1102,31 @@ func TestMaterializer_Install_WritesRootCatalog(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// AGENTS.md must exist at project root.
-	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
-	data, err := os.ReadFile(agentsPath)
+	// CLAUDE.md must exist at project root (Claude-only install).
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	data, err := os.ReadFile(claudePath)
 	if err != nil {
-		t.Fatalf("AGENTS.md should exist at project root: %v", err)
+		t.Fatalf("CLAUDE.md should exist at project root: %v", err)
 	}
 	content := string(data)
 
 	// Must contain managed block markers.
 	if !strings.Contains(content, "<!-- >>> devrune managed") {
-		t.Errorf("AGENTS.md should contain begin marker; got:\n%s", content)
+		t.Errorf("CLAUDE.md should contain begin marker; got:\n%s", content)
 	}
 	if !strings.Contains(content, "<!-- <<< devrune managed") {
-		t.Errorf("AGENTS.md should contain end marker; got:\n%s", content)
+		t.Errorf("CLAUDE.md should contain end marker; got:\n%s", content)
 	}
-	// Must contain managed-block markers; per-workflow content (e.g.
-	// "## Available Workflows") only appears when workflows are configured —
-	// the marker assertions above are the stable invariants for an install
-	// without workflow content.
+	// AGENTS.md must NOT be written when Claude is the only active agent.
+	if _, err := os.Stat(filepath.Join(tmpDir, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Errorf("AGENTS.md should not be created when only Claude is active, stat err=%v", err)
+	}
 }
 
-// TestMaterializer_Install_CreatesCLAUDEmdSymlink verifies that CLAUDE.md is created
-// at project root (as symlink or copy pointing to AGENTS.md).
-func TestMaterializer_Install_CreatesCLAUDEmdSymlink(t *testing.T) {
+// TestMaterializer_Install_CreatesCLAUDEmd verifies that CLAUDE.md is created
+// at project root with its own managed block (it is no longer a symlink to
+// AGENTS.md — the two files are rendered independently with agent-specific paths).
+func TestMaterializer_Install_CreatesCLAUDEmd(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	agentDef := model.AgentDefinition{
@@ -1146,18 +1148,14 @@ func TestMaterializer_Install_CreatesCLAUDEmdSymlink(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// CLAUDE.md must exist at project root.
+	// CLAUDE.md must exist at project root with the managed block.
 	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
-	if _, err := os.Stat(claudePath); err != nil {
+	data, err := os.ReadFile(claudePath)
+	if err != nil {
 		t.Fatalf("CLAUDE.md should exist at project root: %v", err)
 	}
-
-	// CLAUDE.md content must match AGENTS.md content (it is a symlink or copy).
-	agentsData, _ := os.ReadFile(filepath.Join(tmpDir, "AGENTS.md"))
-	claudeData, _ := os.ReadFile(claudePath)
-	if string(agentsData) != string(claudeData) {
-		t.Errorf("CLAUDE.md content should match AGENTS.md; AGENTS.md=%q CLAUDE.md=%q",
-			string(agentsData), string(claudeData))
+	if !strings.Contains(string(data), "<!-- >>> devrune managed") {
+		t.Errorf("CLAUDE.md should contain managed begin marker; got:\n%s", string(data))
 	}
 }
 
@@ -1255,10 +1253,10 @@ func TestMaterializer_Install_RootCatalogOmitsSkillNames(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
-	data, err := os.ReadFile(agentsPath)
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	data, err := os.ReadFile(claudePath)
 	if err != nil {
-		t.Fatalf("AGENTS.md should exist: %v", err)
+		t.Fatalf("CLAUDE.md should exist: %v", err)
 	}
 	content := string(data)
 
@@ -1266,15 +1264,15 @@ func TestMaterializer_Install_RootCatalogOmitsSkillNames(t *testing.T) {
 	// catalog; the workflow registry sections only appear when workflows
 	// are installed.
 	if !strings.Contains(content, "<!-- >>> devrune managed") {
-		t.Errorf("AGENTS.md should contain begin marker; got:\n%s", content)
+		t.Errorf("CLAUDE.md should contain begin marker; got:\n%s", content)
 	}
 
 	// Skills table must NOT appear.
 	if strings.Contains(content, "## Skills") {
-		t.Errorf("AGENTS.md must NOT contain a Skills section; got:\n%s", content)
+		t.Errorf("CLAUDE.md must NOT contain a Skills section; got:\n%s", content)
 	}
 	if strings.Contains(content, "unit-test-advisor") {
-		t.Errorf("AGENTS.md must NOT contain skill name 'unit-test-advisor'; got:\n%s", content)
+		t.Errorf("CLAUDE.md must NOT contain skill name 'unit-test-advisor'; got:\n%s", content)
 	}
 }
 
@@ -1305,10 +1303,10 @@ func TestMaterializer_Reinstall_PreservesUserContentInRootCatalog(t *testing.T) 
 	}
 
 	// Simulate user adding content before the managed block.
-	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
-	existing, _ := os.ReadFile(agentsPath)
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	existing, _ := os.ReadFile(claudePath)
 	userContent := "# My Custom Notes\n\nKeep this content.\n\n"
-	_ = os.WriteFile(agentsPath, append([]byte(userContent), existing...), 0o644)
+	_ = os.WriteFile(claudePath, append([]byte(userContent), existing...), 0o644)
 
 	// Second install — same state manager (prev state from first install).
 	renderer2 := newStubRenderer("claude", "claude", agentDef)
@@ -1320,9 +1318,9 @@ func TestMaterializer_Reinstall_PreservesUserContentInRootCatalog(t *testing.T) 
 	}
 
 	// User content before the managed block must still be present.
-	data, err := os.ReadFile(agentsPath)
+	data, err := os.ReadFile(claudePath)
 	if err != nil {
-		t.Fatalf("AGENTS.md should still exist after reinstall: %v", err)
+		t.Fatalf("CLAUDE.md should still exist after reinstall: %v", err)
 	}
 	content := string(data)
 	if !strings.Contains(content, "# My Custom Notes") {
@@ -1373,10 +1371,95 @@ func TestMaterializer_Install_CLAUDEmd_NotRemovedIfUserOwned(t *testing.T) {
 	if !strings.Contains(string(data), "My custom instructions") {
 		t.Errorf("user-owned CLAUDE.md content should be preserved; got:\n%s", string(data))
 	}
+}
 
-	// AGENTS.md must still exist at project root.
+// TestMaterializer_Install_NonClaudeOnly_StripsStaleCLAUDEmd verifies that
+// installing only a non-Claude agent strips any leftover managed block from
+// a previous Claude install. Without this, CLAUDE.md keeps a half-rendered
+// catalog (heading without body) when the user re-runs install with a
+// reduced agent set.
+func TestMaterializer_Install_NonClaudeOnly_StripsStaleCLAUDEmd(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Seed a leftover CLAUDE.md from a hypothetical previous install.
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	stale := "<!-- >>> devrune managed — do not edit -->\n## Stale catalog body\n<!-- <<< devrune managed -->\n"
+	if err := os.WriteFile(claudePath, []byte(stale), 0o644); err != nil {
+		t.Fatalf("seed CLAUDE.md: %v", err)
+	}
+
+	agentDef := model.AgentDefinition{
+		Name:        "copilot",
+		Type:        "copilot",
+		Workspace:   filepath.Join(tmpDir, ".github"),
+		SkillDir:    "skills",
+		CatalogFile: "AGENTS.md",
+	}
+	renderer := newStubRenderer("copilot", "copilot", agentDef)
+	stateMgr := &stubStateManager{}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"copilot": renderer})
+
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:non-claude-only"}
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "copilot"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// AGENTS.md must be created (Copilot is non-Claude → uses AGENTS.md).
 	if _, err := os.Stat(filepath.Join(tmpDir, "AGENTS.md")); err != nil {
-		t.Errorf("AGENTS.md should still be created at project root: %v", err)
+		t.Errorf("AGENTS.md should be created when non-Claude agent is active: %v", err)
+	}
+
+	// Stale CLAUDE.md should be deleted (managed block was the entire file).
+	if _, err := os.Stat(claudePath); !os.IsNotExist(err) {
+		t.Errorf("stale CLAUDE.md should be removed when Claude is no longer active, stat err=%v", err)
+	}
+}
+
+// TestMaterializer_Install_NonClaudeOnly_PreservesUserCLAUDEmdContent verifies
+// that when a Claude-less install strips the stale managed block, any user
+// content outside the block survives (the file is rewritten without the block,
+// not deleted).
+func TestMaterializer_Install_NonClaudeOnly_PreservesUserCLAUDEmdContent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	mixed := "# My Project Notes\n\nUser content above.\n\n<!-- >>> devrune managed — do not edit -->\n## Stale catalog\n<!-- <<< devrune managed -->\n"
+	if err := os.WriteFile(claudePath, []byte(mixed), 0o644); err != nil {
+		t.Fatalf("seed CLAUDE.md: %v", err)
+	}
+
+	agentDef := model.AgentDefinition{
+		Name:        "copilot",
+		Type:        "copilot",
+		Workspace:   filepath.Join(tmpDir, ".github"),
+		SkillDir:    "skills",
+		CatalogFile: "AGENTS.md",
+	}
+	renderer := newStubRenderer("copilot", "copilot", agentDef)
+	stateMgr := &stubStateManager{}
+	cache := newStubCache()
+	linker, _ := materialize.NewLinker("copy")
+
+	m := materialize.NewMaterializer(cache, linker, stateMgr, map[string]materialize.AgentRenderer{"copilot": renderer})
+
+	lock := model.Lockfile{SchemaVersion: "v1", ManifestHash: "sha256:non-claude-mixed"}
+	if err := m.Install(context.Background(), lock, []model.AgentRef{{Name: "copilot"}}, model.InstallConfig{}, tmpDir, nil); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	data, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("CLAUDE.md should still exist when it had user content: %v", err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "# My Project Notes") {
+		t.Errorf("user content should survive; got:\n%s", got)
+	}
+	if strings.Contains(got, ">>> devrune managed") {
+		t.Errorf("stale managed block should be stripped; got:\n%s", got)
 	}
 }
 
