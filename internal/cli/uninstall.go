@@ -135,16 +135,57 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Remove empty workspace directories left behind after managed path cleanup.
+	// Walks each agent root post-order and removes any directory that becomes
+	// empty, so leftover empty subdirs (e.g. .claude/agents/, .claude/skills/)
+	// no longer keep the agent root alive after a full uninstall.
 	for _, dir := range []string{".claude", ".agents", ".codex", ".opencode", ".factory", ".github", ".vscode"} {
 		target := filepath.Join(wd, dir)
-		// os.Remove only succeeds on empty directories — safe to call always.
-		_ = os.Remove(target)
+		_ = pruneEmptyDirs(target)
 	}
 
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, tuistyles.StyleSuccess.Render(fmt.Sprintf("  ✓ Uninstalled %d managed file(s). DevRune configuration removed.", removed)))
 	_, _ = fmt.Fprintln(out)
 
+	return nil
+}
+
+// pruneEmptyDirs walks root post-order and removes any directory that has no
+// remaining entries. Returns nil if root does not exist; surfaces other errors
+// (callers usually ignore them — uninstall is best-effort).
+func pruneEmptyDirs(root string) error {
+	info, err := os.Stat(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if pruneErr := pruneEmptyDirs(filepath.Join(root, entry.Name())); pruneErr != nil {
+			return pruneErr
+		}
+	}
+
+	// After recursing, re-read entries — children may now be gone.
+	entries, err = os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return os.Remove(root)
+	}
 	return nil
 }
 

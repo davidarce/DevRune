@@ -205,3 +205,65 @@ func TestCleanManagedBlock_NoFile(t *testing.T) {
 		t.Errorf("cleanManagedBlock with no file: unexpected error: %v", err)
 	}
 }
+
+// TestPruneEmptyDirs_RemovesEmptyTree verifies that pruneEmptyDirs deletes a
+// directory whose entire subtree is empty.
+func TestPruneEmptyDirs_RemovesEmptyTree(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, ".claude")
+	for _, sub := range []string{"agents", "skills/foo", "commands"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+	}
+
+	if err := pruneEmptyDirs(root); err != nil {
+		t.Fatalf("pruneEmptyDirs: %v", err)
+	}
+
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Errorf("expected root dir to be removed, stat err=%v", err)
+	}
+}
+
+// TestPruneEmptyDirs_KeepsDirsWithFiles verifies that pruneEmptyDirs leaves
+// directories alone when they (or any descendant) contain a file.
+func TestPruneEmptyDirs_KeepsDirsWithFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, ".claude")
+	keepDir := filepath.Join(root, "hooks")
+	if err := os.MkdirAll(keepDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	keepFile := filepath.Join(keepDir, "leftover.sh")
+	if err := os.WriteFile(keepFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	// Sibling empty subtree that should be pruned.
+	if err := os.MkdirAll(filepath.Join(root, "skills/foo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if err := pruneEmptyDirs(root); err != nil {
+		t.Fatalf("pruneEmptyDirs: %v", err)
+	}
+
+	if _, err := os.Stat(keepFile); err != nil {
+		t.Errorf("leftover file should still exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills")); !os.IsNotExist(err) {
+		t.Errorf("empty sibling subtree should be pruned, stat err=%v", err)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Errorf("root should still exist because hooks/ has a file: %v", err)
+	}
+}
+
+// TestPruneEmptyDirs_NonExistent verifies that pruneEmptyDirs returns nil
+// when the target path does not exist.
+func TestPruneEmptyDirs_NonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := pruneEmptyDirs(filepath.Join(tmpDir, "does-not-exist")); err != nil {
+		t.Errorf("expected nil for missing dir, got: %v", err)
+	}
+}
