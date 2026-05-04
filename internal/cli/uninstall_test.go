@@ -144,7 +144,7 @@ func TestCleanManagedBlock_DeletesEmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
 
-	content := "# >>> devrune managed — do not edit\nsome content\n# <<< devrune managed\n"
+	content := "<!-- >>> devrune managed — do not edit -->\nsome content\n<!-- <<< devrune managed -->\n"
 	if err := os.WriteFile(agentsPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -155,6 +155,44 @@ func TestCleanManagedBlock_DeletesEmptyFile(t *testing.T) {
 
 	if _, err := os.Stat(agentsPath); !os.IsNotExist(err) {
 		t.Error("AGENTS.md should be deleted when only managed content remains")
+	}
+}
+
+// TestCleanManagedBlock_RemovesHTMLMarkers verifies that cleanManagedBlock
+// strips HTML-comment marker blocks (current Markdown catalog format).
+func TestCleanManagedBlock_RemovesHTMLMarkers(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+
+	content := "# Project Notes\n<!-- >>> devrune managed — do not edit -->\n## SDD Workflow\nfoo\n<!-- <<< devrune managed -->\nuser content after\n"
+	if err := os.WriteFile(claudePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := cleanManagedBlock(tmpDir, "CLAUDE.md"); err != nil {
+		t.Fatalf("cleanManagedBlock: %v", err)
+	}
+
+	data, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	got := string(data)
+	if strings.Contains(got, ">>> devrune managed") {
+		t.Errorf("HTML start marker still present: %q", got)
+	}
+	if strings.Contains(got, "<<< devrune managed") {
+		t.Errorf("HTML end marker still present: %q", got)
+	}
+	if strings.Contains(got, "## SDD Workflow") {
+		t.Errorf("managed body still present: %q", got)
+	}
+	if !strings.Contains(got, "# Project Notes") {
+		t.Errorf("pre-block user content removed: %q", got)
+	}
+	if !strings.Contains(got, "user content after") {
+		t.Errorf("post-block user content removed: %q", got)
 	}
 }
 

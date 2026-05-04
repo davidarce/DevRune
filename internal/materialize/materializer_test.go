@@ -1110,10 +1110,10 @@ func TestMaterializer_Install_WritesRootCatalog(t *testing.T) {
 	content := string(data)
 
 	// Must contain managed block markers.
-	if !strings.Contains(content, "# >>> devrune managed") {
+	if !strings.Contains(content, "<!-- >>> devrune managed") {
 		t.Errorf("AGENTS.md should contain begin marker; got:\n%s", content)
 	}
-	if !strings.Contains(content, "# <<< devrune managed") {
+	if !strings.Contains(content, "<!-- <<< devrune managed") {
 		t.Errorf("AGENTS.md should contain end marker; got:\n%s", content)
 	}
 	// Must contain managed-block markers; per-workflow content (e.g.
@@ -1265,7 +1265,7 @@ func TestMaterializer_Install_RootCatalogOmitsSkillNames(t *testing.T) {
 	// Managed-block markers are the stable invariant for the rendered
 	// catalog; the workflow registry sections only appear when workflows
 	// are installed.
-	if !strings.Contains(content, "# >>> devrune managed") {
+	if !strings.Contains(content, "<!-- >>> devrune managed") {
 		t.Errorf("AGENTS.md should contain begin marker; got:\n%s", content)
 	}
 
@@ -1328,7 +1328,7 @@ func TestMaterializer_Reinstall_PreservesUserContentInRootCatalog(t *testing.T) 
 	if !strings.Contains(content, "# My Custom Notes") {
 		t.Errorf("user content should be preserved after reinstall; got:\n%s", content)
 	}
-	if !strings.Contains(content, "# >>> devrune managed") {
+	if !strings.Contains(content, "<!-- >>> devrune managed") {
 		t.Errorf("managed-block marker should be present after reinstall; got:\n%s", content)
 	}
 }

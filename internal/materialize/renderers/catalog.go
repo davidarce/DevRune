@@ -11,12 +11,14 @@ import (
 )
 
 // CatalogBeginMarker is the opening delimiter for the DevRune-managed block
-// in root catalog files (AGENTS.md, CLAUDE.md).
-const CatalogBeginMarker = "# >>> devrune managed — do not edit"
+// in root catalog files (AGENTS.md, CLAUDE.md). Wrapped as an HTML comment so
+// the marker is invisible in rendered Markdown previews while remaining
+// visible in raw text and parseable by the uninstall stripper.
+const CatalogBeginMarker = "<!-- >>> devrune managed — do not edit -->"
 
 // CatalogEndMarker is the closing delimiter for the DevRune-managed block
 // in root catalog files.
-const CatalogEndMarker = "# <<< devrune managed"
+const CatalogEndMarker = "<!-- <<< devrune managed -->"
 
 // RenderRootCatalog produces the agent-agnostic AGENTS.md content string.
 // It emits an "## Available Workflows" section followed by a "## Conflict
