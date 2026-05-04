@@ -470,8 +470,20 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			if variantOrchPath != "" {
 				effectiveSrc = variantOrchPath // use variant if found
 			}
+			// Resolve the Copilot registry variant (or generic fallback) so the
+			// orchestrator agent file embeds both ambient rules + playbook —
+			// Copilot custom agents have no shared catalog context.
+			registryPath := ""
+			if wf.Components.Registry != "" {
+				variantName := strings.TrimSuffix(wf.Components.Registry, ".md") + ".copilot.md"
+				if _, statErr := os.Stat(filepath.Join(cachePath, variantName)); statErr == nil {
+					registryPath = filepath.Join(cachePath, variantName)
+				} else if _, statErr := os.Stat(filepath.Join(cachePath, wf.Components.Registry)); statErr == nil {
+					registryPath = filepath.Join(cachePath, wf.Components.Registry)
+				}
+			}
 			dstPath := filepath.Join(agentsBase, orchRoleName+".agent.md")
-			if err := r.installOrchestratorAgent(effectiveSrc, dstPath, wf, replacements); err != nil {
+			if err := r.installOrchestratorAgent(effectiveSrc, registryPath, dstPath, wf, replacements); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow orchestrator: %w", err)
 			}
 			managedPaths = append(managedPaths, dstPath)
@@ -599,15 +611,31 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 //
 // T019: Adds frontmatter (name, description, user-invocable) and resolves {SKILLS_PATH}
 // and {SDD_MODEL_*} placeholders. The orchestrator inherits the session model (no model field).
-func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf model.WorkflowManifest, replacements map[string]string) error {
+func (r *CopilotRenderer) installOrchestratorAgent(srcPath, registryPath, dstPath string, wf model.WorkflowManifest, replacements map[string]string) error {
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
 		return fmt.Errorf("copilot: read orchestrator %q: %w", srcPath, err)
 	}
 
-	content := string(data)
+	var combined strings.Builder
 
-	// Resolve all placeholders in the orchestrator body.
+	// Prepend the registry block (ambient rules: Role Invariant, Evaluation
+	// Gate, Memory Protocols, Engram Availability Guard, Session close) so the
+	// custom agent has the same governing rules a CLAUDE.md ambient install
+	// would provide for the main session. Copilot custom agents have no
+	// shared catalog context, so embedding here is the only delivery path.
+	if registryPath != "" {
+		regData, err := os.ReadFile(registryPath)
+		if err != nil {
+			return fmt.Errorf("copilot: read registry %q: %w", registryPath, err)
+		}
+		combined.WriteString(strings.TrimRight(string(regData), "\n"))
+		combined.WriteString("\n\n")
+	}
+	combined.WriteString(strings.TrimLeft(string(data), "\n"))
+	content := combined.String()
+
+	// Resolve all placeholders in the combined body.
 	for placeholder, value := range replacements {
 		content = strings.ReplaceAll(content, placeholder, value)
 	}
