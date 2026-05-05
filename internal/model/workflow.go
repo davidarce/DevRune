@@ -95,9 +95,21 @@ type WorkflowRole struct {
 // The workflow directory is the atomic unit — everything in it gets materialized.
 // This struct only declares which parts need special handling.
 type WorkflowComponents struct {
-	// Skills lists subdirectory names within the workflow directory that require
-	// frontmatter transformation via AgentRenderer.RenderSkill().
-	// All other files and directories are materialized as-is.
+	// Skills lists skill names this workflow needs. Each renderer resolves a
+	// name in two steps:
+	//   1. Workflow-internal: subdirectory of the workflow directory
+	//      (e.g. "<workflow-dir>/<name>/SKILL.md"). Used for skills shipped
+	//      alongside the workflow (e.g. SDD's sdd-explore, sdd-plan).
+	//   2. Catalog-level fallback: top-level skill directory of the catalog
+	//      (e.g. "<catalog-root>/skills/<name>/SKILL.md"). Used for shared,
+	//      reusable skills the workflow depends on but doesn't own
+	//      (e.g. SDD's PRD gate invokes write-a-prd, which lives at
+	//      catalog/skills/write-a-prd/, not under the SDD workflow).
+	// Internal-pass skills get rendered first; anything still listed but not
+	// yet rendered triggers the catalog-level resolver. Missing skills produce
+	// a clear error naming both attempted paths.
+	// All non-skill files and directories under the workflow dir are
+	// materialized as-is.
 	Skills []string `yaml:"skills"`
 
 	// Entrypoint is the file path (relative to workflow directory) of the

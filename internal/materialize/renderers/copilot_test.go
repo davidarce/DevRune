@@ -387,7 +387,7 @@ func TestCopilotRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		},
 	}
 
-	result, err := r.InstallWorkflow(wf, cachePath, workspaceRoot)
+	result, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorOnlyInAgentsDir(t *testing.
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -525,7 +525,7 @@ func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -656,7 +656,7 @@ func TestCopilotRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
 		},
 	}
 
-	result, err := r.InstallWorkflow(wf, cachePath, workspaceRoot)
+	result, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -940,7 +940,7 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent(t *
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -988,7 +988,7 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric(
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1039,7 +1039,7 @@ func TestCopilotRenderer_InstallWorkflow_ForeignVariantNotCopied(t *testing.T) {
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1561,7 +1561,7 @@ func TestCopilotRenderer_SubAgentToolSets(t *testing.T) {
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1668,7 +1668,7 @@ When blocked, use ` + "`AskUserQuestion`" + ` to clarify.
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -2061,7 +2061,7 @@ func TestCopilotRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, cachePath, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, cachePath, cachePath, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 

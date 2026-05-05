@@ -317,7 +317,7 @@ func (r *ClaudeRenderer) MCPAgentInstructions() map[string]string {
 //
 // Hook script assets are copied as before; this logic is preserved verbatim.
 // T021: Loads Registry content during installation and stores it for RenderCatalog.
-func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
+func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
 	// 1. Probe the Claude-native orchestrator variant.
 	const variantEntrypointName = "ORCHESTRATOR.claude.md"
 	variantOrchPath := ""
@@ -342,6 +342,9 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	for _, s := range wf.Components.Skills {
 		skillsSet[s] = true
 	}
+	// Track skills rendered by the workflow-internal scan so the external pass
+	// only handles names that did NOT appear as subdirectories of the workflow.
+	renderedSkills := make(map[string]bool, len(wf.Components.Skills))
 
 	// 3. Determine destinations.
 	destBase := filepath.Join(workspaceRoot, r.def.SkillDir, wf.Metadata.EffectiveWorkingDir())
@@ -423,6 +426,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy skill subdirs for %s: %w", name, err)
 			}
 			skillDirs = append(skillDirs, dstPath)
+			renderedSkills[name] = true
 			continue
 		}
 
@@ -473,6 +477,29 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		} else if err := copyEntry(srcPath, dstPath, entry); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow copy %q: %w", name, err)
 		}
+	}
+
+	// External skill pass: any name in components.skills that did NOT appear as
+	// a workflow-internal subdirectory is resolved against the catalog root
+	// (catalogRoot/skills/<name>/). Renders the skill to skillsBase (top-level
+	// .claude/skills/<name>/) so it is discoverable by the Skill tool just like
+	// any other catalog skill.
+	for _, skillName := range wf.Components.Skills {
+		if renderedSkills[skillName] {
+			continue
+		}
+		extSrc, err := ResolveExternalSkillSource(catalogRoot, cachePath, skillName)
+		if err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: %w", err)
+		}
+		extDst := filepath.Join(skillsBase, skillName)
+		if err := r.RenderSkill(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: external workflow skill %q: %w", skillName, err)
+		}
+		if err := copySkillSubdirs(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy skill subdirs for external skill %q: %w", skillName, err)
+		}
+		skillDirs = append(skillDirs, extDst)
 	}
 
 	// Remove _shared/ files that the Claude-native orchestrator does not reference.

@@ -63,7 +63,7 @@ func (f *fakeAdvisorRenderer) RenderMCPs(_ []model.LockedMCP, _ materialize.Cach
 func (f *fakeAdvisorRenderer) RenderSettings(_ string, _ []model.ContentItem, _ []model.WorkflowManifest) error {
 	return nil
 }
-func (f *fakeAdvisorRenderer) InstallWorkflow(_ model.WorkflowManifest, _, _ string) (materialize.WorkflowInstallResult, error) {
+func (f *fakeAdvisorRenderer) InstallWorkflow(_ model.WorkflowManifest, _, _, _ string) (materialize.WorkflowInstallResult, error) {
 	return materialize.WorkflowInstallResult{}, nil
 }
 func (f *fakeAdvisorRenderer) Finalize(_ string) error { return nil }
@@ -89,7 +89,7 @@ func (n *nonAdvisorRenderer) RenderMCPs(_ []model.LockedMCP, _ materialize.Cache
 func (n *nonAdvisorRenderer) RenderSettings(_ string, _ []model.ContentItem, _ []model.WorkflowManifest) error {
 	return nil
 }
-func (n *nonAdvisorRenderer) InstallWorkflow(_ model.WorkflowManifest, _, _ string) (materialize.WorkflowInstallResult, error) {
+func (n *nonAdvisorRenderer) InstallWorkflow(_ model.WorkflowManifest, _, _, _ string) (materialize.WorkflowInstallResult, error) {
 	return materialize.WorkflowInstallResult{}, nil
 }
 func (n *nonAdvisorRenderer) Finalize(_ string) error { return nil }
