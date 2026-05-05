@@ -28,6 +28,36 @@ var orchestratorVariantNames = map[string]bool{
 	"ORCHESTRATOR.claude.md":   true,
 }
 
+// ResolveExternalSkillSource finds a workflow-declared skill that is NOT a
+// subdirectory of the workflow itself. It looks under the catalog's top-level
+// `skills/<name>/` directory.
+//
+// Used by every renderer's external-skill pass — after the workflow-internal
+// scan loop processes skills that are subdirs of the workflow, anything still
+// listed in `Components.Skills` but not yet rendered is resolved here.
+//
+// Returns the absolute path to the skill directory (containing SKILL.md).
+// Returns an error naming both attempted paths when the skill is missing.
+//
+// catalogRoot is the absolute path to the catalog source root. When it is
+// empty or equals workflowDir, no external lookup is possible and the function
+// returns an error — the caller should not invoke this resolver in that case.
+func ResolveExternalSkillSource(catalogRoot, workflowDir, skillName string) (string, error) {
+	internalGuess := filepath.Join(workflowDir, skillName)
+	if catalogRoot == "" || catalogRoot == workflowDir {
+		return "", fmt.Errorf(
+			"skill %q: not a subdirectory of the workflow (%s) and no catalog root available for external lookup",
+			skillName, internalGuess)
+	}
+	external := filepath.Join(catalogRoot, "skills", skillName)
+	if info, err := os.Stat(filepath.Join(external, "SKILL.md")); err == nil && !info.IsDir() {
+		return external, nil
+	}
+	return "", fmt.Errorf(
+		"skill %q: not found as workflow-internal (%s) or catalog-level (%s)",
+		skillName, internalGuess, external)
+}
+
 // registryVariantNames is the set of agent-specific registry variant filenames.
 // Like orchestrator variants, these must NEVER be copied as loose files into the
 // workspace — each renderer only consumes its own variant (via captureRegistryContent)

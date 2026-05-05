@@ -145,7 +145,7 @@ func TestSDDRoleInvariant_SurvivesRendering(t *testing.T) {
 		r := renderers.NewClaudeRenderer(claudeNativeAgentDef())
 		cache := writeSDDOrchestratorCacheWithRoleInvariant(t, "claude")
 		workspace := t.TempDir()
-		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, workspace); err != nil {
+		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, cache, workspace); err != nil {
 			t.Fatalf("InstallWorkflow: %v", err)
 		}
 		path := filepath.Join(workspace, "skills", "sdd-orchestrator", "ORCHESTRATOR.md")
@@ -172,7 +172,7 @@ func TestSDDRoleInvariant_SurvivesRendering(t *testing.T) {
 		}
 		r := renderers.NewCodexRenderer(def)
 		cache := writeSDDOrchestratorCacheWithRoleInvariant(t, "")
-		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, workspaceDir); err != nil {
+		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, cache, workspaceDir); err != nil {
 			t.Fatalf("InstallWorkflow: %v", err)
 		}
 		path := filepath.Join(projectRoot, ".agents", "skills", "sdd-orchestrator", "ORCHESTRATOR.md")
@@ -199,7 +199,7 @@ func TestSDDRoleInvariant_SurvivesRendering(t *testing.T) {
 		}
 		r := renderers.NewFactoryRenderer(def)
 		cache := writeSDDOrchestratorCacheWithRoleInvariant(t, "")
-		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, workspaceDir); err != nil {
+		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, cache, workspaceDir); err != nil {
 			t.Fatalf("InstallWorkflow: %v", err)
 		}
 		path := filepath.Join(projectRoot, ".agents", "skills", "sdd-orchestrator", "ORCHESTRATOR.md")
@@ -223,7 +223,7 @@ func TestSDDRoleInvariant_SurvivesRendering(t *testing.T) {
 		}
 		r := renderers.NewCopilotRenderer(def)
 		cache := writeSDDOrchestratorCacheWithRoleInvariant(t, "copilot")
-		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, workspaceRoot); err != nil {
+		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, cache, workspaceRoot); err != nil {
 			t.Fatalf("InstallWorkflow: %v", err)
 		}
 		path := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator.agent.md")
@@ -251,7 +251,7 @@ func TestSDDRoleInvariant_SurvivesRendering(t *testing.T) {
 		}
 		r := renderers.NewOpenCodeRenderer(def)
 		cache := writeSDDOrchestratorCacheWithRoleInvariant(t, "opencode")
-		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, workspaceDir); err != nil {
+		if _, err := r.InstallWorkflow(sddTestWorkflowForRoleInvariant(), cache, cache, workspaceDir); err != nil {
 			t.Fatalf("InstallWorkflow: %v", err)
 		}
 		// OpenCode inlines ORCHESTRATOR content into opencode.json under

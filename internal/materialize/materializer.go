@@ -293,7 +293,15 @@ func (m *Materializer) Install(
 			// shared skill directory was already populated by a prior agent.
 			// Renderers are idempotent for file writes, and per-renderer
 			// synthesis (e.g. opencode.json agent entries) must always run.
-			wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, agentWorkspace)
+			//
+			// catalogRoot is cacheDir — the catalog archive root that contains
+			// both the workflow dir and any sibling top-level resources like
+			// skills/. Renderers use catalogRoot to resolve skills declared in
+			// `components.skills` that live outside the workflow directory.
+			// For standalone workflow archives (wf.Dir == ""), catalogRoot
+			// equals wfDir; the resolver treats that as "no external lookup"
+			// and only honors workflow-internal skill subdirs.
+			wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, cacheDir, agentWorkspace)
 			if err != nil {
 				return fmt.Errorf("materializer: install workflow %q for agent %q: %w",
 					wf.Name, agentRef.Name, err)

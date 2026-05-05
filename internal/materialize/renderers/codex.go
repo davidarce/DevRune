@@ -223,11 +223,14 @@ func (r *CodexRenderer) RenderSettings(_ string, _ []model.ContentItem, _ []mode
 //   - Orchestrator: .agents/skills/<wf-name>-orchestrator/ORCHESTRATOR.md
 //   - _shared: .agents/skills/_shared/
 //   - REGISTRY.md: captured for catalog injection (not copied loose)
-func (r *CodexRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
+func (r *CodexRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
 	skillsSet := make(map[string]bool, len(wf.Components.Skills))
 	for _, s := range wf.Components.Skills {
 		skillsSet[s] = true
 	}
+	// Track skills rendered by the workflow-internal scan so the external pass
+	// only handles names that did NOT appear as subdirectories of the workflow.
+	renderedSkills := make(map[string]bool, len(wf.Components.Skills))
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
 	workflowDir := filepath.Join(skillsBase, wf.Metadata.EffectiveWorkingDir())
@@ -279,6 +282,7 @@ func (r *CodexRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath str
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("codex: copy skill subdirs for %s: %w", name, err)
 			}
 			managedPaths = append(managedPaths, destDir)
+			renderedSkills[name] = true
 			continue
 		}
 
@@ -306,6 +310,28 @@ func (r *CodexRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath str
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("codex: workflow copy %q: %w", name, err)
 		}
 		managedPaths = append(managedPaths, dstPath)
+	}
+
+	// External skill pass: any name in components.skills that did NOT appear as
+	// a workflow-internal subdirectory is resolved against the catalog root
+	// (catalogRoot/skills/<name>/) and installed under skillsBase like any other
+	// skill.
+	for _, skillName := range wf.Components.Skills {
+		if renderedSkills[skillName] {
+			continue
+		}
+		extSrc, err := ResolveExternalSkillSource(catalogRoot, cachePath, skillName)
+		if err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("codex: %w", err)
+		}
+		extDst := filepath.Join(skillsBase, skillName)
+		if err := r.renderSkillInternal(extSrc, extDst, true); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("codex: external workflow skill %q: %w", skillName, err)
+		}
+		if err := copySkillSubdirs(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("codex: copy skill subdirs for external skill %q: %w", skillName, err)
+		}
+		managedPaths = append(managedPaths, extDst)
 	}
 
 	// Build shared placeholder replacements: {SKILLS_PATH} only.

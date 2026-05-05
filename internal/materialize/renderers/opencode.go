@@ -279,11 +279,14 @@ func (r *OpenCodeRenderer) MCPAgentInstructions() map[string]string {
 // NOT created:
 //   - agents/ directory (redundant — agent entries go into opencode.json)
 //   - commands/ directory (empty; not needed by OpenCode)
-func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
+func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
 	skillsSet := make(map[string]bool, len(wf.Components.Skills))
 	for _, s := range wf.Components.Skills {
 		skillsSet[s] = true
 	}
+	// Track skills rendered by the workflow-internal scan so the external pass
+	// only handles names that did NOT appear as subdirectories of the workflow.
+	renderedSkills := make(map[string]bool, len(wf.Components.Skills))
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
 	// OpenCode installs workflow files (orchestrator, _shared) in its own workspace
@@ -352,6 +355,7 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: copy skill subdirs for %s: %w", name, err)
 			}
 			managedPaths = append(managedPaths, destDir)
+			renderedSkills[name] = true
 			continue
 		}
 
@@ -385,6 +389,33 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
 		}
 		managedPaths = append(managedPaths, dstPath)
+	}
+
+	// External skill pass: any name in components.skills that did NOT appear as
+	// a workflow-internal subdirectory is resolved against the catalog root
+	// (catalogRoot/skills/<name>/). The orchestrator skill name is excluded
+	// because OpenCode delivers the orchestrator as a primary agent in
+	// opencode.json, not as a regular skill — its absence from the workflow dir
+	// must NOT trigger an external lookup.
+	for _, skillName := range wf.Components.Skills {
+		if renderedSkills[skillName] {
+			continue
+		}
+		if skillName == wf.Metadata.EffectiveWorkingDir() {
+			continue
+		}
+		extSrc, err := ResolveExternalSkillSource(catalogRoot, cachePath, skillName)
+		if err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: %w", err)
+		}
+		extDst := filepath.Join(skillsBase, skillName)
+		if err := r.RenderSkill(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: external workflow skill %q: %w", skillName, err)
+		}
+		if err := copySkillSubdirs(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: copy skill subdirs for external skill %q: %w", skillName, err)
+		}
+		managedPaths = append(managedPaths, extDst)
 	}
 
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.

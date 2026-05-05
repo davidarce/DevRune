@@ -143,7 +143,7 @@ func (r *stubRenderer) SetInstalledSkills(skills []model.ContentItem) {
 	r.setInstalledSkills = skills
 }
 
-func (r *stubRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath, workspaceRoot string) (materialize.WorkflowInstallResult, error) {
+func (r *stubRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath, catalogRoot, workspaceRoot string) (materialize.WorkflowInstallResult, error) {
 	return materialize.WorkflowInstallResult{ManagedPaths: r.workflowManagedPaths}, nil
 }
 

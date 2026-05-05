@@ -353,7 +353,7 @@ func TestFactoryRenderer_InstallWorkflow_SkillsInCorrectLocation(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestFactoryRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestFactoryRenderer_InstallWorkflow_NoDroidsDir(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -497,7 +497,7 @@ func TestFactoryRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -558,7 +558,7 @@ func TestFactoryRenderer_InstallWorkflow_SkillsAreFlat(t *testing.T) {
 	wfCacheDir := setupFactoryWorkflowFixture(t)
 	wf := sddWorkflowManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
