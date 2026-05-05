@@ -31,6 +31,7 @@ const (
 	menuActionStatus          menuAction = "status"
 	menuActionConfigureModels menuAction = "configure-models"
 	menuActionManageAdvisors  menuAction = "manage-advisors"
+	menuActionBackups         menuAction = "backups"
 	menuActionUpgrade         menuAction = "upgrade"
 	menuActionUninstall       menuAction = "uninstall"
 	menuActionQuit            menuAction = "quit"
@@ -68,6 +69,7 @@ func buildMenuOptions(hasRouting bool) []huh.Option[menuAction] {
 	}
 	opts = append(opts,
 		huh.NewOption("Manage SDD advisors", menuActionManageAdvisors),
+		huh.NewOption("Backups", menuActionBackups),
 		huh.NewOption("Status", menuActionStatus),
 		huh.NewOption("Upgrade DevRune", menuActionUpgrade),
 		huh.NewOption("Uninstall", menuActionUninstall),
@@ -145,6 +147,12 @@ func RunMenu(cmd *cobra.Command) error {
 				if err != huh.ErrUserAborted {
 					_ = showMenuMessage(cmd, "Manage Advisors Failed", err.Error())
 				}
+			}
+			// Loop back to menu.
+
+		case menuActionBackups:
+			if err := runBackupsFromMenu(cmd); err != nil && err != huh.ErrUserAborted {
+				_ = showMenuMessage(cmd, "Restore Failed", err.Error())
 			}
 			// Loop back to menu.
 
@@ -387,7 +395,7 @@ func runInitFromMenu(cmd *cobra.Command) error {
 		return err
 	}
 
-	if err := os.WriteFile(destPath, data, 0o644); err != nil {
+	if err := writeManifestSafe(destPath, data); err != nil {
 		printError(out, "Write manifest: "+err.Error())
 		return err
 	}

@@ -115,8 +115,8 @@ func runConfigureModelsFromMenu(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("serialize manifest: %w", err)
 	}
-	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
+	if err := writeManifestSafe(manifestPath, data); err != nil {
+		return fmt.Errorf("%w", err)
 	}
 
 	// 7. Sync catalogs, then resolve + install.
