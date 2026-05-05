@@ -175,6 +175,63 @@ func (r *ClaudeRenderer) RenderSkill(canonicalPath string, destDir string) error
 	return nil
 }
 
+// RenderOrchestratorSkill writes an orchestrator skill SKILL.md whose body is
+// the resolved ORCHESTRATOR playbook. The frontmatter is read from the
+// canonical skill template (with non-Claude fields dropped) and the body is
+// replaced with the orchestrator entrypoint content. The result is a
+// self-contained skill — when invoked via Skill("sdd-orchestrator"), the agent
+// reads the full playbook from SKILL.md without following a "read
+// ORCHESTRATOR.md" pointer. ORCHESTRATOR.md is no longer copied loose to the
+// workspace; its content lives only inside this combined SKILL.md.
+//
+// skillTemplatePath may be either a SKILL.md file or a directory containing
+// SKILL.md. orchestratorPath must point to the resolved ORCHESTRATOR file
+// (variant or base) whose body should be embedded.
+func (r *ClaudeRenderer) RenderOrchestratorSkill(skillTemplatePath, orchestratorPath, destDir string) error {
+	skillFile, err := resolveSkillFile(skillTemplatePath)
+	if err != nil {
+		return fmt.Errorf("claude: resolve skill file %q: %w", skillTemplatePath, err)
+	}
+
+	skillData, err := os.ReadFile(skillFile)
+	if err != nil {
+		return fmt.Errorf("claude: read %q: %w", skillFile, err)
+	}
+
+	fm, _, err := parse.ParseFrontmatter(skillData)
+	if err != nil {
+		return fmt.Errorf("claude: parse frontmatter %q: %w", skillFile, err)
+	}
+
+	// Drop fields not supported by Claude.
+	for _, field := range claudeDropFields {
+		delete(fm, field)
+	}
+
+	orchestratorData, err := os.ReadFile(orchestratorPath)
+	if err != nil {
+		return fmt.Errorf("claude: read orchestrator %q: %w", orchestratorPath, err)
+	}
+
+	// Trim leading whitespace so the rendered body starts at the first
+	// meaningful heading immediately after the frontmatter delimiter.
+	body := strings.TrimLeft(string(orchestratorData), "\n\r\t ")
+
+	out, err := parse.SerializeFrontmatter(fm, body)
+	if err != nil {
+		return fmt.Errorf("claude: serialize orchestrator skill %q: %w", skillFile, err)
+	}
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("claude: mkdir %q: %w", destDir, err)
+	}
+	dest := filepath.Join(destDir, "SKILL.md")
+	if err := os.WriteFile(dest, out, 0o644); err != nil {
+		return fmt.Errorf("claude: write %q: %w", dest, err)
+	}
+	return nil
+}
+
 // RenderCommand writes a minimal SKILL.md stub for a workflow command.
 func (r *ClaudeRenderer) RenderCommand(cmd model.WorkflowCommand, destDir string) error {
 	fm := map[string]any{
@@ -260,7 +317,7 @@ func (r *ClaudeRenderer) MCPAgentInstructions() map[string]string {
 //
 // Hook script assets are copied as before; this logic is preserved verbatim.
 // T021: Loads Registry content during installation and stores it for RenderCatalog.
-func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
+func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
 	// 1. Probe the Claude-native orchestrator variant.
 	const variantEntrypointName = "ORCHESTRATOR.claude.md"
 	variantOrchPath := ""
@@ -285,6 +342,9 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	for _, s := range wf.Components.Skills {
 		skillsSet[s] = true
 	}
+	// Track skills rendered by the workflow-internal scan so the external pass
+	// only handles names that did NOT appear as subdirectories of the workflow.
+	renderedSkills := make(map[string]bool, len(wf.Components.Skills))
 
 	// 3. Determine destinations.
 	destBase := filepath.Join(workspaceRoot, r.def.SkillDir, wf.Metadata.EffectiveWorkingDir())
@@ -321,6 +381,22 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 			continue // Skip the manifest file itself.
 		}
 
+		// Skip the registry file — it is captured for catalog injection (loaded
+		// into the rendered AGENTS.md/CLAUDE.md) and must NOT leak into the
+		// workspace as a loose file.
+		if wf.Components.Registry != "" && name == wf.Components.Registry {
+			continue
+		}
+
+		// Skip all registry variant files (e.g. REGISTRY.claude.md,
+		// REGISTRY.copilot.md, REGISTRY.opencode.md). Only the variant whose
+		// agent matches is consumed by the renderer (resolved above for
+		// Claude); the rest are templates that must NOT be copied loose into
+		// the workspace.
+		if registryVariantNames[name] {
+			continue
+		}
+
 		// Skip all orchestrator variant files — none should be copied as loose files.
 		// The Claude-native variant (if present) is placed via the entrypoint branch
 		// below with the suffix stripped to wf.Components.Entrypoint.
@@ -331,20 +407,45 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		if skillsSet[name] {
 			// Install skills at first level so the Skill tool can discover them.
 			dstPath = filepath.Join(skillsBase, name)
-			// Apply frontmatter transform.
-			if err := r.RenderSkill(srcPath, dstPath); err != nil {
+			// For the orchestrator skill (the one whose dir name matches the
+			// workflow's working dir), merge the SKILL.md template's frontmatter
+			// with the resolved ORCHESTRATOR body so the skill is self-contained.
+			// Other skills get the standard frontmatter transform.
+			if name == wf.Metadata.EffectiveWorkingDir() {
+				orchestratorSrc := filepath.Join(cachePath, wf.Components.Entrypoint)
+				if variantOrchPath != "" {
+					orchestratorSrc = variantOrchPath
+				}
+				if err := r.RenderOrchestratorSkill(srcPath, orchestratorSrc, dstPath); err != nil {
+					return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: orchestrator skill %q: %w", name, err)
+				}
+			} else if err := r.RenderSkill(srcPath, dstPath); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: workflow skill %q: %w", name, err)
 			}
 			if err := copySkillSubdirs(srcPath, dstPath); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy skill subdirs for %s: %w", name, err)
 			}
 			skillDirs = append(skillDirs, dstPath)
+			renderedSkills[name] = true
 			continue
 		}
 
 		if name == wf.Components.Entrypoint {
-			// Install the entrypoint, preferring the Claude-native variant when present.
-			// Destination filename is always wf.Components.Entrypoint (suffix-stripped).
+			// When the workflow declares an orchestrator skill (a skill whose
+			// dir name matches the working dir), the entrypoint body has been
+			// merged into that skill's SKILL.md (see RenderOrchestratorSkill
+			// above) and we must NOT also copy ORCHESTRATOR.md as a loose file
+			// — the skill is the single source of truth for the playbook.
+			//
+			// When the workflow has NO orchestrator skill (the workflow dir
+			// is just a container for workflow.yaml + entrypoint, no SKILL.md
+			// alongside it), fall back to the legacy behaviour and copy the
+			// entrypoint to the workspace as a loose file. This preserves
+			// minimal-test setups that don't model the orchestrator-as-skill
+			// pattern.
+			if skillsSet[wf.Metadata.EffectiveWorkingDir()] {
+				continue
+			}
 			effectiveSrc := srcPath
 			if variantOrchPath != "" {
 				effectiveSrc = variantOrchPath
@@ -378,17 +479,43 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 		}
 	}
 
+	// External skill pass: any name in components.skills that did NOT appear as
+	// a workflow-internal subdirectory is resolved against the catalog root
+	// (catalogRoot/skills/<name>/). Renders the skill to skillsBase (top-level
+	// .claude/skills/<name>/) so it is discoverable by the Skill tool just like
+	// any other catalog skill.
+	for _, skillName := range wf.Components.Skills {
+		if renderedSkills[skillName] {
+			continue
+		}
+		extSrc, err := ResolveExternalSkillSource(catalogRoot, cachePath, skillName)
+		if err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: %w", err)
+		}
+		extDst := filepath.Join(skillsBase, skillName)
+		if err := r.RenderSkill(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: external workflow skill %q: %w", skillName, err)
+		}
+		if err := copySkillSubdirs(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy skill subdirs for external skill %q: %w", skillName, err)
+		}
+		skillDirs = append(skillDirs, extDst)
+	}
+
 	// Remove _shared/ files that the Claude-native orchestrator does not reference.
 	// launch-templates.md is now installed from launch-templates.claude.md (variant suffix
 	// stripped) and IS referenced by ORCHESTRATOR.claude.md — do NOT remove it.
 	// advisor-templates.md is only needed by Codex/Factory via the generic ORCHESTRATOR.md.
 	_ = os.Remove(filepath.Join(destBase, "_shared", "advisor-templates.md"))
 
-	// 5. If the entrypoint was not present in the cache directory (cache lacks the
-	//    generic ORCHESTRATOR.md) but a Claude variant IS present, install the variant
-	//    under the generic filename. This preserves the suffix-stripping contract for
-	//    variant-only catalogs.
-	if variantOrchPath != "" {
+	// 5. Variant-only catalog fallback: if the cache lacks the generic
+	//    ORCHESTRATOR.md but a Claude variant IS present, install the variant
+	//    under the generic filename. This preserves the suffix-stripping
+	//    contract for variant-only catalogs in the LEGACY case (no
+	//    orchestrator skill). When the workflow declares an orchestrator
+	//    skill, the variant body has already been merged into SKILL.md by
+	//    RenderOrchestratorSkill above and no loose file is needed.
+	if variantOrchPath != "" && !skillsSet[wf.Metadata.EffectiveWorkingDir()] {
 		destEntrypoint := filepath.Join(destBase, wf.Components.Entrypoint)
 		if _, statErr := os.Stat(destEntrypoint); os.IsNotExist(statErr) {
 			if err := copySingleFile(variantOrchPath, destEntrypoint, 0o644); err != nil {
@@ -404,6 +531,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	// For each hook definition, read the JSON and copy any .sh files referenced
 	// (string values ending in .sh) from the workflow cache to the agent workspace
 	// with executable permissions (0o755).
+	var hookAssetPaths []string
 	if wf.Components.Hooks != nil {
 		if defs, ok := wf.Components.Hooks.Agents["claude"]; ok {
 			for _, def := range defs {
@@ -413,9 +541,11 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 					fmt.Fprintf(os.Stderr, "⚠️  claude: invalid hook JSON %s: %v (skipping asset copy)\n", def.Definition, err)
 					continue
 				}
-				if err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755); err != nil {
+				copied, err := copyHookScriptAssets(hookData, cachePath, workspaceRoot, r.def.Workspace, ".sh", 0o755)
+				if err != nil {
 					return matypes.WorkflowInstallResult{}, fmt.Errorf("claude: copy hook assets for %s: %w", def.Definition, err)
 				}
+				hookAssetPaths = append(hookAssetPaths, copied...)
 			}
 		}
 	}
@@ -505,10 +635,11 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	//     — the materializer calls os.RemoveAll on every managed path on reinstall,
 	//     so listing agentsBase would wipe user-authored subagents in .claude/agents/.
 	//     Listing individual files keeps cleanup scoped to the renderer's own output.
-	managedPaths := make([]string, 0, 1+len(skillDirs)+len(agentFilePaths))
+	managedPaths := make([]string, 0, 1+len(skillDirs)+len(agentFilePaths)+len(hookAssetPaths))
 	managedPaths = append(managedPaths, destBase)
 	managedPaths = append(managedPaths, skillDirs...)
 	managedPaths = append(managedPaths, agentFilePaths...)
+	managedPaths = append(managedPaths, hookAssetPaths...)
 	return matypes.WorkflowInstallResult{ManagedPaths: managedPaths}, nil
 }
 

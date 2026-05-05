@@ -446,7 +446,7 @@ func TestOpenCodeRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 	wfCacheDir := buildSddWorkflowCache(t, "# SDD Orchestrator\n\nCoordinates SDD.\n")
 	wf := sddParityManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestOpenCodeRenderer_InstallWorkflow_AgentEntriesInOpencodeJSON(t *testing.
 	wfCacheDir := buildSddWorkflowCache(t, orchContent)
 	wf := sddParityManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -586,7 +586,7 @@ func TestOpenCodeRenderer_InstallWorkflow_ModelResolvedInAgentEntry(t *testing.T
 	wfCacheDir := buildSddWorkflowCache(t, "# SDD Orchestrator\n\nCoordinates SDD.\n")
 	wf := sddParityManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -631,7 +631,7 @@ func TestOpenCodeRenderer_InstallWorkflow_NoAgentsDirCreated(t *testing.T) {
 	wfCacheDir := buildSddWorkflowCache(t, "# SDD Orchestrator\n\nCoordinates SDD.\n")
 	wf := sddParityManifest()
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -702,7 +702,7 @@ components:
 		},
 	}
 
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -748,7 +748,7 @@ func TestOpenCodeRenderer_InstallWorkflow_ManagedPathsNonEmpty(t *testing.T) {
 	wfCacheDir := buildSddWorkflowCache(t, "# SDD Orchestrator\n\nCoordinates SDD.\n")
 	wf := sddParityManifest()
 
-	result, err := r.InstallWorkflow(wf, wfCacheDir, workspaceRoot)
+	result, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceRoot)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -1206,7 +1206,7 @@ func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_UsedWhenPresent(t 
 		t.Fatalf("write variant: %v", err)
 	}
 
-	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1262,7 +1262,7 @@ func TestOpenCodeRenderer_InstallWorkflow_OrchestratorVariant_FallsBackToGeneric
 	// No variant file — only the generic ORCHESTRATOR.md is present.
 	wfCacheDir := buildSddWorkflowCache(t, genericContent)
 
-	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1321,7 +1321,7 @@ func TestOpenCodeRenderer_InstallWorkflow_ForeignVariantNotCopied(t *testing.T) 
 		t.Fatalf("write copilot variant: %v", err)
 	}
 
-	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, workspaceRoot); err != nil {
+	if _, err := r.InstallWorkflow(sddParityManifest(), wfCacheDir, wfCacheDir, workspaceRoot); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1436,7 +1436,7 @@ func TestOpenCodeRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testin
 	}
 
 	wf := sddParityManifest()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 

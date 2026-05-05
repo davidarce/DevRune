@@ -1671,3 +1671,107 @@ func TestCopyDirRecursiveStripVariant_SubdirsPassedThrough(t *testing.T) {
 		t.Errorf("nested file %q should be present in dst: %v", nestedPath, err)
 	}
 }
+
+// TestResolveExternalSkillSource_FindsSkillInCatalogRoot verifies that when a
+// skill name is NOT a subdir of the workflow but DOES exist as a top-level
+// catalog skill, the resolver returns the catalog-level path.
+func TestResolveExternalSkillSource_FindsSkillInCatalogRoot(t *testing.T) {
+	catalogRoot := t.TempDir()
+	workflowDir := filepath.Join(catalogRoot, "workflows", "sdd")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("mkdir workflowDir: %v", err)
+	}
+	skillDir := filepath.Join(catalogRoot, "skills", "write-a-prd")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skillDir: %v", err)
+	}
+	skillMD := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillMD, []byte("---\nname: write-a-prd\n---\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	got, err := renderers.ResolveExternalSkillSource(catalogRoot, workflowDir, "write-a-prd")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != skillDir {
+		t.Errorf("got %q, want %q", got, skillDir)
+	}
+}
+
+// TestResolveExternalSkillSource_MissingSkillReturnsClearError verifies that
+// when the skill name is not found anywhere, the error names BOTH attempted
+// paths so the contributor can act on it.
+func TestResolveExternalSkillSource_MissingSkillReturnsClearError(t *testing.T) {
+	catalogRoot := t.TempDir()
+	workflowDir := filepath.Join(catalogRoot, "workflows", "sdd")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	_, err := renderers.ResolveExternalSkillSource(catalogRoot, workflowDir, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"nonexistent", "workflow-internal", "catalog-level"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error message %q should contain %q", msg, want)
+		}
+	}
+}
+
+// TestResolveExternalSkillSource_NoCatalogRoot verifies that when catalogRoot
+// is empty (standalone workflow with no parent catalog), the resolver returns
+// an error WITHOUT attempting an external lookup it cannot perform.
+func TestResolveExternalSkillSource_NoCatalogRoot(t *testing.T) {
+	workflowDir := t.TempDir()
+
+	_, err := renderers.ResolveExternalSkillSource("", workflowDir, "write-a-prd")
+	if err == nil {
+		t.Fatal("expected error when catalogRoot is empty, got nil")
+	}
+	if !strings.Contains(err.Error(), "no catalog root available") {
+		t.Errorf("error message should mention missing catalog root, got: %v", err)
+	}
+}
+
+// TestResolveExternalSkillSource_CatalogRootEqualsWorkflowDir verifies that
+// when catalogRoot == workflowDir (standalone workflow archive packaged at
+// root), the resolver still returns an error for unknown skills — there is no
+// separate parent catalog to search.
+func TestResolveExternalSkillSource_CatalogRootEqualsWorkflowDir(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := renderers.ResolveExternalSkillSource(dir, dir, "write-a-prd")
+	if err == nil {
+		t.Fatal("expected error when catalogRoot == workflowDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "no catalog root available") {
+		t.Errorf("error message should mention missing catalog root, got: %v", err)
+	}
+}
+
+// TestResolveExternalSkillSource_RequiresSKILLmd verifies the resolver checks
+// for an actual SKILL.md inside the candidate directory — not just the dir
+// existing — so empty placeholder dirs don't trigger false positives.
+func TestResolveExternalSkillSource_RequiresSKILLmd(t *testing.T) {
+	catalogRoot := t.TempDir()
+	workflowDir := filepath.Join(catalogRoot, "workflows", "sdd")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Create the candidate skill dir but WITHOUT a SKILL.md.
+	emptyDir := filepath.Join(catalogRoot, "skills", "write-a-prd")
+	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+		t.Fatalf("mkdir empty skill dir: %v", err)
+	}
+
+	_, err := renderers.ResolveExternalSkillSource(catalogRoot, workflowDir, "write-a-prd")
+	if err == nil {
+		t.Fatal("expected error when SKILL.md is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error message should mention 'not found', got: %v", err)
+	}
+}

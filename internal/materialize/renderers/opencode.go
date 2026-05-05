@@ -279,11 +279,14 @@ func (r *OpenCodeRenderer) MCPAgentInstructions() map[string]string {
 // NOT created:
 //   - agents/ directory (redundant — agent entries go into opencode.json)
 //   - commands/ directory (empty; not needed by OpenCode)
-func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
+func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
 	skillsSet := make(map[string]bool, len(wf.Components.Skills))
 	for _, s := range wf.Components.Skills {
 		skillsSet[s] = true
 	}
+	// Track skills rendered by the workflow-internal scan so the external pass
+	// only handles names that did NOT appear as subdirectories of the workflow.
+	renderedSkills := make(map[string]bool, len(wf.Components.Skills))
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
 	// OpenCode installs workflow files (orchestrator, _shared) in its own workspace
@@ -335,6 +338,14 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 		}
 
 		if skillsSet[name] {
+			// The orchestrator skill (whose dir name matches the workflow's
+			// working dir) is delivered as a primary agent in opencode.json,
+			// NOT as a regular skill in .opencode/skills/. Skip installing it
+			// here — its body becomes the prompt of the sdd-orchestrator agent
+			// in opencode.json (see synthesizeAgents below).
+			if name == wf.Metadata.EffectiveWorkingDir() {
+				continue
+			}
 			// Workflow skills: .opencode/skills/<skill-name>/SKILL.md
 			destDir := filepath.Join(skillsBase, name)
 			if err := r.RenderSkill(srcPath, destDir); err != nil {
@@ -344,6 +355,7 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: copy skill subdirs for %s: %w", name, err)
 			}
 			managedPaths = append(managedPaths, destDir)
+			renderedSkills[name] = true
 			continue
 		}
 
@@ -379,6 +391,33 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 		managedPaths = append(managedPaths, dstPath)
 	}
 
+	// External skill pass: any name in components.skills that did NOT appear as
+	// a workflow-internal subdirectory is resolved against the catalog root
+	// (catalogRoot/skills/<name>/). The orchestrator skill name is excluded
+	// because OpenCode delivers the orchestrator as a primary agent in
+	// opencode.json, not as a regular skill — its absence from the workflow dir
+	// must NOT trigger an external lookup.
+	for _, skillName := range wf.Components.Skills {
+		if renderedSkills[skillName] {
+			continue
+		}
+		if skillName == wf.Metadata.EffectiveWorkingDir() {
+			continue
+		}
+		extSrc, err := ResolveExternalSkillSource(catalogRoot, cachePath, skillName)
+		if err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: %w", err)
+		}
+		extDst := filepath.Join(skillsBase, skillName)
+		if err := r.RenderSkill(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: external workflow skill %q: %w", skillName, err)
+		}
+		if err := copySkillSubdirs(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: copy skill subdirs for external skill %q: %w", skillName, err)
+		}
+		managedPaths = append(managedPaths, extDst)
+	}
+
 	// Build shared placeholder replacements: {SKILLS_PATH} and {SDD_MODEL_*}.
 	// Uses buildWorkflowPlaceholderReplacements to avoid double-slash bugs and
 	// to ensure {SDD_MODEL_*} markers are resolved from workflow role metadata.
@@ -411,9 +450,23 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 		}
 	}
 
+	// Resolve registry variant for the orchestrator prompt (registry +
+	// playbook combined). The OpenCode primary agent has no separate ambient
+	// catalog, so the registry block is prepended to the orchestrator prompt
+	// to govern its behaviour.
+	registryPath := ""
+	if wf.Components.Registry != "" {
+		variantName := strings.TrimSuffix(wf.Components.Registry, ".md") + ".opencode.md"
+		if _, statErr := os.Stat(filepath.Join(cachePath, variantName)); statErr == nil {
+			registryPath = filepath.Join(cachePath, variantName)
+		} else if _, statErr := os.Stat(filepath.Join(cachePath, wf.Components.Registry)); statErr == nil {
+			registryPath = filepath.Join(cachePath, wf.Components.Registry)
+		}
+	}
+
 	// Synthesize SDD agents into opencode.json from components.roles.
 	if len(wf.Components.Roles) > 0 {
-		if err := r.synthesizeAgents(wf, orchPath, workspaceRoot, skillsBase, replacements); err != nil {
+		if err := r.synthesizeAgents(wf, orchPath, registryPath, workspaceRoot, skillsBase, replacements); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: synthesize agents: %w", err)
 		}
 		managedPaths = append(managedPaths, filepath.Join(workspaceRoot, "opencode.json"))
@@ -453,9 +506,11 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 //
 // For subagent roles: creates agent entry with mode: "subagent", prompt pointing to
 // the installed SKILL.md, and standard tool set.
-// For orchestrator role: creates agent entry with mode: "all" and the full
-// ORCHESTRATOR.md content as the prompt with placeholders resolved.
-func (r *OpenCodeRenderer) synthesizeAgents(wf model.WorkflowManifest, orchPath string, workspaceRoot, skillsBase string, replacements map[string]string) error {
+// For orchestrator role: creates agent entry with mode: "all" whose prompt
+// combines the resolved REGISTRY variant (ambient rules) with the resolved
+// ORCHESTRATOR variant (operational playbook). Placeholders are resolved in
+// both. registryPath may be empty when the workflow has no registry file.
+func (r *OpenCodeRenderer) synthesizeAgents(wf model.WorkflowManifest, orchPath, registryPath, workspaceRoot, skillsBase string, replacements map[string]string) error {
 	opencodeJSON := filepath.Join(workspaceRoot, "opencode.json")
 
 	// Load existing opencode.json or start fresh.
@@ -477,7 +532,7 @@ func (r *OpenCodeRenderer) synthesizeAgents(wf model.WorkflowManifest, orchPath 
 			agentSection[role.Name] = entry
 
 		case "orchestrator":
-			entry, err := r.buildOrchestratorEntry(wf, role, orchPath, replacements)
+			entry, err := r.buildOrchestratorEntry(wf, role, orchPath, registryPath, replacements)
 			if err != nil {
 				return fmt.Errorf("synthesizeAgents: orchestrator entry: %w", err)
 			}
@@ -535,18 +590,33 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 // buildOrchestratorEntry creates an opencode.json agent entry for the orchestrator role.
 // The prompt is the full content of the ORCHESTRATOR.md file with all placeholders
 // resolved ({SKILLS_PATH}, {SDD_MODEL_*}) using the provided replacements map.
-func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, role model.WorkflowRole, orchPath string, replacements map[string]string) (map[string]any, error) {
+func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, role model.WorkflowRole, orchPath, registryPath string, replacements map[string]string) (map[string]any, error) {
 	var prompt string
+
+	// Prepend the registry block (ambient rules: Role Invariant, Evaluation
+	// Gate, Memory Protocols, Engram Availability Guard, Session close) so the
+	// orchestrator agent has the same governing rules a CLAUDE.md ambient
+	// install would provide for the main session. OpenCode primary agents have
+	// no shared catalog context, so embedding here is the only delivery path.
+	if registryPath != "" {
+		regData, err := os.ReadFile(registryPath)
+		if err != nil {
+			return nil, fmt.Errorf("read registry %q: %w", registryPath, err)
+		}
+		prompt = strings.TrimRight(string(regData), "\n") + "\n\n"
+	}
+
 	if orchPath != "" {
 		data, err := os.ReadFile(orchPath)
 		if err != nil {
 			return nil, fmt.Errorf("read orchestrator %q: %w", orchPath, err)
 		}
-		prompt = string(data)
-		// Resolve {SKILLS_PATH} and {SDD_MODEL_*} in the orchestrator prompt content.
-		for placeholder, value := range replacements {
-			prompt = strings.ReplaceAll(prompt, placeholder, value)
-		}
+		prompt += strings.TrimLeft(string(data), "\n")
+	}
+
+	// Resolve {SKILLS_PATH} and {SDD_MODEL_*} in the combined prompt content.
+	for placeholder, value := range replacements {
+		prompt = strings.ReplaceAll(prompt, placeholder, value)
 	}
 
 	description := buildRoleDescription(role.Name, fmt.Sprintf("coordinates %s workflow via sub-agents", wf.Metadata.EffectiveDisplayName()))

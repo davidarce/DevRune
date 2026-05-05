@@ -516,7 +516,7 @@ components:
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -571,7 +571,7 @@ components:
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -631,7 +631,7 @@ Review model: {SDD_MODEL_REVIEW}
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -685,7 +685,7 @@ func TestClaudeRenderer_InstallWorkflow_RegistryNoDoubleSlash(t *testing.T) {
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -741,7 +741,7 @@ func TestClaudeRenderer_InstallWorkflow_RegistryClaudeVariantPreferred(t *testin
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -790,7 +790,7 @@ func TestClaudeRenderer_InstallWorkflow_RegistryClaudeVariantNotCopiedToWorkspac
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -826,7 +826,7 @@ func TestClaudeRenderer_InstallWorkflow_RegistryFallsBackWhenVariantMissing(t *t
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -876,7 +876,7 @@ func TestClaudeRenderer_InstallWorkflow_NoAdvisorSkills(t *testing.T) {
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, wfCacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, wfCacheDir, wfCacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1139,7 +1139,7 @@ func TestClaudeRenderer_RenderSettings_HookJSONMerged(t *testing.T) {
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, cacheDir, cacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1197,7 +1197,7 @@ func TestClaudeRenderer_RenderSettings_InvalidHookJSONSkipped(t *testing.T) {
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, cacheDir, cacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1253,7 +1253,7 @@ func TestClaudeRenderer_RenderSettings_NoHooksForClaudeAgent(t *testing.T) {
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, cacheDir, cacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1319,7 +1319,7 @@ func TestClaudeRenderer_RenderSettings_MultipleHookFilesForClaudeAgentMerged(t *
 	}
 
 	workspaceDir := t.TempDir()
-	if _, err := r.InstallWorkflow(wf, cacheDir, workspaceDir); err != nil {
+	if _, err := r.InstallWorkflow(wf, cacheDir, cacheDir, workspaceDir); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1412,7 +1412,7 @@ func TestClaudeRenderer_InstallWorkflow_VariantProbe(t *testing.T) {
 	cache := writeClaudeSDDCache(t, variantMarker)
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1439,7 +1439,7 @@ func TestClaudeRenderer_InstallWorkflow_FallsBackWhenVariantMissing(t *testing.T
 	cache := writeClaudeSDDCache(t, "") // no variant
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1474,7 +1474,7 @@ func TestClaudeRenderer_InstallWorkflow_PhaseSubagents_OmitToolsField(t *testing
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1508,7 +1508,7 @@ func TestClaudeRenderer_InstallWorkflow_AdvisorSubagents_DeclareReadOnlyTools(t 
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1552,7 +1552,7 @@ func TestClaudeRenderer_InstallWorkflow_MCPServers(t *testing.T) {
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1612,7 +1612,7 @@ func TestClaudeRenderer_InstallWorkflow_ModelPlaceholders(t *testing.T) {
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1651,7 +1651,7 @@ func TestClaudeRenderer_InstallWorkflow_ModelOverrideFromTUI(t *testing.T) {
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1697,7 +1697,7 @@ Gotchas:
 	cache := writeClaudeSDDCache(t, variantBody)
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -1728,7 +1728,7 @@ func TestClaudeRenderer_InstallWorkflow_ManagedPaths_PreserveUserAgents(t *testi
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	result, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace)
+	result, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace)
 	if err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
@@ -1772,7 +1772,7 @@ func TestClaudeRenderer_InstallWorkflow_SubagentFileSizeUnder1KB(t *testing.T) {
 	cache := writeClaudeSDDCache(t, "")
 	workspace := t.TempDir()
 
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -2093,7 +2093,7 @@ func TestClaudeRenderer_InstallWorkflow_NoSharedClaudeMdFiles(t *testing.T) {
 	}
 
 	workspace := t.TempDir()
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -2141,7 +2141,7 @@ func TestClaudeRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing.
 	}
 
 	workspace := t.TempDir()
-	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, workspace); err != nil {
+	if _, err := r.InstallWorkflow(sddTestWorkflow(), cache, cache, workspace); err != nil {
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
@@ -2172,5 +2172,127 @@ func TestClaudeRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing.
 		if _, err := os.Stat(path); err == nil {
 			t.Errorf("variant file %q must not be installed in _shared/", absent)
 		}
+	}
+}
+
+// TestClaudeRenderer_InstallWorkflow_ExternalCatalogSkill verifies that a skill
+// listed in workflow.yaml's components.skills but living at the catalog top
+// level (catalogRoot/skills/<name>/) — not under the workflow directory — is
+// resolved correctly and installed in the workspace.
+//
+// Scenario mirrors the real catalog layout: SDD's PRD gate references
+// write-a-prd, which is a top-level reusable skill at catalog/skills/write-a-prd/,
+// not at catalog/workflows/sdd/write-a-prd/. The renderer must reach across
+// to catalogRoot to resolve it.
+func TestClaudeRenderer_InstallWorkflow_ExternalCatalogSkill(t *testing.T) {
+	r := renderers.NewClaudeRenderer(claudeAgentDef())
+
+	catalogRoot := t.TempDir()
+	wfCacheDir := filepath.Join(catalogRoot, "workflows", "sdd")
+	if err := os.MkdirAll(wfCacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir workflow dir: %v", err)
+	}
+
+	// Internal skill (lives under workflow dir): sdd-explore.
+	internalSkillDir := filepath.Join(wfCacheDir, "sdd-explore")
+	if err := os.MkdirAll(internalSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir internal skill: %v", err)
+	}
+	internalContent := "---\nname: sdd-explore\ndescription: Explore phase\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(internalSkillDir, "SKILL.md"), []byte(internalContent), 0o644); err != nil {
+		t.Fatalf("write internal SKILL.md: %v", err)
+	}
+
+	// External skill (lives at catalog top level): write-a-prd.
+	externalSkillDir := filepath.Join(catalogRoot, "skills", "write-a-prd")
+	if err := os.MkdirAll(externalSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir external skill: %v", err)
+	}
+	externalContent := "---\nname: write-a-prd\ndescription: Generate a PRD\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(externalSkillDir, "SKILL.md"), []byte(externalContent), 0o644); err != nil {
+		t.Fatalf("write external SKILL.md: %v", err)
+	}
+
+	// Workflow.yaml lists BOTH skills in components.skills. The internal one
+	// resolves via the existing scan; the external one resolves via the new
+	// external pass.
+	wfYAML := `apiVersion: devrune/workflow/v1
+metadata:
+  name: sdd
+  version: 1.0.0
+components:
+  skills:
+    - sdd-explore
+    - write-a-prd
+`
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "workflow.yaml"), []byte(wfYAML), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{
+			Skills: []string{"sdd-explore", "write-a-prd"},
+		},
+	}
+
+	workspaceDir := t.TempDir()
+	result, err := r.InstallWorkflow(wf, wfCacheDir, catalogRoot, workspaceDir)
+	if err != nil {
+		t.Fatalf("InstallWorkflow: %v", err)
+	}
+
+	// Both skills must land at the top-level workspace skills dir.
+	internalDest := filepath.Join(workspaceDir, "skills", "sdd-explore", "SKILL.md")
+	if _, err := os.Stat(internalDest); err != nil {
+		t.Errorf("internal skill not installed at %q: %v", internalDest, err)
+	}
+	externalDest := filepath.Join(workspaceDir, "skills", "write-a-prd", "SKILL.md")
+	if _, err := os.Stat(externalDest); err != nil {
+		t.Errorf("external skill not installed at %q: %v", externalDest, err)
+	}
+
+	// External skill should appear in ManagedPaths so uninstall can remove it.
+	foundExternal := false
+	for _, p := range result.ManagedPaths {
+		if p == filepath.Join(workspaceDir, "skills", "write-a-prd") {
+			foundExternal = true
+			break
+		}
+	}
+	if !foundExternal {
+		t.Errorf("external skill dir missing from ManagedPaths; got: %v", result.ManagedPaths)
+	}
+}
+
+// TestClaudeRenderer_InstallWorkflow_ExternalSkillMissingErrors verifies that
+// listing a skill in components.skills that is neither workflow-internal nor a
+// catalog top-level skill produces a clear error.
+func TestClaudeRenderer_InstallWorkflow_ExternalSkillMissingErrors(t *testing.T) {
+	r := renderers.NewClaudeRenderer(claudeAgentDef())
+
+	catalogRoot := t.TempDir()
+	wfCacheDir := filepath.Join(catalogRoot, "workflows", "sdd")
+	if err := os.MkdirAll(wfCacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCacheDir, "workflow.yaml"), []byte("apiVersion: devrune/workflow/v1\nmetadata:\n  name: sdd\n  version: 1.0.0\ncomponents:\n  skills:\n    - nonexistent\n"), 0o644); err != nil {
+		t.Fatalf("write workflow.yaml: %v", err)
+	}
+
+	wf := model.WorkflowManifest{
+		APIVersion: "devrune/workflow/v1",
+		Metadata:   model.WorkflowMetadata{Name: "sdd", Version: "1.0.0"},
+		Components: model.WorkflowComponents{Skills: []string{"nonexistent"}},
+	}
+
+	workspaceDir := t.TempDir()
+	_, err := r.InstallWorkflow(wf, wfCacheDir, catalogRoot, workspaceDir)
+	if err == nil {
+		t.Fatal("expected error for missing skill, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should name the missing skill, got: %v", err)
 	}
 }

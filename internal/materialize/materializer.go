@@ -293,7 +293,15 @@ func (m *Materializer) Install(
 			// shared skill directory was already populated by a prior agent.
 			// Renderers are idempotent for file writes, and per-renderer
 			// synthesis (e.g. opencode.json agent entries) must always run.
-			wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, agentWorkspace)
+			//
+			// catalogRoot is cacheDir — the catalog archive root that contains
+			// both the workflow dir and any sibling top-level resources like
+			// skills/. Renderers use catalogRoot to resolve skills declared in
+			// `components.skills` that live outside the workflow directory.
+			// For standalone workflow archives (wf.Dir == ""), catalogRoot
+			// equals wfDir; the resolver treats that as "no external lookup"
+			// and only honors workflow-internal skill subdirs.
+			wfResult, err := renderer.InstallWorkflow(wfManifest, wfDir, cacheDir, agentWorkspace)
 			if err != nil {
 				return fmt.Errorf("materializer: install workflow %q for agent %q: %w",
 					wf.Name, agentRef.Name, err)
@@ -376,23 +384,48 @@ func (m *Materializer) Install(
 		_ = os.Remove(claudePath)
 	}
 
-	// T021: Generate CLAUDE.md with Claude-specific paths.
-	claudeCatalog, err := renderers.RenderRootCatalog(allWorkflows, mcpInstructions, claudeRegistryContents)
-	if err != nil {
-		return fmt.Errorf("materializer: render CLAUDE.md catalog: %w", err)
-	}
-	if err := renderers.WriteManagedBlock(claudePath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, claudeCatalog); err != nil {
-		return fmt.Errorf("materializer: write CLAUDE.md: %w", err)
-	}
-
-	// Generate AGENTS.md with .agents/ paths for factory, codex, opencode, copilot.
-	agentsCatalog, err := renderers.RenderRootCatalog(allWorkflows, mcpInstructions, agentsRegistryContents)
-	if err != nil {
-		return fmt.Errorf("materializer: render AGENTS.md catalog: %w", err)
+	// Determine which root catalog files belong to this install based on the
+	// active agent set. Writing CLAUDE.md when Claude is not selected leaves a
+	// half-rendered catalog (heading without body); same for AGENTS.md when
+	// only Claude is selected.
+	hasClaude := false
+	hasNonClaude := false
+	for _, a := range activeAgents {
+		if a == "claude" {
+			hasClaude = true
+		} else {
+			hasNonClaude = true
+		}
 	}
 	agentsPath := filepath.Join(projectRoot, "AGENTS.md")
-	if err := renderers.WriteManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, agentsCatalog); err != nil {
-		return fmt.Errorf("materializer: write AGENTS.md: %w", err)
+
+	// T021: Generate CLAUDE.md with Claude-specific paths when Claude is active;
+	// otherwise strip any leftover managed block from a previous install.
+	if hasClaude {
+		claudeCatalog, err := renderers.RenderRootCatalog(allWorkflows, mcpInstructions, claudeRegistryContents)
+		if err != nil {
+			return fmt.Errorf("materializer: render CLAUDE.md catalog: %w", err)
+		}
+		if err := renderers.WriteManagedBlock(claudePath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, claudeCatalog); err != nil {
+			return fmt.Errorf("materializer: write CLAUDE.md: %w", err)
+		}
+	} else if err := renderers.RemoveManagedBlock(claudePath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker); err != nil {
+		return fmt.Errorf("materializer: strip stale CLAUDE.md: %w", err)
+	}
+
+	// Generate AGENTS.md with .agents/ paths for factory, codex, opencode, copilot
+	// when at least one non-Claude agent is active; otherwise strip any leftover
+	// managed block from a previous install.
+	if hasNonClaude {
+		agentsCatalog, err := renderers.RenderRootCatalog(allWorkflows, mcpInstructions, agentsRegistryContents)
+		if err != nil {
+			return fmt.Errorf("materializer: render AGENTS.md catalog: %w", err)
+		}
+		if err := renderers.WriteManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker, agentsCatalog); err != nil {
+			return fmt.Errorf("materializer: write AGENTS.md: %w", err)
+		}
+	} else if err := renderers.RemoveManagedBlock(agentsPath, renderers.CatalogBeginMarker, renderers.CatalogEndMarker); err != nil {
+		return fmt.Errorf("materializer: strip stale AGENTS.md: %w", err)
 	}
 
 	// Step 6.5: Ensure project-root .mcp.json exists for any MCP-enabled install.

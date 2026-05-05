@@ -47,7 +47,16 @@ type AgentRenderer interface {
 	// InstallWorkflow materializes a workflow into the agent's workspace.
 	// It returns a WorkflowInstallResult reporting the renderer-owned paths so
 	// the materializer can track managed paths without guessing layout roots.
-	InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (WorkflowInstallResult, error)
+	//
+	// cachePath is the absolute path to the workflow source directory (e.g.
+	// "/cache/<hash>/workflows/sdd"). catalogRoot is the absolute path to the
+	// containing catalog root (e.g. "/cache/<hash>"), which the renderer uses
+	// to resolve skills referenced in `components.skills` that live outside
+	// the workflow directory (catalog-level `skills/<name>/`). When the
+	// workflow ships standalone with no catalog wrapper, catalogRoot may
+	// equal cachePath; the renderer treats that as "no external lookup
+	// available" and only resolves workflow-internal skill names.
+	InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (WorkflowInstallResult, error)
 
 	// Finalize runs agent-specific post-processing after all content is installed.
 	Finalize(workspaceRoot string) error

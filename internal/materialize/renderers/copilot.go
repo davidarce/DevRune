@@ -352,7 +352,7 @@ func copilotModelResolver(id string) string { return id }
 // T017: Does NOT install SDD workflow skills to skills/ — they are embedded in .agent.md.
 // T018: Generates native sub-agent .agent.md for each subagent role.
 // T019: Installs orchestrator with proper frontmatter and resolved {SKILLS_PATH}/{SDD_MODEL_*}.
-func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
+func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath string, catalogRoot string, workspaceRoot string) (matypes.WorkflowInstallResult, error) {
 	// Build a set of SDD workflow skills that will become sub-agents (not installed to skills/).
 	subagentSkillSet := make(map[string]bool)
 	for _, role := range wf.Components.Roles {
@@ -366,6 +366,9 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	for _, s := range wf.Components.Skills {
 		skillsSet[s] = true
 	}
+	// Track skills rendered by the workflow-internal scan so the external pass
+	// only handles names that did NOT appear as subdirectories of the workflow.
+	renderedSkills := make(map[string]bool, len(wf.Components.Skills))
 
 	skillsBase := filepath.Join(workspaceRoot, r.def.SkillDir)
 	if err := os.MkdirAll(skillsBase, 0o755); err != nil {
@@ -470,8 +473,20 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			if variantOrchPath != "" {
 				effectiveSrc = variantOrchPath // use variant if found
 			}
+			// Resolve the Copilot registry variant (or generic fallback) so the
+			// orchestrator agent file embeds both ambient rules + playbook —
+			// Copilot custom agents have no shared catalog context.
+			registryPath := ""
+			if wf.Components.Registry != "" {
+				variantName := strings.TrimSuffix(wf.Components.Registry, ".md") + ".copilot.md"
+				if _, statErr := os.Stat(filepath.Join(cachePath, variantName)); statErr == nil {
+					registryPath = filepath.Join(cachePath, variantName)
+				} else if _, statErr := os.Stat(filepath.Join(cachePath, wf.Components.Registry)); statErr == nil {
+					registryPath = filepath.Join(cachePath, wf.Components.Registry)
+				}
+			}
 			dstPath := filepath.Join(agentsBase, orchRoleName+".agent.md")
-			if err := r.installOrchestratorAgent(effectiveSrc, dstPath, wf, replacements); err != nil {
+			if err := r.installOrchestratorAgent(effectiveSrc, registryPath, dstPath, wf, replacements); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow orchestrator: %w", err)
 			}
 			managedPaths = append(managedPaths, dstPath)
@@ -497,6 +512,7 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: copy skill subdirs for %s: %w", name, err)
 			}
 			managedPaths = append(managedPaths, destDir)
+			renderedSkills[name] = true
 			continue
 		}
 
@@ -520,6 +536,32 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
 		}
 		managedPaths = append(managedPaths, dstPath)
+	}
+
+	// External skill pass: any name in components.skills that did NOT appear as
+	// a workflow-internal subdirectory is resolved against the catalog root
+	// (catalogRoot/skills/<name>/). Subagent skills and the orchestrator skill
+	// are excluded because Copilot delivers them through agent .agent.md files,
+	// not regular skills/ entries.
+	for _, skillName := range wf.Components.Skills {
+		if renderedSkills[skillName] {
+			continue
+		}
+		if subagentSkillSet[skillName] || skillName == orchRoleName {
+			continue
+		}
+		extSrc, err := ResolveExternalSkillSource(catalogRoot, cachePath, skillName)
+		if err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: %w", err)
+		}
+		extDst := filepath.Join(skillsBase, skillName)
+		if err := r.RenderSkill(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: external workflow skill %q: %w", skillName, err)
+		}
+		if err := copySkillSubdirs(extSrc, extDst); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: copy skill subdirs for external skill %q: %w", skillName, err)
+		}
+		managedPaths = append(managedPaths, extDst)
 	}
 
 	// T018: Generate native sub-agent .agent.md files for each subagent role.
@@ -599,15 +641,31 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 //
 // T019: Adds frontmatter (name, description, user-invocable) and resolves {SKILLS_PATH}
 // and {SDD_MODEL_*} placeholders. The orchestrator inherits the session model (no model field).
-func (r *CopilotRenderer) installOrchestratorAgent(srcPath, dstPath string, wf model.WorkflowManifest, replacements map[string]string) error {
+func (r *CopilotRenderer) installOrchestratorAgent(srcPath, registryPath, dstPath string, wf model.WorkflowManifest, replacements map[string]string) error {
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
 		return fmt.Errorf("copilot: read orchestrator %q: %w", srcPath, err)
 	}
 
-	content := string(data)
+	var combined strings.Builder
 
-	// Resolve all placeholders in the orchestrator body.
+	// Prepend the registry block (ambient rules: Role Invariant, Evaluation
+	// Gate, Memory Protocols, Engram Availability Guard, Session close) so the
+	// custom agent has the same governing rules a CLAUDE.md ambient install
+	// would provide for the main session. Copilot custom agents have no
+	// shared catalog context, so embedding here is the only delivery path.
+	if registryPath != "" {
+		regData, err := os.ReadFile(registryPath)
+		if err != nil {
+			return fmt.Errorf("copilot: read registry %q: %w", registryPath, err)
+		}
+		combined.WriteString(strings.TrimRight(string(regData), "\n"))
+		combined.WriteString("\n\n")
+	}
+	combined.WriteString(strings.TrimLeft(string(data), "\n"))
+	content := combined.String()
+
+	// Resolve all placeholders in the combined body.
 	for placeholder, value := range replacements {
 		content = strings.ReplaceAll(content, placeholder, value)
 	}

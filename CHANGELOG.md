@@ -5,6 +5,30 @@ All notable changes to DevRune will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/davidarce/DevRune/compare/v0.1.33...v0.2.0) (2026-05-05)
+
+
+### Features
+
+* **workflow:** resolve components.skills against catalog root, not just workflow dir ([a65ebec](https://github.com/davidarce/DevRune/commit/a65ebec713d1e36d11f4d272deb26b60755be501))
+
+## [0.1.33](https://github.com/davidarce/DevRune/compare/v0.1.32...v0.1.33) (2026-05-05)
+
+
+### Bug Fixes
+
+* **materialize:** claude renderer skips REGISTRY variants in scan loop ([5649734](https://github.com/davidarce/DevRune/commit/56497347f26d3de8d5012f1a1854d20b0f9db604))
+* **materialize:** only render root catalog files for active agent set ([8950b92](https://github.com/davidarce/DevRune/commit/8950b921eb4d2e53e9cd12a5dc5bea6bcf07504d))
+* **materialize:** track hook script paths in ManagedPaths ([b078e8b](https://github.com/davidarce/DevRune/commit/b078e8b2805dbdf01ac3006f6cfd610df99c37a1))
+* **uninstall:** prune empty workspace dirs recursively ([4875a5f](https://github.com/davidarce/DevRune/commit/4875a5f6bab5a1438ee3bea67263a79d9cd6f6d1))
+
+
+### Code Refactoring
+
+* **catalog:** use HTML-comment markers in Markdown catalogs ([458f095](https://github.com/davidarce/DevRune/commit/458f095af17a615c7bfc89a1edcf1e28aca705cc))
+* **materialize:** restructure root catalog headings + drop title ([86a8ff7](https://github.com/davidarce/DevRune/commit/86a8ff7c3efcea3eb40339b89139c66e8e35f8d2))
+* **materialize:** self-contained orchestrator skill + per-agent registry embedding ([b5b1d06](https://github.com/davidarce/DevRune/commit/b5b1d06dd3dc776ed5ac6c5ac7477c6852d8f888))
+
 ## [0.1.29] — 2026-04-28
 
 ### Breaking Changes — Unified `advisors` manifest field

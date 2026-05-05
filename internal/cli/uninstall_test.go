@@ -144,7 +144,7 @@ func TestCleanManagedBlock_DeletesEmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
 
-	content := "# >>> devrune managed — do not edit\nsome content\n# <<< devrune managed\n"
+	content := "<!-- >>> devrune managed — do not edit -->\nsome content\n<!-- <<< devrune managed -->\n"
 	if err := os.WriteFile(agentsPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -158,6 +158,44 @@ func TestCleanManagedBlock_DeletesEmptyFile(t *testing.T) {
 	}
 }
 
+// TestCleanManagedBlock_RemovesHTMLMarkers verifies that cleanManagedBlock
+// strips HTML-comment marker blocks (current Markdown catalog format).
+func TestCleanManagedBlock_RemovesHTMLMarkers(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+
+	content := "# Project Notes\n<!-- >>> devrune managed — do not edit -->\n## SDD Workflow\nfoo\n<!-- <<< devrune managed -->\nuser content after\n"
+	if err := os.WriteFile(claudePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := cleanManagedBlock(tmpDir, "CLAUDE.md"); err != nil {
+		t.Fatalf("cleanManagedBlock: %v", err)
+	}
+
+	data, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	got := string(data)
+	if strings.Contains(got, ">>> devrune managed") {
+		t.Errorf("HTML start marker still present: %q", got)
+	}
+	if strings.Contains(got, "<<< devrune managed") {
+		t.Errorf("HTML end marker still present: %q", got)
+	}
+	if strings.Contains(got, "## SDD Workflow") {
+		t.Errorf("managed body still present: %q", got)
+	}
+	if !strings.Contains(got, "# Project Notes") {
+		t.Errorf("pre-block user content removed: %q", got)
+	}
+	if !strings.Contains(got, "user content after") {
+		t.Errorf("post-block user content removed: %q", got)
+	}
+}
+
 // TestCleanManagedBlock_NoFile verifies cleanManagedBlock returns nil when
 // the file does not exist.
 func TestCleanManagedBlock_NoFile(t *testing.T) {
@@ -165,5 +203,67 @@ func TestCleanManagedBlock_NoFile(t *testing.T) {
 
 	if err := cleanManagedBlock(tmpDir, ".gitignore"); err != nil {
 		t.Errorf("cleanManagedBlock with no file: unexpected error: %v", err)
+	}
+}
+
+// TestPruneEmptyDirs_RemovesEmptyTree verifies that pruneEmptyDirs deletes a
+// directory whose entire subtree is empty.
+func TestPruneEmptyDirs_RemovesEmptyTree(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, ".claude")
+	for _, sub := range []string{"agents", "skills/foo", "commands"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+	}
+
+	if err := pruneEmptyDirs(root); err != nil {
+		t.Fatalf("pruneEmptyDirs: %v", err)
+	}
+
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Errorf("expected root dir to be removed, stat err=%v", err)
+	}
+}
+
+// TestPruneEmptyDirs_KeepsDirsWithFiles verifies that pruneEmptyDirs leaves
+// directories alone when they (or any descendant) contain a file.
+func TestPruneEmptyDirs_KeepsDirsWithFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, ".claude")
+	keepDir := filepath.Join(root, "hooks")
+	if err := os.MkdirAll(keepDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	keepFile := filepath.Join(keepDir, "leftover.sh")
+	if err := os.WriteFile(keepFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	// Sibling empty subtree that should be pruned.
+	if err := os.MkdirAll(filepath.Join(root, "skills/foo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if err := pruneEmptyDirs(root); err != nil {
+		t.Fatalf("pruneEmptyDirs: %v", err)
+	}
+
+	if _, err := os.Stat(keepFile); err != nil {
+		t.Errorf("leftover file should still exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills")); !os.IsNotExist(err) {
+		t.Errorf("empty sibling subtree should be pruned, stat err=%v", err)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Errorf("root should still exist because hooks/ has a file: %v", err)
+	}
+}
+
+// TestPruneEmptyDirs_NonExistent verifies that pruneEmptyDirs returns nil
+// when the target path does not exist.
+func TestPruneEmptyDirs_NonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := pruneEmptyDirs(filepath.Join(tmpDir, "does-not-exist")); err != nil {
+		t.Errorf("expected nil for missing dir, got: %v", err)
 	}
 }

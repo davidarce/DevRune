@@ -57,7 +57,11 @@ func ReadAndValidateHookJSON(path string) (map[string]interface{}, error) {
 // agentWorkspace is the agent's workspace prefix (e.g. ".claude", ".factory").
 // The JSON paths reference the destination (e.g. ".claude/hooks/script.sh") but
 // the source files in the cache omit the workspace prefix (e.g. "hooks/script.sh").
-func copyHookScriptAssets(hookData map[string]interface{}, cachePath, workspaceRoot, agentWorkspace, suffix string, mode os.FileMode) error {
+//
+// Returns the absolute destination paths of files actually copied so the caller
+// can add them to WorkflowInstallResult.ManagedPaths for cleanup on uninstall.
+func copyHookScriptAssets(hookData map[string]interface{}, cachePath, workspaceRoot, agentWorkspace, suffix string, mode os.FileMode) ([]string, error) {
+	var copied []string
 	for _, scriptPath := range collectStringValues(hookData, suffix) {
 		// scriptPath may contain shell variable prefixes like "$CLAUDE_PROJECT_DIR/...".
 		// Strip any leading variable reference to get the bare relative path.
@@ -79,13 +83,14 @@ func copyHookScriptAssets(hookData map[string]interface{}, cachePath, workspaceR
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dstFile), 0o755); err != nil {
-			return fmt.Errorf("mkdir %q: %w", filepath.Dir(dstFile), err)
+			return copied, fmt.Errorf("mkdir %q: %w", filepath.Dir(dstFile), err)
 		}
 		if err := copyFileWithMode(srcFile, dstFile, mode); err != nil {
-			return fmt.Errorf("copy hook asset %q: %w", cleanPath, err)
+			return copied, fmt.Errorf("copy hook asset %q: %w", cleanPath, err)
 		}
+		copied = append(copied, dstFile)
 	}
-	return nil
+	return copied, nil
 }
 
 // collectStringValues recursively walks v (which may be a map, slice, or scalar)
