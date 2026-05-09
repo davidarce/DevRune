@@ -5,6 +5,18 @@ All notable changes to DevRune will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/davidarce/DevRune/compare/v0.2.0...v0.3.0) (2026-05-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workflow:** WorkflowRole.Model (single string) is removed. Subagent roles must now declare a non-empty `models` map keyed by agent name (claude, opencode, copilot). Catalogs that still use `model:` will fail Validate().
+
+### Features
+
+* **workflow-roles:** add GPT-5.5 to Copilot model list ([63f3e08](https://github.com/davidarce/DevRune/commit/63f3e08146a63834c028002e9dd702a3952d96a2))
+* **workflow:** per-agent role models in workflow.yaml + canonical preload ([2f88810](https://github.com/davidarce/DevRune/commit/2f888102748e95e88678e6fc9b8a259696fe0389)), closes [#67](https://github.com/davidarce/DevRune/issues/67)
+
 ## [0.2.0](https://github.com/davidarce/DevRune/compare/v0.1.33...v0.2.0) (2026-05-05)
 
 
