@@ -731,16 +731,16 @@ func makeWFWithRoles(roles []model.WorkflowRole) model.WorkflowManifest {
 }
 
 // TestBuildWorkflowPlaceholderReplacements_OverrideTakesPrecedence verifies that a
-// value in modelOverrides replaces the role.Model from workflow.yaml.
+// value in modelOverrides replaces the per-agent yaml default from role.Models.
 func TestBuildWorkflowPlaceholderReplacements_OverrideTakesPrecedence(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-explorer", Kind: "subagent", Model: "haiku"},
+		{Name: "sdd-explorer", Kind: "subagent", Models: map[string]string{"claude": "haiku"}},
 	})
 	overrides := map[string]string{
 		"sdd-explorer": "sonnet",
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, overrides)
 
 	got := result["{SDD_MODEL_EXPLORE}"]
 	if got != "sonnet" {
@@ -748,35 +748,35 @@ func TestBuildWorkflowPlaceholderReplacements_OverrideTakesPrecedence(t *testing
 	}
 }
 
-// TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToRoleModel verifies
-// that the SDDModelInheritOption sentinel in overrides is treated as "no override",
-// causing fallback to role.Model.
-func TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToRoleModel(t *testing.T) {
+// TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToYaml verifies
+// that the ModelInheritOption sentinel in overrides is treated as "no override",
+// causing fallback to role.Models[agent].
+func TestBuildWorkflowPlaceholderReplacements_InheritSentinelFallsBackToYaml(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
+		{Name: "sdd-planner", Kind: "subagent", Models: map[string]string{"claude": "opus"}},
 	})
 	overrides := map[string]string{
 		"sdd-planner": model.ModelInheritOption, // sentinel = no override
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, overrides)
 
 	got := result["{SDD_MODEL_PLAN}"]
 	if got != "opus" {
-		t.Errorf("{SDD_MODEL_PLAN} = %q, want %q (inherit sentinel should fall back to role.Model)", got, "opus")
+		t.Errorf("{SDD_MODEL_PLAN} = %q, want %q (inherit sentinel should fall back to role.Models[agent])", got, "opus")
 	}
 }
 
 // TestBuildWorkflowPlaceholderReplacements_EmptyOverrideMapIsBackwardCompatible verifies
-// that an empty (non-nil) override map behaves the same as nil — role.Model is used.
+// that an empty (non-nil) override map behaves the same as nil — yaml value is used.
 func TestBuildWorkflowPlaceholderReplacements_EmptyOverrideMapIsBackwardCompatible(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-implementer", Kind: "subagent", Model: "sonnet"},
+		{Name: "sdd-implementer", Kind: "subagent", Models: map[string]string{"claude": "sonnet"}},
 	})
 	emptyOverrides := map[string]string{}
 
-	resultWithEmpty := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, emptyOverrides)
-	resultWithNil := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+	resultWithEmpty := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, emptyOverrides)
+	resultWithNil := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, nil)
 
 	if resultWithEmpty["{SDD_MODEL_IMPLEMENT}"] != resultWithNil["{SDD_MODEL_IMPLEMENT}"] {
 		t.Errorf("empty override map produced %q, nil produced %q — should be equal",
@@ -784,14 +784,14 @@ func TestBuildWorkflowPlaceholderReplacements_EmptyOverrideMapIsBackwardCompatib
 	}
 }
 
-// TestBuildWorkflowPlaceholderReplacements_NilOverridesIsBackwardCompatible verifies that
-// nil modelOverrides does not change any existing placeholder behaviour.
-func TestBuildWorkflowPlaceholderReplacements_NilOverridesIsBackwardCompatible(t *testing.T) {
+// TestBuildWorkflowPlaceholderReplacements_NilOverridesUsesYamlValue verifies that
+// nil modelOverrides falls back to the per-agent yaml value.
+func TestBuildWorkflowPlaceholderReplacements_NilOverridesUsesYamlValue(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-reviewer", Kind: "subagent", Model: "haiku"},
+		{Name: "sdd-reviewer", Kind: "subagent", Models: map[string]string{"claude": "haiku"}},
 	})
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, nil)
 
 	got := result["{SDD_MODEL_REVIEW}"]
 	if got != "haiku" {
@@ -803,13 +803,13 @@ func TestBuildWorkflowPlaceholderReplacements_NilOverridesIsBackwardCompatible(t
 // when a modelResolver is provided, a short-name override is resolved to the full model ID.
 func TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsTrue(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-explorer", Kind: "subagent", Model: "haiku"},
+		{Name: "sdd-explorer", Kind: "subagent", Models: map[string]string{"claude": "haiku"}},
 	})
 	overrides := map[string]string{
 		"sdd-explorer": "sonnet",
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", renderers.ResolveModel, overrides)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", renderers.ResolveModel, overrides)
 
 	got := result["{SDD_MODEL_EXPLORE}"]
 	wantPrefix := "anthropic/claude-sonnet" // full ID starts with this
@@ -825,13 +825,13 @@ func TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsTrue(t *t
 // when modelResolver is nil, the raw override value is used as-is without resolution.
 func TestBuildWorkflowPlaceholderReplacements_OverrideWithResolveModelsFalse(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
+		{Name: "sdd-planner", Kind: "subagent", Models: map[string]string{"claude": "opus"}},
 	})
 	overrides := map[string]string{
 		"sdd-planner": "sonnet",
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, overrides)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, overrides)
 
 	got := result["{SDD_MODEL_PLAN}"]
 	if got != "sonnet" {
@@ -889,10 +889,10 @@ func TestResolveOpenCodeModel_UnknownBareNameGetsPrefixed(t *testing.T) {
 // resolveOpenCodeModel produces github-copilot/... format placeholders.
 func TestBuildWorkflowPlaceholderReplacements_OpenCodeResolver(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-explorer", Kind: "subagent", Model: "sonnet"},
+		{Name: "sdd-explorer", Kind: "subagent", Models: map[string]string{"opencode": "sonnet"}},
 	})
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", renderers.ResolveOpenCodeModel, nil)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "opencode", renderers.ResolveOpenCodeModel, nil)
 
 	got := result["{SDD_MODEL_EXPLORE}"]
 	const want = "github-copilot/claude-sonnet-4.6"
@@ -1111,10 +1111,10 @@ func contains(s, sub string) bool {
 // workflows emit both {WORKFLOW_MODEL_*} and legacy {SDD_MODEL_*} placeholders.
 func TestBuildWorkflowPlaceholderReplacements_SDDEmitsBothFormats(t *testing.T) {
 	wf := makeWFWithRoles([]model.WorkflowRole{
-		{Name: "sdd-explorer", Kind: "subagent", Model: "sonnet"},
+		{Name: "sdd-explorer", Kind: "subagent", Models: map[string]string{"claude": "sonnet"}},
 	})
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, nil)
 
 	// New format.
 	if got := result["{WORKFLOW_MODEL_EXPLORER}"]; got != "sonnet" {
@@ -1132,11 +1132,11 @@ func TestBuildWorkflowPlaceholderReplacements_NonSDDWorkflow(t *testing.T) {
 	var wf model.WorkflowManifest
 	wf.Metadata.Name = "code-review"
 	wf.Components.Roles = []model.WorkflowRole{
-		{Name: "reviewer", Kind: "subagent", Model: "opus"},
-		{Name: "code-review-checker", Kind: "subagent", Model: "sonnet"},
+		{Name: "reviewer", Kind: "subagent", Models: map[string]string{"claude": "opus"}},
+		{Name: "code-review-checker", Kind: "subagent", Models: map[string]string{"claude": "sonnet"}},
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, nil)
 
 	if got := result["{WORKFLOW_MODEL_REVIEWER}"]; got != "opus" {
 		t.Errorf("{WORKFLOW_MODEL_REVIEWER} = %q, want %q", got, "opus")
@@ -1158,10 +1158,10 @@ func TestBuildWorkflowPlaceholderReplacements_ExplicitPlaceholder(t *testing.T) 
 	var wf model.WorkflowManifest
 	wf.Metadata.Name = "cicd"
 	wf.Components.Roles = []model.WorkflowRole{
-		{Name: "code-quality-checker", Kind: "subagent", Model: "haiku", Placeholder: "CHECKER"},
+		{Name: "code-quality-checker", Kind: "subagent", Models: map[string]string{"claude": "haiku"}, Placeholder: "CHECKER"},
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, nil)
 
 	if got := result["{WORKFLOW_MODEL_CHECKER}"]; got != "haiku" {
 		t.Errorf("{WORKFLOW_MODEL_CHECKER} = %q, want %q", got, "haiku")
@@ -1178,11 +1178,11 @@ func TestBuildWorkflowPlaceholderReplacements_SkipsOrchestrator(t *testing.T) {
 	var wf model.WorkflowManifest
 	wf.Metadata.Name = "myflow"
 	wf.Components.Roles = []model.WorkflowRole{
-		{Name: "myflow-orchestrator", Kind: "orchestrator", Model: "opus"},
-		{Name: "myflow-worker", Kind: "subagent", Model: "sonnet"},
+		{Name: "myflow-orchestrator", Kind: "orchestrator"},
+		{Name: "myflow-worker", Kind: "subagent", Models: map[string]string{"claude": "sonnet"}},
 	}
 
-	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", nil, nil)
+	result := renderers.BuildWorkflowPlaceholderReplacements(wf, "/ws", "skills", "claude", nil, nil)
 
 	if _, ok := result["{WORKFLOW_MODEL_ORCHESTRATOR}"]; ok {
 		t.Error("orchestrator role should not produce a placeholder")

@@ -124,7 +124,7 @@ func sddTestWorkflowForRoleInvariant() model.WorkflowManifest {
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",
 			Roles: []model.WorkflowRole{
-				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan", Model: "sonnet"},
+				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan", Models: map[string]string{"claude": "sonnet", "opencode": "sonnet", "copilot": "Claude Sonnet 4.6"}},
 				{Name: "sdd-orchestrator", Kind: "orchestrator"},
 			},
 		},

@@ -753,25 +753,32 @@ func resolveMCPDefDir(cacheRoot, dir string) string {
 //   - Auto-derived: strip "<workflowName>-" prefix, uppercase, hyphens → underscores
 //   - Explicit: role.Placeholder overrides auto-derivation
 //
+// agentName selects which entry of role.Models is consulted as the workflow.yaml
+// default (e.g. "claude", "opencode", "copilot"). Pass an empty string to skip
+// the workflow.yaml fallback entirely; the role then only receives a placeholder
+// when modelOverrides supplies one.
+//
 // modelResolver is an optional function that maps a raw model value to the
 // fully qualified ID expected by the target platform. When nil, the raw
-// role.Model value is used as-is — needed for Claude Code where the Agent
+// role model value is used as-is — needed for Claude Code where the Agent
 // tool expects short names ("sonnet", "opus", "haiku"). Typical values:
 //   - nil              → raw short names (Claude Code)
 //   - resolveModel     → anthropic/... format (Factory, Copilot)
 //   - resolveOpenCodeModel → github-copilot/... format (OpenCode)
 //
 // modelOverrides is an optional map of role-name → model-value. When non-nil,
-// an override for a role takes precedence over the role's own Model field from
-// workflow.yaml. The ModelInheritOption sentinel is treated as "no override"
-// (falls back to role.Model). Passing nil is fully backward-compatible.
+// an override for a role takes precedence over the workflow.yaml value. The
+// ModelInheritOption sentinel is treated as "no override" (falls back to
+// role.Models[agentName]). Passing nil is fully backward-compatible.
 //
-// Model placeholders are only added when the corresponding role has a non-empty Model field.
-// workspaceDir and skillDir must not have trailing slashes; the helper joins them cleanly.
+// Model placeholders are only added when a model value can be resolved (override
+// or workflow.yaml). workspaceDir and skillDir must not have trailing slashes;
+// the helper joins them cleanly.
 func buildWorkflowPlaceholderReplacements(
 	wf model.WorkflowManifest,
 	workspaceDir string,
 	skillDir string,
+	agentName string,
 	modelResolver func(string) string,
 	modelOverrides map[string]string,
 	subagentResolver func(roleName string) string,
@@ -825,15 +832,15 @@ func buildWorkflowPlaceholderReplacements(
 		}
 		replacements["{WORKFLOW_SUBAGENT_"+key+"}"] = subagentType
 
-		// Check TUI-selected override first, then fall back to role.Model from workflow.yaml.
+		// Check TUI-selected override first, then fall back to role.Models[agentName] from workflow.yaml.
 		modelValue := ""
 		if modelOverrides != nil {
 			if v, ok := modelOverrides[role.Name]; ok && v != "" && v != model.ModelInheritOption {
 				modelValue = v
 			}
 		}
-		if modelValue == "" && role.Model != "" {
-			modelValue = role.Model
+		if modelValue == "" && agentName != "" {
+			modelValue = role.ModelFor(agentName)
 		}
 		if modelValue == "" {
 			continue

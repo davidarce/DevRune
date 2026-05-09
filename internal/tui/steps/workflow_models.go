@@ -169,12 +169,14 @@ func WorkflowModelLayout(numRoles, termHeight int) huh.Layout {
 	return huh.LayoutColumns(cols)
 }
 
-// subagentRoles returns the subagent roles that have a Model field from a workflow.
+// subagentRoles returns the subagent roles that declare per-agent model defaults
+// from the given workflow manifests. Roles without a Models map are skipped — they
+// would render no default in the TUI and aren't actionable for model selection.
 func subagentRoles(wfs []model.WorkflowManifest) []model.WorkflowRole {
 	var roles []model.WorkflowRole
 	for _, wf := range wfs {
 		for _, role := range wf.Components.Roles {
-			if role.Kind == "subagent" && role.Model != "" {
+			if role.Kind == "subagent" && len(role.Models) > 0 {
 				roles = append(roles, role)
 			}
 		}
@@ -286,20 +288,30 @@ func newModelSelectorModel(
 					opts = filterCopilotOptions(agent.ModelOptions, orchestratorTier)
 				}
 				defaultIdx := 0 // inherit sentinel
+				// Selection precedence: user's saved choice > workflow.yaml's
+				// per-agent default > inherit. Per-agent yaml defaults come from
+				// role.Models[agent] and seed the form on first install.
+				seed := ""
 				if savedModels != nil {
 					if agentMap, ok := savedModels[agent.Name]; ok {
-						if saved, ok := agentMap[role.Name]; ok && saved != "" {
-							// Build-time reset: if saved phase value's tier exceeds
-							// orchestratorTier, treat as sentinel (index 0).
-							if agent.Name == "copilot" && model.CopilotTierForModel(saved) > orchestratorTier {
-								// Reset to sentinel — do not restore the out-of-range saved value.
-							} else {
-								for i, opt := range opts {
-									if opt.Value == saved {
-										defaultIdx = i
-										break
-									}
-								}
+						if saved, ok := agentMap[role.Name]; ok {
+							seed = saved
+						}
+					}
+				}
+				if seed == "" {
+					seed = role.ModelFor(agent.Name)
+				}
+				if seed != "" {
+					// Build-time reset: if seed value's tier exceeds orchestratorTier
+					// (Copilot only), treat as sentinel (index 0).
+					if agent.Name == "copilot" && model.CopilotTierForModel(seed) > orchestratorTier {
+						// Reset to sentinel — do not restore the out-of-range value.
+					} else {
+						for i, opt := range opts {
+							if opt.Value == seed {
+								defaultIdx = i
+								break
 							}
 						}
 					}
@@ -901,25 +913,14 @@ func RunWorkflowModelSelection(
 		return nil, nil
 	}
 
-	// Get subagent roles that define a model.
+	// Get subagent roles that declare per-agent defaults.
 	roles := subagentRoles(workflows)
-	// Fresh install with SDD auto-selected but no workflow manifests loaded yet
-	// (model selection runs before the scan step): synthesize the canonical SDD
-	// subagent role list so the form always shows on first install.
-	if len(roles) == 0 && sddAutoSelected && len(savedModels) == 0 {
-		for _, roleName := range []string{"sdd-explorer", "sdd-planner", "sdd-implementer", "sdd-reviewer", "sdd-advisor"} {
-			roles = append(roles, model.WorkflowRole{
-				Name:  roleName,
-				Kind:  "subagent",
-				Model: roleName,
-			})
-		}
-	}
-	// When no roles are found from workflow manifests but savedModels has entries,
-	// synthesize roles from the saved model keys so the form always shows and
-	// lets the user review or change their previous selections.
+	// Defensive fallback: when workflow manifests are absent (e.g. "manage sdd
+	// models" CLI before any scan) but the user has saved model selections from
+	// a previous run, synthesize roles from those keys so the form still loads.
+	// These synthesized roles carry no Models map — the TUI default seed simply
+	// uses the saved selections.
 	if len(roles) == 0 && len(savedModels) > 0 {
-		// Collect unique role names from all agents' saved models.
 		seen := make(map[string]bool)
 		var roleNames []string
 		for _, roleMap := range savedModels {
@@ -937,9 +938,8 @@ func RunWorkflowModelSelection(
 		})
 		for _, roleName := range roleNames {
 			roles = append(roles, model.WorkflowRole{
-				Name:  roleName,
-				Kind:  "subagent",
-				Model: roleName,
+				Name: roleName,
+				Kind: "subagent",
 			})
 		}
 	}

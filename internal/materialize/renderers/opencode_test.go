@@ -414,8 +414,8 @@ func sddParityManifest() model.WorkflowManifest {
 			Skills:     []string{"sdd-plan"},
 			Entrypoint: "ORCHESTRATOR.md",
 			Roles: []model.WorkflowRole{
-				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan", Model: "sonnet"},
-				{Name: "sdd-reviewer", Kind: "subagent", Skill: "sdd-plan", Model: "opus"},
+				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan", Models: map[string]string{"opencode": "sonnet"}},
+				{Name: "sdd-reviewer", Kind: "subagent", Skill: "sdd-plan", Models: map[string]string{"opencode": "opus"}},
 				{Name: "sdd-orchestrator", Kind: "orchestrator"},
 			},
 		},

@@ -122,10 +122,18 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		} else if savedManifest := loadExistingManifest(); savedManifest != nil {
 			savedModels = mergeWorkflowModels(savedManifest.Workflows)
 		}
-		// SDD workflow is always auto-selected — pass sddAutoSelected=true
-		// so model selection does not skip when no scan results exist yet.
-		var emptyManifests []model.WorkflowManifest
-		wm, err := steps.RunWorkflowModelSelection(agents, steps.SelectionResult{}, savedModels, emptyManifests, true, 3)
+		// SDD workflow is always auto-selected. Fetch its workflow.yaml from
+		// the canonical catalog source up-front so the model-selection step
+		// can seed per-agent role defaults from the live yaml. Cache makes the
+		// fetch near-instant on subsequent runs; on the first run this is the
+		// same data the regular scan step would download a few moments later.
+		// If the fetch fails (no network, proxy issues, …) the wizard
+		// continues — the model selection step simply shows "inherit" defaults.
+		var seedManifests []model.WorkflowManifest
+		if wf, err := FetchSDDWorkflow(context.Background(), cachePath()); err == nil {
+			seedManifests = append(seedManifests, wf)
+		}
+		wm, err := steps.RunWorkflowModelSelection(agents, steps.SelectionResult{}, savedModels, seedManifests, true, 3)
 		if err != nil {
 			return RunResult{}, mapErr(err)
 		}

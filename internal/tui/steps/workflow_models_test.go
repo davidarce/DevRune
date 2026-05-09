@@ -121,7 +121,7 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoRepos(t *testing.T) {
 	}
 }
 
-func TestRunWorkflowModelSelection_ReturnsNilWhenNoRolesHaveModel(t *testing.T) {
+func TestRunWorkflowModelSelection_ReturnsNilWhenNoRolesHaveModels(t *testing.T) {
 	agents := []string{"claude"}
 	selection := SelectionResult{
 		Repos: []RepoSelectionResult{
@@ -131,7 +131,7 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoRolesHaveModel(t *testing.T) 
 			},
 		},
 	}
-	// Workflow with roles but no model fields.
+	// Workflow whose only role is an orchestrator (no models map by design).
 	workflows := []model.WorkflowManifest{
 		{
 			Metadata: model.WorkflowMetadata{Name: "sdd"},
@@ -148,7 +148,29 @@ func TestRunWorkflowModelSelection_ReturnsNilWhenNoRolesHaveModel(t *testing.T) 
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result != nil {
-		t.Errorf("expected nil result when no roles have model, got %v", result)
+		t.Errorf("expected nil result when no roles declare models, got %v", result)
+	}
+}
+
+func TestSubagentRoles_FiltersByModelsMap(t *testing.T) {
+	wfs := []model.WorkflowManifest{
+		{
+			Metadata: model.WorkflowMetadata{Name: "sdd"},
+			Components: model.WorkflowComponents{
+				Roles: []model.WorkflowRole{
+					{Name: "sdd-orchestrator", Kind: "orchestrator"},
+					{Name: "sdd-explorer", Kind: "subagent", Skill: "sdd-explore", Models: map[string]string{"claude": "haiku"}},
+					{Name: "no-models-role", Kind: "subagent", Skill: "x"}, // skipped: no Models map
+				},
+			},
+		},
+	}
+	roles := subagentRoles(wfs)
+	if len(roles) != 1 || roles[0].Name != "sdd-explorer" {
+		t.Fatalf("subagentRoles = %+v, want only sdd-explorer", roles)
+	}
+	if got := roles[0].ModelFor("claude"); got != "haiku" {
+		t.Errorf("ModelFor(claude) = %q, want %q", got, "haiku")
 	}
 }
 

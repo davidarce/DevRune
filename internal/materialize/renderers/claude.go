@@ -554,7 +554,7 @@ func (r *ClaudeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath st
 	// Passing nil for modelResolver keeps bare short names (e.g. "sonnet", "opus") in
 	// the agent-file frontmatter — Claude Code expects short IDs, not the "anthropic/..."
 	// form produced by resolveModel().
-	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir, nil, r.modelOverrides, nil)
+	replacements := buildWorkflowPlaceholderReplacements(wf, r.def.Workspace, r.def.SkillDir, "claude", nil, r.modelOverrides, nil)
 	// Overwrite subagent placeholders with native role names (Claude-native uses
 	// Agent(subagent_type: 'sdd-explorer', ...) rather than a generic type).
 	for _, role := range wf.Components.Roles {
