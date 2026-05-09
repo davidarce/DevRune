@@ -84,6 +84,7 @@ var copilotModelEntries = []CopilotModelEntry{
 	{DisplayName: "Gemini 3 Flash (Preview)", Provider: "Google", Availability: "Pro and above", Tier: 2.0, Multiplier: 0.33},
 	// OpenAI
 	{DisplayName: "GPT-5 mini", Provider: "OpenAI", Availability: "Free · All plans", Tier: 1.0, Multiplier: 0.0},
+	{DisplayName: "GPT-5.5", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
 	{DisplayName: "GPT-5.4", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
 	{DisplayName: "GPT-5.3-Codex", Provider: "OpenAI", Availability: "Pro and above", Tier: 2.0, Multiplier: 1.0},
 	// xAI
