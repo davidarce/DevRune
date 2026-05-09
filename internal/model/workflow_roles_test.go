@@ -80,10 +80,10 @@ func TestBackwardCompatAliases(t *testing.T) {
 func TestCopilotModelOptions(t *testing.T) {
 	opts := CopilotModelOptions()
 
-	// Must return exactly 12 options: sentinel + 11 models (Opus 4.6 added in v2.11.x).
-	const wantTotal = 12
+	// Must return exactly 13 options: sentinel + 12 models.
+	const wantTotal = 13
 	if len(opts) != wantTotal {
-		t.Fatalf("CopilotModelOptions() returned %d options, want %d (1 sentinel + 11 models)", len(opts), wantTotal)
+		t.Fatalf("CopilotModelOptions() returned %d options, want %d (1 sentinel + 12 models)", len(opts), wantTotal)
 	}
 
 	// First option must be the inherit sentinel.
@@ -96,7 +96,8 @@ func TestCopilotModelOptions(t *testing.T) {
 
 	// Expected display-name order: Anthropic haiku → sonnet → opus-4.7 → opus-4.6
 	// (newest Opus first), then Google → OpenAI → xAI.
-	// Values are VS Code display names, NOT API slugs.
+	// Within OpenAI: mini first, then versioned standards newest-first (5.5 before 5.4),
+	// then Codex variants. Values are VS Code display names, NOT API slugs.
 	wantValues := []string{
 		"Claude Haiku 4.5",         // Anthropic, pos 1
 		"Claude Sonnet 4.6",        // Anthropic, pos 2
@@ -106,9 +107,10 @@ func TestCopilotModelOptions(t *testing.T) {
 		"Gemini 3.1 Pro (Preview)", // Google,    pos 6
 		"Gemini 3 Flash (Preview)", // Google,    pos 7
 		"GPT-5 mini",               // OpenAI,    pos 8
-		"GPT-5.4",                  // OpenAI,    pos 9
-		"GPT-5.3-Codex",            // OpenAI,    pos 10
-		"Grok Code Fast 1",         // xAI,       pos 11
+		"GPT-5.5",                  // OpenAI,    pos 9
+		"GPT-5.4",                  // OpenAI,    pos 10
+		"GPT-5.3-Codex",            // OpenAI,    pos 11
+		"Grok Code Fast 1",         // xAI,       pos 12
 	}
 	for i, want := range wantValues {
 		got := opts[i+1]
@@ -139,9 +141,10 @@ func TestCopilotModelOptions(t *testing.T) {
 		{6, "Gemini 3.1 Pro (Preview)", "Google"},
 		{7, "Gemini 3 Flash (Preview)", "Google"},
 		{8, "GPT-5 mini", "OpenAI"},
-		{9, "GPT-5.4", "OpenAI"},
-		{10, "GPT-5.3-Codex", "OpenAI"},
-		{11, "Grok Code Fast 1", "xAI"},
+		{9, "GPT-5.5", "OpenAI"},
+		{10, "GPT-5.4", "OpenAI"},
+		{11, "GPT-5.3-Codex", "OpenAI"},
+		{12, "Grok Code Fast 1", "xAI"},
 	}
 	for _, c := range providerChecks {
 		label := opts[c.idx].Label
@@ -181,7 +184,7 @@ func TestCopilotModelOptions(t *testing.T) {
 		{3, "claude-opus-4.7", "7.5×"},
 		{4, "claude-opus-4.6", "3×"},
 		{8, "gpt-5-mini", "0×"},
-		{11, "grok-code-fast-1", "0.25×"},
+		{12, "grok-code-fast-1", "0.25×"},
 	}
 	for _, c := range multiplierChecks {
 		label := opts[c.idx].Label
@@ -203,14 +206,14 @@ func TestCopilotModelOptions(t *testing.T) {
 			t.Errorf("Google position %d: got %q, want %q", i+5, opts[i+5].Value, want)
 		}
 	}
-	openaiIDs := []string{"GPT-5 mini", "GPT-5.4", "GPT-5.3-Codex"}
+	openaiIDs := []string{"GPT-5 mini", "GPT-5.5", "GPT-5.4", "GPT-5.3-Codex"}
 	for i, want := range openaiIDs {
 		if opts[i+8].Value != want {
 			t.Errorf("OpenAI position %d: got %q, want %q", i+8, opts[i+8].Value, want)
 		}
 	}
-	if opts[11].Value != "Grok Code Fast 1" {
-		t.Errorf("xAI position 11: got %q, want %q", opts[11].Value, "Grok Code Fast 1")
+	if opts[12].Value != "Grok Code Fast 1" {
+		t.Errorf("xAI position 12: got %q, want %q", opts[12].Value, "Grok Code Fast 1")
 	}
 }
 
@@ -252,11 +255,11 @@ func TestModelRoutingAgents_IncludesCopilot(t *testing.T) {
 
 // TestCopilotModelOptionsUpTo verifies tier-based filtering of Copilot model options.
 func TestCopilotModelOptionsUpTo(t *testing.T) {
-	// MaxFloat64 → same result as CopilotModelOptions() — sentinel + all 11 models.
+	// MaxFloat64 → same result as CopilotModelOptions() — sentinel + all 12 models.
 	optsAll := CopilotModelOptionsUpTo(math.MaxFloat64)
-	const wantTotal = 12
+	const wantTotal = 13
 	if len(optsAll) != wantTotal {
-		t.Errorf("CopilotModelOptionsUpTo(MaxFloat64) returned %d options, want %d (sentinel + 11 models)", len(optsAll), wantTotal)
+		t.Errorf("CopilotModelOptionsUpTo(MaxFloat64) returned %d options, want %d (sentinel + 12 models)", len(optsAll), wantTotal)
 	}
 	if optsAll[0].Value != ModelInheritOption {
 		t.Errorf("CopilotModelOptionsUpTo(MaxFloat64): first option = %q, want sentinel %q", optsAll[0].Value, ModelInheritOption)
@@ -278,10 +281,10 @@ func TestCopilotModelOptionsUpTo(t *testing.T) {
 		}
 	}
 
-	// Tier 2.0 → sentinel + all except both Opus (tier 3.0) = 10 options.
+	// Tier 2.0 → sentinel + all except both Opus (tier 3.0) = 11 options.
 	opts2 := CopilotModelOptionsUpTo(2.0)
-	if len(opts2) != 10 {
-		t.Errorf("CopilotModelOptionsUpTo(2.0) returned %d options, want 10 (sentinel + 9 tier-1/2 models)", len(opts2))
+	if len(opts2) != 11 {
+		t.Errorf("CopilotModelOptionsUpTo(2.0) returned %d options, want 11 (sentinel + 10 tier-1/2 models)", len(opts2))
 	}
 	if opts2[0].Value != ModelInheritOption {
 		t.Errorf("CopilotModelOptionsUpTo(2.0): first option = %q, want sentinel %q", opts2[0].Value, ModelInheritOption)
@@ -296,10 +299,10 @@ func TestCopilotModelOptionsUpTo(t *testing.T) {
 		}
 	}
 
-	// Tier 3.0 → sentinel + all 11 models = 12 options (same as MaxFloat64).
+	// Tier 3.0 → sentinel + all 12 models = 13 options (same as MaxFloat64).
 	opts3 := CopilotModelOptionsUpTo(3.0)
 	if len(opts3) != wantTotal {
-		t.Errorf("CopilotModelOptionsUpTo(3.0) returned %d options, want %d (sentinel + 11 models)", len(opts3), wantTotal)
+		t.Errorf("CopilotModelOptionsUpTo(3.0) returned %d options, want %d (sentinel + 12 models)", len(opts3), wantTotal)
 	}
 	if opts3[0].Value != ModelInheritOption {
 		t.Errorf("CopilotModelOptionsUpTo(3.0): first option = %q, want sentinel %q", opts3[0].Value, ModelInheritOption)
