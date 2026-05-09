@@ -14,10 +14,11 @@ var BuildWorkflowPlaceholderReplacements = func(
 	wf model.WorkflowManifest,
 	workspaceDir string,
 	skillDir string,
+	agentName string,
 	modelResolver func(string) string,
 	modelOverrides map[string]string,
 ) map[string]string {
-	return buildWorkflowPlaceholderReplacements(wf, workspaceDir, skillDir, modelResolver, modelOverrides, nil)
+	return buildWorkflowPlaceholderReplacements(wf, workspaceDir, skillDir, agentName, modelResolver, modelOverrides, nil)
 }
 
 // BuildWorkflowPathReplacements re-exports buildWorkflowPathReplacements

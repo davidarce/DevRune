@@ -174,6 +174,90 @@ func TestWorkflowManifest_Validate(t *testing.T) {
 	}
 }
 
+// TestWorkflowRole_ValidateModelsRequired verifies that subagent roles must declare
+// a non-empty models map keyed by recognised agent names, and orchestrator roles
+// must NOT declare models.
+func TestWorkflowRole_ValidateModelsRequired(t *testing.T) {
+	cases := []struct {
+		name    string
+		role    WorkflowRole
+		wantErr string
+	}{
+		{
+			name:    "subagent with valid models map passes",
+			role:    WorkflowRole{Name: "r", Kind: "subagent", Skill: "s", Models: map[string]string{"claude": "haiku"}},
+			wantErr: "",
+		},
+		{
+			name:    "subagent without models fails",
+			role:    WorkflowRole{Name: "r", Kind: "subagent", Skill: "s"},
+			wantErr: "must declare a non-empty models map",
+		},
+		{
+			name:    "subagent with unknown agent key fails",
+			role:    WorkflowRole{Name: "r", Kind: "subagent", Skill: "s", Models: map[string]string{"vscode": "x"}},
+			wantErr: "is not a recognised agent",
+		},
+		{
+			name:    "subagent with empty model value fails",
+			role:    WorkflowRole{Name: "r", Kind: "subagent", Skill: "s", Models: map[string]string{"claude": ""}},
+			wantErr: "must not be empty",
+		},
+		{
+			name:    "orchestrator without models passes",
+			role:    WorkflowRole{Name: "r", Kind: "orchestrator"},
+			wantErr: "",
+		},
+		{
+			name:    "orchestrator with models is rejected",
+			role:    WorkflowRole{Name: "r", Kind: "orchestrator", Models: map[string]string{"claude": "opus"}},
+			wantErr: "orchestrator role",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			wf := WorkflowManifest{
+				APIVersion: "devrune/workflow/v1",
+				Metadata:   WorkflowMetadata{Name: "wf", Version: "1.0.0"},
+				Components: WorkflowComponents{
+					Skills: []string{"s"},
+					Roles:  []WorkflowRole{c.role},
+				},
+			}
+			err := wf.Validate()
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() = nil, want error containing %q", c.wantErr)
+			}
+			if !containsString(err.Error(), c.wantErr) {
+				t.Errorf("Validate() = %q, want error containing %q", err.Error(), c.wantErr)
+			}
+		})
+	}
+}
+
+// TestWorkflowRole_ModelFor verifies the ModelFor accessor.
+func TestWorkflowRole_ModelFor(t *testing.T) {
+	r := WorkflowRole{Models: map[string]string{"claude": "haiku", "opencode": "sonnet"}}
+	if got := r.ModelFor("claude"); got != "haiku" {
+		t.Errorf("ModelFor(claude) = %q, want haiku", got)
+	}
+	if got := r.ModelFor("copilot"); got != "" {
+		t.Errorf("ModelFor(copilot) = %q, want empty", got)
+	}
+
+	empty := WorkflowRole{}
+	if got := empty.ModelFor("claude"); got != "" {
+		t.Errorf("ModelFor on nil Models = %q, want empty", got)
+	}
+}
+
 // TestWorkflowManifest_Validate_WithNewOptionalFields verifies that Validate() still
 // passes when new optional fields (DecisionRules, InvocationControls, Registry,
 // Permissions) are empty, and passes when they are populated.

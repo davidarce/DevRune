@@ -415,11 +415,12 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	skillDirName := r.def.SkillDir
 	replacements := buildWorkflowPlaceholderReplacements(
 		wf, workspaceRoot, skillDirName,
+		"copilot",
 		copilotModelResolver, // identity: bare ID passes through unchanged to .agent.md frontmatter
-		                      // DO NOT use resolveModel here — that produces "anthropic/..." format,
-		                      // which is invalid for Copilot .agent.md frontmatter.
-		r.modelOverrides,     // TUI-selected per-role bare model IDs from CopilotModelOptions()
-		nil,                  // no custom subagent resolver; Copilot uses native @agent-name
+		// DO NOT use resolveModel here — that produces "anthropic/..." format,
+		// which is invalid for Copilot .agent.md frontmatter.
+		r.modelOverrides, // TUI-selected per-role bare model IDs from CopilotModelOptions()
+		nil,              // no custom subagent resolver; Copilot uses native @agent-name
 	)
 	// Override subagent placeholders to use role names (Copilot has native .agent.md agents).
 	// buildWorkflowPlaceholderReplacements with subagentResolver=nil defaults subagent entries
@@ -744,13 +745,13 @@ func (r *CopilotRenderer) generateSubAgentFile(skillSrcDir, dstPath string, role
 	}
 
 	// Add model: prefer TUI-selected override from replacements (pre-resolved via copilotModelResolver),
-	// fall back to bare role.Model. Never use resolveModel() — that produces "anthropic/..." format
+	// fall back to role.Models["copilot"]. Never use resolveModel() — that produces "anthropic/..." format
 	// which is invalid for Copilot .agent.md frontmatter.
 	placeholderKey := "{WORKFLOW_MODEL_" + model.PlaceholderKeyFromRole(wf.Metadata.Name, role.Name, role.Placeholder) + "}"
 	if modelVal, ok := replacements[placeholderKey]; ok && modelVal != "" {
 		fm["model"] = modelVal
-	} else if role.Model != "" {
-		fm["model"] = copilotModelResolver(role.Model)
+	} else if m := role.ModelFor("copilot"); m != "" {
+		fm["model"] = copilotModelResolver(m)
 	}
 
 	out, err := parse.SerializeFrontmatter(fm, bodyContent)

@@ -529,7 +529,10 @@ components:
     - name: sdd-planner
       kind: subagent
       skill: sdd-plan
-      model: sonnet
+      models:
+        claude: sonnet
+        opencode: sonnet
+        copilot: Claude Sonnet 4.6
     - name: sdd-orchestrator
       kind: orchestrator
 `

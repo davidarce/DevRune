@@ -622,10 +622,10 @@ Review model: {SDD_MODEL_REVIEW}
 		Components: model.WorkflowComponents{
 			Entrypoint: "ORCHESTRATOR.md",
 			Roles: []model.WorkflowRole{
-				{Name: "sdd-explorer", Kind: "subagent", Model: "sonnet"},
-				{Name: "sdd-planner", Kind: "subagent", Model: "opus"},
-				{Name: "sdd-implementer", Kind: "subagent", Model: "sonnet"},
-				{Name: "sdd-reviewer", Kind: "subagent", Model: "haiku"},
+				{Name: "sdd-explorer", Kind: "subagent", Models: map[string]string{"claude": "sonnet"}},
+				{Name: "sdd-planner", Kind: "subagent", Models: map[string]string{"claude": "opus"}},
+				{Name: "sdd-implementer", Kind: "subagent", Models: map[string]string{"claude": "sonnet"}},
+				{Name: "sdd-reviewer", Kind: "subagent", Models: map[string]string{"claude": "haiku"}},
 			},
 		},
 	}
@@ -1352,12 +1352,12 @@ func sddTestWorkflow() model.WorkflowManifest {
 			Skills:     []string{"sdd-explore", "sdd-plan", "sdd-implement", "sdd-review"},
 			Entrypoint: "ORCHESTRATOR.md",
 			Roles: []model.WorkflowRole{
-				{Name: "sdd-explorer", Kind: "subagent", Skill: "sdd-explore", Model: "sonnet"},
-				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan", Model: "opus"},
-				{Name: "sdd-implementer", Kind: "subagent", Skill: "sdd-implement", Model: "sonnet"},
-				{Name: "sdd-reviewer", Kind: "subagent", Skill: "sdd-review", Model: "opus"},
+				{Name: "sdd-explorer", Kind: "subagent", Skill: "sdd-explore", Models: map[string]string{"claude": "sonnet", "opencode": "sonnet", "copilot": "Claude Sonnet 4.6"}},
+				{Name: "sdd-planner", Kind: "subagent", Skill: "sdd-plan", Models: map[string]string{"claude": "opus", "opencode": "opus", "copilot": "Claude Opus 4.6"}},
+				{Name: "sdd-implementer", Kind: "subagent", Skill: "sdd-implement", Models: map[string]string{"claude": "sonnet", "opencode": "sonnet", "copilot": "Claude Sonnet 4.6"}},
+				{Name: "sdd-reviewer", Kind: "subagent", Skill: "sdd-review", Models: map[string]string{"claude": "opus", "opencode": "opus", "copilot": "Claude Opus 4.6"}},
 				{Name: "sdd-orchestrator", Kind: "orchestrator"},
-				{Name: "sdd-advisor", Kind: "subagent", Skill: "*-advisor", Model: "opus"},
+				{Name: "sdd-advisor", Kind: "subagent", Skill: "*-advisor", Models: map[string]string{"claude": "opus", "opencode": "opus", "copilot": "Claude Opus 4.6"}},
 			},
 		},
 	}

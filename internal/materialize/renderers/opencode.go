@@ -423,7 +423,7 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	// to ensure {SDD_MODEL_*} markers are resolved from workflow role metadata.
 	// OpenCode subagent resolver: maps role names to their OpenCode agent names.
 	openCodeSubagentResolver := func(roleName string) string { return roleName }
-	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, resolveOpenCodeModel, r.modelOverrides, openCodeSubagentResolver)
+	replacements := buildWorkflowPlaceholderReplacements(wf, workspaceRoot, r.def.SkillDir, "opencode", resolveOpenCodeModel, r.modelOverrides, openCodeSubagentResolver)
 	// Override {WORKFLOW_DIR} to point to the workspace-local workflow directory
 	// instead of the shared skillsBase path.
 	replacements["{WORKFLOW_DIR}"] = workflowDir
@@ -570,7 +570,7 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 		"tools":       toolsCopy(openCodeAgentTools),
 	}
 
-	// Check TUI-selected model override first, then fall back to role.Model from workflow.yaml.
+	// Check TUI-selected model override first, then fall back to role.Models["opencode"] from workflow.yaml.
 	modelValue := ""
 	if r.modelOverrides != nil {
 		if v, ok := r.modelOverrides[role.Name]; ok && v != "" && v != model.ModelInheritOption {
@@ -578,7 +578,7 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 		}
 	}
 	if modelValue == "" {
-		modelValue = role.Model
+		modelValue = role.ModelFor("opencode")
 	}
 	if modelValue != "" {
 		entry["model"] = resolveOpenCodeModel(modelValue)
@@ -629,9 +629,9 @@ func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, rol
 	}
 
 	// Orchestrators generally do not specify a model (they inherit session model).
-	// Only set it if explicitly defined in role metadata.
-	if role.Model != "" {
-		entry["model"] = resolveOpenCodeModel(role.Model)
+	// Only set it if explicitly defined in role metadata for the opencode agent.
+	if m := role.ModelFor("opencode"); m != "" {
+		entry["model"] = resolveOpenCodeModel(m)
 	}
 
 	return entry, nil

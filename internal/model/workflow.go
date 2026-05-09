@@ -66,8 +66,6 @@ func (m WorkflowMetadata) EffectiveWorkingDir() string {
 // WorkflowRole describes the projection metadata for a single agent role within a workflow.
 // Renderers use this to synthesize platform-native agent entries (e.g. opencode.json agents,
 // Copilot agent markdown) rather than hardcoding SDD-specific knowledge.
-//
-// Backward compatible: workflows without a roles list continue to parse and install normally.
 type WorkflowRole struct {
 	// Name is the agent role identifier, e.g. "sdd-explorer", "sdd-orchestrator".
 	Name string `yaml:"name"`
@@ -79,9 +77,19 @@ type WorkflowRole struct {
 	// For orchestrators this field is omitted; the entrypoint is used instead.
 	Skill string `yaml:"skill,omitempty"`
 
-	// Model is an optional short alias for the model used by this role (e.g. "sonnet", "opus").
-	// When omitted, renderers apply TUI-prompt or session-inheritance fallback rules.
-	Model string `yaml:"model,omitempty"`
+	// Models is a per-agent map of suggested model values for this role,
+	// keyed by agent name (claude, opencode, copilot). Required for subagent
+	// roles. Values are the alias or full model id understood by that agent's
+	// renderer:
+	//   - claude:   short tier names (haiku, sonnet, opus)
+	//   - opencode: short tier names (resolved to github-copilot/<full-id>)
+	//               or fully-qualified provider/model strings
+	//   - copilot:  VS Code display names verbatim (e.g. "Claude Sonnet 4.6")
+	// DevRune uses these as defaults in the TUI model selection step. Per-role
+	// TUI overrides win at render time; absent that, the value here is used.
+	// Orchestrator roles do not declare models — orchestrator selection is
+	// agent-specific and handled separately.
+	Models map[string]string `yaml:"models,omitempty"`
 
 	// Placeholder is an optional explicit placeholder key suffix override.
 	// When set, the placeholder {WORKFLOW_MODEL_<Placeholder>} is used instead of
@@ -89,6 +97,14 @@ type WorkflowRole struct {
 	// {WORKFLOW_MODEL_CHECKER}. When omitted, the key is derived by stripping the
 	// workflow name prefix from the role name.
 	Placeholder string `yaml:"placeholder,omitempty"`
+}
+
+// ModelFor returns the model declared for the given agent in this role, or "" if absent.
+func (r WorkflowRole) ModelFor(agent string) string {
+	if r.Models == nil {
+		return ""
+	}
+	return r.Models[agent]
 }
 
 // WorkflowComponents declares the components that make up the workflow.
@@ -203,8 +219,24 @@ func (w WorkflowManifest) Validate() error {
 		if role.Kind != "subagent" && role.Kind != "orchestrator" {
 			return fmt.Errorf("workflow %q: role %q kind must be \"subagent\" or \"orchestrator\" (got %q)", w.Metadata.Name, role.Name, role.Kind)
 		}
-		if role.Kind == "subagent" && role.Skill == "" {
-			return fmt.Errorf("workflow %q: subagent role %q should declare a skill", w.Metadata.Name, role.Name)
+		if role.Kind == "subagent" {
+			if role.Skill == "" {
+				return fmt.Errorf("workflow %q: subagent role %q must declare a skill", w.Metadata.Name, role.Name)
+			}
+			if len(role.Models) == 0 {
+				return fmt.Errorf("workflow %q: subagent role %q must declare a non-empty models map (one entry per agent: claude, opencode, copilot)", w.Metadata.Name, role.Name)
+			}
+			for agent, value := range role.Models {
+				if !ModelRoutingAgents[agent] {
+					return fmt.Errorf("workflow %q: role %q models key %q is not a recognised agent (expected one of: claude, opencode, copilot)", w.Metadata.Name, role.Name, agent)
+				}
+				if value == "" {
+					return fmt.Errorf("workflow %q: role %q models[%q] must not be empty", w.Metadata.Name, role.Name, agent)
+				}
+			}
+		}
+		if role.Kind == "orchestrator" && len(role.Models) > 0 {
+			return fmt.Errorf("workflow %q: orchestrator role %q must not declare models — orchestrator model selection is agent-specific and handled separately", w.Metadata.Name, role.Name)
 		}
 	}
 	if w.Components.Hooks != nil {

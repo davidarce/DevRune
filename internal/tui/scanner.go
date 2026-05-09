@@ -31,6 +31,59 @@ type ScannedRepo struct {
 	Error     error             // scan error (nil if ok)
 }
 
+// CanonicalSDDSource is the source ref string for the catalog that ships SDD.
+// SDD is auto-selected by the wizard; this constant lets DevRune fetch its
+// workflow.yaml at startup so the model-selection step can seed per-agent
+// defaults from the catalog before the user enters any other repo source.
+const CanonicalSDDSource = "github:davidarce/devrune-starter-catalog"
+
+// FetchSDDWorkflow fetches the SDD workflow manifest from the canonical
+// devrune-starter-catalog source via the shared cache layer.
+//
+// On a cold cache this performs an HTTP fetch; on a warm cache it loads from
+// disk. The returned manifest seeds per-agent role defaults in the TUI
+// model-selection step. The same source is fetched again by ScanRepositories
+// at the regular scan step (cache makes the second call near-instant).
+//
+// Returns (zero-value, nil) when no manifest can be obtained — the wizard
+// continues, the model-selection step simply falls back to "inherit" defaults.
+// A non-nil error is reserved for unrecoverable conditions (the caller may
+// still ignore it and proceed).
+func FetchSDDWorkflow(ctx context.Context, cachePath string) (model.WorkflowManifest, error) {
+	cacheStore := cache.NewFileCacheStore(cachePath)
+	githubFetcher := cache.NewGitHubFetcher("")
+	gitlabFetcher := cache.NewGitLabFetcher("")
+	localFetcher := cache.NewLocalFetcher()
+	multiFetcher := cache.NewMultiFetcher(githubFetcher, gitlabFetcher, localFetcher)
+
+	sourceRef, err := model.ParseSourceRef(CanonicalSDDSource, ".")
+	if err != nil {
+		return model.WorkflowManifest{}, fmt.Errorf("parse SDD source: %w", err)
+	}
+	data, err := multiFetcher.Fetch(ctx, sourceRef)
+	if err != nil {
+		return model.WorkflowManifest{}, fmt.Errorf("fetch SDD source: %w", err)
+	}
+	dir, err := cacheStore.Store(sourceRef.CacheKey(), data)
+	if err != nil {
+		return model.WorkflowManifest{}, fmt.Errorf("cache SDD source: %w", err)
+	}
+
+	wfPath := filepath.Join(dir, "workflows", "sdd", "workflow.yaml")
+	raw, err := os.ReadFile(wfPath)
+	if err != nil {
+		return model.WorkflowManifest{}, fmt.Errorf("read SDD workflow.yaml: %w", err)
+	}
+	var wf model.WorkflowManifest
+	if err := yaml.Unmarshal(raw, &wf); err != nil {
+		return model.WorkflowManifest{}, fmt.Errorf("parse SDD workflow.yaml: %w", err)
+	}
+	if err := wf.Validate(); err != nil {
+		return model.WorkflowManifest{}, fmt.Errorf("invalid SDD workflow.yaml: %w", err)
+	}
+	return wf, nil
+}
+
 // ScanRepositories fetches and enumerates content from each source ref.
 // It creates a shared cache at cachePath and returns one ScannedRepo per source.
 // Errors from individual repos are recorded in ScannedRepo.Error and do not
