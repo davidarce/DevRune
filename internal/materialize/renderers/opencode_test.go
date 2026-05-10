@@ -641,11 +641,13 @@ func TestOpenCodeRenderer_InstallWorkflow_NoAgentsDirCreated(t *testing.T) {
 	}
 }
 
-// TestOpenCodeRenderer_InstallWorkflow_RegistryInjectedIntoCatalog verifies that
-// a workflow Registry file is NOT copied loose. After the post-review fix, registry
-// content is also NOT injected verbatim into the catalog — a minimal orchestrator
-// pointer is emitted instead.
-func TestOpenCodeRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.T) {
+// TestOpenCodeRenderer_InstallWorkflow_RegistryNotCaptured verifies that
+// a workflow Registry file is NOT copied loose AND NOT captured into the
+// renderer's registryContents map for OpenCode installs. OpenCode primary
+// agents own their playbook in opencode.json — leaking the REGISTRY block
+// into AGENTS.md would inject workflow-specific rules into non-workflow
+// sessions and duplicate the orchestrator agent's prompt.
+func TestOpenCodeRenderer_InstallWorkflow_RegistryNotCaptured(t *testing.T) {
 	projectRoot := t.TempDir()
 	workspaceRoot := filepath.Join(projectRoot, ".opencode")
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
@@ -706,17 +708,12 @@ components:
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Registry content is captured in the renderer for later use by RenderRootCatalog.
+	// REGISTRY content must NOT be captured for OpenCode — primary agents own
+	// their playbook in opencode.json; AGENTS.md should not carry the workflow's
+	// orchestrator rules.
 	contents := r.RegistryContents()
-	// The workflow name "sdd" must exist as a key.
-	if _, ok := contents[wf.Metadata.Name]; !ok {
-		t.Errorf("RegistryContents should contain captured content for workflow 'sdd'; got keys: %v", func() []string {
-			var keys []string
-			for k := range contents {
-				keys = append(keys, k)
-			}
-			return keys
-		}())
+	if _, ok := contents[wf.Metadata.Name]; ok {
+		t.Errorf("RegistryContents must NOT contain workflow %q for OpenCode installs; got captured content", wf.Metadata.Name)
 	}
 
 	// NEGATIVE: REGISTRY.md must NOT exist in .agents/skills/.
