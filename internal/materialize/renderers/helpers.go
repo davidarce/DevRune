@@ -798,9 +798,27 @@ func buildWorkflowPlaceholderReplacements(
 		workflowDir = skillsPath
 	}
 
+	// {SHARED_DIR} resolves to the directory where the renderer copies the
+	// workflow's _shared/ assets. For Claude/Factory/Codex this stays inside
+	// the orchestrator skill (workflowDir/_shared) — `_shared/` legitimately
+	// belongs to the orchestrator skill there. For OpenCode/Copilot the
+	// orchestrator is a primary agent (not a skill on disk), so we install
+	// _shared/ at workspaceDir/<workflow-name>/_shared/ — a top-level
+	// workflow-namespaced location with no fantasma orchestrator skill dir.
+	// The catalog uses {SHARED_DIR} in template references; each renderer
+	// resolves it to its idiomatic path so the same template works for all.
+	var sharedDir string
+	switch agentName {
+	case "opencode", "copilot":
+		sharedDir = filepath.Clean(workspaceDir + "/" + wf.Metadata.Name + "/_shared")
+	default:
+		sharedDir = filepath.Clean(workflowDir + "/_shared")
+	}
+
 	replacements := map[string]string{
 		"{SKILLS_PATH}":  skillsPath,
 		"{WORKFLOW_DIR}": workflowDir,
+		"{SHARED_DIR}":   sharedDir,
 	}
 
 	wfName := wf.Metadata.Name
@@ -887,6 +905,10 @@ func buildWorkflowPathReplacements(wf model.WorkflowManifest, workspaceDir, skil
 	replacements := map[string]string{
 		"{SKILLS_PATH}":  skillsPath,
 		"{WORKFLOW_DIR}": workflowDir,
+		// Codex/Factory keep _shared/ inside the orchestrator skill dir
+		// (their orchestrator IS a real skill on disk). Same path the
+		// legacy {WORKFLOW_DIR}/_shared/ resolved to.
+		"{SHARED_DIR}": filepath.Clean(workflowDir + "/_shared"),
 	}
 	// Add subagent placeholders defaulting to "general" for renderers without native agents.
 	wfName := wf.Metadata.Name

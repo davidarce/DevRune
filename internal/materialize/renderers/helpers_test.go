@@ -905,13 +905,14 @@ func TestBuildWorkflowPlaceholderReplacements_OpenCodeResolver(t *testing.T) {
 // Tests for buildWorkflowPathReplacements
 // ---------------------------------------------------------------------------
 
-// TestBuildWorkflowPathReplacements_OnlySkillsPath verifies that the function
-// returns only a {SKILLS_PATH} entry and no {SDD_MODEL_*} entries.
+// TestBuildWorkflowPathReplacements_OnlyPathKeys verifies that the function
+// returns only path entries ({SKILLS_PATH}, {WORKFLOW_DIR}, {SHARED_DIR}) and
+// no {SDD_MODEL_*} entries.
 func TestBuildWorkflowPathReplacements_OnlyPathKeys(t *testing.T) {
 	result := renderers.BuildWorkflowPathReplacements(model.WorkflowManifest{}, "/ws", "skills")
 
-	if len(result) != 2 {
-		t.Errorf("expected exactly 2 replacements, got %d: %v", len(result), result)
+	if len(result) != 3 {
+		t.Errorf("expected exactly 3 replacements, got %d: %v", len(result), result)
 	}
 	got, ok := result["{SKILLS_PATH}"]
 	if !ok {
@@ -927,6 +928,15 @@ func TestBuildWorkflowPathReplacements_OnlyPathKeys(t *testing.T) {
 	}
 	if gotWD != "/ws/skills" {
 		t.Errorf("{WORKFLOW_DIR} = %q, want %q (empty workingDir should yield skillsPath)", gotWD, "/ws/skills")
+	}
+	// SHARED_DIR is WORKFLOW_DIR/_shared for renderers without per-agent
+	// orchestrator pattern (Codex/Factory).
+	gotSD, ok := result["{SHARED_DIR}"]
+	if !ok {
+		t.Fatal("{SHARED_DIR} key missing from result")
+	}
+	if gotSD != "/ws/skills/_shared" {
+		t.Errorf("{SHARED_DIR} = %q, want %q (workflowDir/_shared for non-primary-agent renderers)", gotSD, "/ws/skills/_shared")
 	}
 }
 
@@ -955,7 +965,11 @@ func TestBuildWorkflowPathReplacements_TrailingSlashStripped(t *testing.T) {
 // regardless of the workflow manifest roles provided.
 func TestBuildWorkflowPathReplacements_NoModelKeysEvenWithRoles(t *testing.T) {
 	result := renderers.BuildWorkflowPathReplacements(model.WorkflowManifest{}, "/project", "agents")
-	allowedKeys := map[string]bool{"{SKILLS_PATH}": true, "{WORKFLOW_DIR}": true}
+	allowedKeys := map[string]bool{
+		"{SKILLS_PATH}":  true,
+		"{WORKFLOW_DIR}": true,
+		"{SHARED_DIR}":   true,
+	}
 	for key := range result {
 		if !allowedKeys[key] {
 			t.Errorf("unexpected key %q — buildWorkflowPathReplacements must only produce path keys", key)
