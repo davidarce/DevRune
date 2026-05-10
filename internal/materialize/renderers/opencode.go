@@ -376,17 +376,25 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 			continue
 		}
 
-		// Copy everything else (e.g. _shared/) as-is under workflowDir.
-		// agents/ and commands/ directories are NOT created — OpenCode uses opencode.json.
+		// _shared/ is a workflow-level asset (launch-templates, advisor-templates,
+		// envelope-contract, persistence-contract, recovery). For OpenCode it
+		// installs to .opencode/<workflow-name>/_shared/ — outside the legacy
+		// .opencode/<workingDir>/ directory which is empty for primary-agent
+		// installs (no SKILL.md, the orchestrator lives in opencode.json).
+		// agents/ and commands/ directories are NOT created.
 		// Apply variant-suffix stripping for _shared/ so that launch-templates.opencode.md →
 		// launch-templates.md and files for other variants are skipped entirely.
-		dstPath := filepath.Join(workflowDir, name)
+		var dstPath string
 		if entry.IsDir() && name == "_shared" {
+			dstPath = filepath.Join(workspaceRoot, wf.Metadata.Name, "_shared")
 			if err := copyDirRecursiveStripVariant(srcPath, dstPath, "opencode"); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
 			}
-		} else if err := copyEntry(srcPath, dstPath, entry); err != nil {
-			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
+		} else {
+			dstPath = filepath.Join(workflowDir, name)
+			if err := copyEntry(srcPath, dstPath, entry); err != nil {
+				return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: workflow copy %q: %w", name, err)
+			}
 		}
 		managedPaths = append(managedPaths, dstPath)
 	}
@@ -449,7 +457,17 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: resolve skill placeholders: %w", err)
 	}
-	// Resolve placeholders in workflow files under the workspace-local workflowDir (if it exists).
+	// Resolve placeholders in the workflow's shared assets (_shared/ now lives at
+	// the workflow-namespaced top-level path .opencode/<workflow-name>/_shared/,
+	// not inside a per-orchestrator skill dir).
+	workflowSharedRoot := filepath.Join(workspaceRoot, wf.Metadata.Name)
+	if _, statErr := os.Stat(workflowSharedRoot); statErr == nil {
+		if err := resolvePlaceholders(workflowSharedRoot, replacements); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: resolve workflow shared placeholders: %w", err)
+		}
+	}
+	// Backward-compat: a few catalogs may still drop content under workflowDir
+	// (e.g. legacy fixtures); resolve placeholders there too if it exists.
 	if _, statErr := os.Stat(workflowDir); statErr == nil {
 		if err := resolvePlaceholders(workflowDir, replacements); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: resolve workflow placeholders: %w", err)

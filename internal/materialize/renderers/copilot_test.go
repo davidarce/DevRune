@@ -398,19 +398,24 @@ func TestCopilotRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", skillMD, err)
 	}
 
-	// POSITIVE: _shared directory under skills/sdd-orchestrator/_shared
-	// (matches the paths the orchestrator .agent.md references, e.g.
-	// .github/skills/sdd-orchestrator/_shared/launch-templates.md)
-	sharedDest := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
+	// POSITIVE: _shared installed at the workflow-namespaced top-level path
+	// .github/<workflow-name>/_shared/. The orchestrator .agent.md references
+	// it via {SHARED_DIR}, which the renderer resolves to this path.
+	sharedDest := filepath.Join(workspaceRoot, wf.Metadata.Name, "_shared")
 	if info, err := os.Stat(sharedDest); err != nil || !info.IsDir() {
 		t.Errorf("expected %s to be a directory: err=%v", sharedDest, err)
 	}
 
-	// NEGATIVE: _shared must NOT be installed under agents/sdd-orchestrator/
-	// (agents/ is flat: only .agent.md files, no subdirectories)
-	sharedInAgents := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator", "_shared")
-	if _, err := os.Stat(sharedInAgents); err == nil {
-		t.Error("_shared must NOT exist under agents/sdd-orchestrator/ for Copilot — it belongs in skills/sdd-orchestrator/")
+	// NEGATIVE: legacy paths must NOT be created — the orchestrator skill dir
+	// in skills/ was a fantasma container (no SKILL.md), and agents/ is flat
+	// (only .agent.md files, no subdirectories).
+	for _, legacy := range []string{
+		filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared"),
+		filepath.Join(workspaceRoot, "agents", "sdd-orchestrator", "_shared"),
+	} {
+		if _, err := os.Stat(legacy); err == nil {
+			t.Errorf("legacy fantasma path %s should NOT be created for Copilot installs", legacy)
+		}
 	}
 
 	// POSITIVE: orchestrator surfaced as native .agent.md in agents/
@@ -2062,7 +2067,7 @@ func TestCopilotRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	installedShared := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
+	installedShared := filepath.Join(workspaceRoot, wf.Metadata.Name, "_shared")
 
 	// launch-templates.md must exist with copilot content (from launch-templates.copilot.md).
 	ltPath := filepath.Join(installedShared, "launch-templates.md")

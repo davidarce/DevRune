@@ -517,19 +517,26 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			continue
 		}
 
-		// Copy everything else (e.g. _shared/) under skillsBase/<orchRoleName>/
-		// so that the orchestrator .agent.md can reference them via paths such as
-		// .github/skills/sdd-orchestrator/_shared/launch-templates.md.
-		// In Copilot's model, agents/ is flat (.agent.md files only); content lives in skills/.
-		// Apply variant-suffix stripping for _shared/ so that launch-templates.copilot.md →
+		// _shared/ is a workflow-level asset (launch-templates, advisor-templates,
+		// envelope-contract, persistence-contract, recovery). For Copilot it
+		// installs to .github/<workflow-name>/_shared/ — outside the legacy
+		// skills/<orch>/ container which is empty for primary-agent installs
+		// (Copilot delivers the orchestrator as a flat .agent.md).
+		// In Copilot's model, agents/ is flat (.agent.md files only); content
+		// lives in skills/ for actual sub-agent skills. Apply variant-suffix
+		// stripping for _shared/ so that launch-templates.copilot.md →
 		// launch-templates.md and files for other variants are skipped entirely.
-		dstPath := filepath.Join(orchSkillDir, name)
+		var dstPath string
 		if entry.IsDir() && name == "_shared" {
+			dstPath = filepath.Join(workspaceRoot, wf.Metadata.Name, "_shared")
 			if err := copyDirRecursiveStripVariant(srcPath, dstPath, "copilot"); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
 			}
-		} else if err := copyEntry(srcPath, dstPath, entry); err != nil {
-			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
+		} else {
+			dstPath = filepath.Join(orchSkillDir, name)
+			if err := copyEntry(srcPath, dstPath, entry); err != nil {
+				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow copy %q: %w", name, err)
+			}
 		}
 		managedPaths = append(managedPaths, dstPath)
 	}
@@ -607,12 +614,20 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 	// instructions file.
 
 	// Resolve placeholders in all installed .md files under skillsBase and agentsBase.
-	// agentsBase now contains the orchestrator .agent.md and the _shared/ directory.
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders (skills): %w", err)
 	}
 	if err := resolvePlaceholders(agentsBase, replacements); err != nil {
 		return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve placeholders (agents): %w", err)
+	}
+	// Resolve placeholders in the workflow's shared assets — _shared/ now lives
+	// at .github/<workflow-name>/_shared/, outside the legacy skills/<orch>/
+	// container.
+	workflowSharedRoot := filepath.Join(workspaceRoot, wf.Metadata.Name)
+	if _, statErr := os.Stat(workflowSharedRoot); statErr == nil {
+		if err := resolvePlaceholders(workflowSharedRoot, replacements); err != nil {
+			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: resolve workflow shared placeholders: %w", err)
+		}
 	}
 
 	// Remove any lines containing unresolved {SDD_MODEL_*} or {WORKFLOW_MODEL_*} placeholders.
