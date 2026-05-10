@@ -1183,4 +1183,3 @@ func transformCopilotToolNames(body string) string {
 	}
 	return body
 }
-

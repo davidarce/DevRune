@@ -219,6 +219,91 @@ func selectionWith(selectedTools, selectedMCPs, selectedWorkflows []string) step
 	}
 }
 
+// TestBuildToolRefsForManifest covers all merge/dedup rules for buildToolRefsForManifest.
+func TestBuildToolRefsForManifest(t *testing.T) {
+	tests := []struct {
+		name        string
+		activeTools []model.ToolDef
+		existing    []model.ToolRef
+		want        []model.ToolRef
+	}{
+		{
+			name: "uses_catalog_command_when_no_existing_override",
+			activeTools: []model.ToolDef{
+				{Name: "crit", Command: "brew install crit"},
+			},
+			existing: nil,
+			want: []model.ToolRef{
+				{Name: "crit", Command: "brew install crit"},
+			},
+		},
+		{
+			name: "preserves_existing_override_over_catalog",
+			activeTools: []model.ToolDef{
+				{Name: "crit", Command: "brew install crit"},
+			},
+			existing: []model.ToolRef{
+				{Name: "crit", Command: "custom-install-crit"},
+			},
+			want: []model.ToolRef{
+				{Name: "crit", Command: "custom-install-crit"},
+			},
+		},
+		{
+			name: "deduplicates_by_name_keeps_first",
+			activeTools: []model.ToolDef{
+				{Name: "engram", Command: "brew install engram"},
+				{Name: "engram", Command: "brew install engram-duplicate"},
+			},
+			existing: nil,
+			want: []model.ToolRef{
+				{Name: "engram", Command: "brew install engram"},
+			},
+		},
+		{
+			name: "does_not_include_tools_not_in_activeTools",
+			activeTools: []model.ToolDef{
+				{Name: "crit", Command: "brew install crit"},
+			},
+			existing: []model.ToolRef{
+				{Name: "crit", Command: "custom-crit"},
+				{Name: "engram", Command: "custom-engram"}, // not in activeTools
+			},
+			want: []model.ToolRef{
+				{Name: "crit", Command: "custom-crit"},
+			},
+		},
+		{
+			name: "preserves_empty_command_when_catalog_and_existing_both_empty",
+			activeTools: []model.ToolDef{
+				{Name: "unknown-tool", Command: ""},
+			},
+			existing: nil,
+			want: []model.ToolRef{
+				{Name: "unknown-tool", Command: ""},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildToolRefsForManifest(tc.activeTools, tc.existing)
+
+			if len(got) != len(tc.want) {
+				t.Fatalf("len(got)=%d, len(want)=%d; got=%+v", len(got), len(tc.want), got)
+			}
+			for i, want := range tc.want {
+				if got[i].Name != want.Name {
+					t.Errorf("[%d] Name: got %q, want %q", i, got[i].Name, want.Name)
+				}
+				if got[i].Command != want.Command {
+					t.Errorf("[%d] Command: got %q, want %q", i, got[i].Command, want.Command)
+				}
+			}
+		})
+	}
+}
+
 // TestFilterToolsBySelection covers the filtering logic with table-driven tests.
 func TestFilterToolsBySelection(t *testing.T) {
 	// Fixture tools used across test cases.

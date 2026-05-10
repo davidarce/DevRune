@@ -1,0 +1,4 @@
+name: engram
+description: Persistent memory layer for AI coding agents — stores observations, decisions, and session context across conversations.
+command: brew install gentleman-programming/tap/engram
+binary: engram

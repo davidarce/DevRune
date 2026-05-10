@@ -24,12 +24,12 @@ type promptPayload struct {
 
 // profileSummary is a JSON-friendly summary of the detected project profile.
 type profileSummary struct {
-	Languages    []string          `json:"languages"`
-	Frameworks   []string          `json:"frameworks"`
-	Dependencies []depSummary      `json:"dependencies"`
-	ConfigFiles  []string          `json:"config_files"`
-	TotalFiles   int               `json:"total_files"`
-	TotalLines   int               `json:"total_lines"`
+	Languages    []string     `json:"languages"`
+	Frameworks   []string     `json:"frameworks"`
+	Dependencies []depSummary `json:"dependencies"`
+	ConfigFiles  []string     `json:"config_files"`
+	TotalFiles   int          `json:"total_files"`
+	TotalLines   int          `json:"total_lines"`
 }
 
 type depSummary struct {

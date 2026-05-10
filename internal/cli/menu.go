@@ -32,6 +32,7 @@ const (
 	menuActionConfigureModels menuAction = "configure-models"
 	menuActionManageAdvisors  menuAction = "manage-advisors"
 	menuActionUpgrade         menuAction = "upgrade"
+	menuActionUpgradeTools    menuAction = "upgrade-tools"
 	menuActionUninstall       menuAction = "uninstall"
 	menuActionQuit            menuAction = "quit"
 )
@@ -69,6 +70,7 @@ func buildMenuOptions(hasRouting bool) []huh.Option[menuAction] {
 	opts = append(opts,
 		huh.NewOption("Manage SDD advisors", menuActionManageAdvisors),
 		huh.NewOption("Status", menuActionStatus),
+		huh.NewOption("Upgrade Tools", menuActionUpgradeTools),
 		huh.NewOption("Upgrade DevRune", menuActionUpgrade),
 		huh.NewOption("Uninstall", menuActionUninstall),
 		huh.NewOption("Quit", menuActionQuit),
@@ -145,6 +147,12 @@ func RunMenu(cmd *cobra.Command) error {
 				if err != huh.ErrUserAborted {
 					_ = showMenuMessage(cmd, "Manage Advisors Failed", err.Error())
 				}
+			}
+			// Loop back to menu.
+
+		case menuActionUpgradeTools:
+			if err := runUpgradeToolsFromMenu(cmd); err != nil {
+				_ = showMenuMessage(cmd, "Upgrade Tools Failed", err.Error())
 			}
 			// Loop back to menu.
 
@@ -360,6 +368,7 @@ func runInitFromMenu(cmd *cobra.Command) error {
 				Agents:         existingAgents,
 				Sources:        existingSources,
 				WorkflowModels: mergeWorkflowModels(existingManifest.Workflows),
+				Tools:          existingManifest.Tools,
 			}
 			catalogSources = existingManifest.Catalogs
 		}
@@ -436,6 +445,42 @@ func runInitFromMenu(cmd *cobra.Command) error {
 		Lockfile:       lockPath,
 		InstalledTools: result.InstalledTools,
 	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// runUpgradeToolsFromMenu reads devrune.yaml, loads the embedded tool catalog,
+// and delegates to steps.RunToolUpgradeStep to run the TUI upgrade flow.
+func runUpgradeToolsFromMenu(cmd *cobra.Command) error {
+	wd := workingDir(cmd)
+	manifestPath := filepath.Join(wd, "devrune.yaml")
+
+	// Verify manifest exists.
+	if _, err := os.Stat(manifestPath); err != nil {
+		return showMenuMessage(cmd, "Upgrade Tools", "devrune.yaml not found — run New setup first")
+	}
+
+	// Read and parse manifest.
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	manifest, err := parse.ParseManifest(manifestData)
+	if err != nil {
+		return fmt.Errorf("parse manifest: %w", err)
+	}
+
+	// Load embedded tool catalog and build lookup map.
+	builtinTools, err := tui.LoadBuiltinTools()
+	if err != nil {
+		return fmt.Errorf("load tool catalog: %w", err)
+	}
+	catalogMap := tui.BuiltinToolMap(builtinTools)
+
+	// Run the upgrade step (preview → confirm → execute → summary).
+	if _, err := steps.RunToolUpgradeStep(manifest.Tools, catalogMap); err != nil {
 		return err
 	}
 

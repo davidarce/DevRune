@@ -19,16 +19,16 @@ import (
 
 // ScannedRepo holds the scan results for one repository source ref.
 type ScannedRepo struct {
-	Source    string            // original source ref string
-	Skills    []string          // discovered skill names
-	Rules     []string          // discovered rule names
-	MCPs      []string          // discovered MCP names (files in mcps/ dir)
+	Source            string                   // original source ref string
+	Skills            []string                 // discovered skill names
+	Rules             []string                 // discovered rule names
+	MCPs              []string                 // discovered MCP names (files in mcps/ dir)
 	Workflows         []string                 // discovered workflow names (dirs with workflow.yaml)
 	WorkflowManifests []model.WorkflowManifest // parsed workflow manifests
 	Tools             []model.ToolDef          // discovered tool definitions (files in tools/ dir)
-	Descs     map[string]string // item name → description (for skills, workflows, MCPs)
-	MCPFiles  map[string]string // MCP name → filename with extension (e.g. "engram" → "engram.yaml")
-	Error     error             // scan error (nil if ok)
+	Descs             map[string]string        // item name → description (for skills, workflows, MCPs)
+	MCPFiles          map[string]string        // MCP name → filename with extension (e.g. "engram" → "engram.yaml")
+	Error             error                    // scan error (nil if ok)
 }
 
 // CanonicalSDDSource is the source ref string for the catalog that ships SDD.

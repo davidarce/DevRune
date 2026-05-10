@@ -19,12 +19,12 @@ import (
 // Matches the values in agents/codex.yaml.
 func codexAgentDef() model.AgentDefinition {
 	return model.AgentDefinition{
-		Name:             "codex",
-		Type:             "codex",
-		Workspace:        ".codex",
-		SkillDir:         "../.agents/skills",
-		RulesDir:         "rules",
-		CatalogFile:      "AGENTS.md",
+		Name:         "codex",
+		Type:         "codex",
+		Workspace:    ".codex",
+		SkillDir:     "../.agents/skills",
+		RulesDir:     "rules",
+		CatalogFile:  "AGENTS.md",
 		DefaultRules: "individual",
 		MCP: &model.MCPConfig{
 			FilePath:    "config.toml",
@@ -175,15 +175,15 @@ func TestCodexRenderer_TransformFrontmatter(t *testing.T) {
 	r := renderers.NewCodexRenderer(codexAgentDef())
 
 	input := map[string]interface{}{
-		"name":                    "my-skill",
-		"description":             "A skill",
-		"allowed-tools":           []string{"Bash"},
-		"argument-hint":           "[topic]",
+		"name":                     "my-skill",
+		"description":              "A skill",
+		"allowed-tools":            []string{"Bash"},
+		"argument-hint":            "[topic]",
 		"disable-model-invocation": false,
-		"tools-mode":              "auto",
-		"mode":                    "subagent",
-		"model":                   "sonnet",
-		"temperature":             0.7,
+		"tools-mode":               "auto",
+		"mode":                     "subagent",
+		"model":                    "sonnet",
+		"temperature":              0.7,
 	}
 
 	got := renderers.CodexTransformFrontmatter(r, input)

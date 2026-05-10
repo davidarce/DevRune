@@ -17,11 +17,11 @@ const (
 // RuleMeta holds metadata parsed from a rule's frontmatter.
 // It is populated only for ContentItems with KindRule; nil for skills/prompts/memory.
 type RuleMeta struct {
-	Scope       string `yaml:"scope"`       // e.g. "architecture", "testing", "tech", "api"
-	Technology  string `yaml:"technology"`  // e.g. "java", "any"
-	AppliesTo   string `yaml:"applies_to"`  // comma-separated skill names
+	Scope       string `yaml:"scope"`        // e.g. "architecture", "testing", "tech", "api"
+	Technology  string `yaml:"technology"`   // e.g. "java", "any"
+	AppliesTo   string `yaml:"applies_to"`   // comma-separated skill names
 	Description string `yaml:"description"`  // human-readable description
-	DisplayName  string `yaml:"display_name"` // optional display name from frontmatter; empty string falls back to ContentItem.Name
+	DisplayName string `yaml:"display_name"` // optional display name from frontmatter; empty string falls back to ContentItem.Name
 }
 
 // ContentItem describes a single discoverable item within a resolved package.

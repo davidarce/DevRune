@@ -37,7 +37,7 @@ func Banner() string {
 	}
 
 	artStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true) // ANSI bright green
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))            // ANSI gray
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // ANSI gray
 
 	var b strings.Builder
 	b.WriteString("\n")

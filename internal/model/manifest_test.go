@@ -177,6 +177,79 @@ func TestUserManifest_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "source must not be empty",
 		},
+		// ── Tools validation ──────────────────────────────────────────────────
+		{
+			name: "valid manifest with tools (engram and crit, both with command)",
+			manifest: UserManifest{
+				SchemaVersion: "devrune/v1",
+				Agents:        []AgentRef{{Name: "claude"}},
+				Tools: []ToolRef{
+					{Name: "engram", Command: "brew install gentleman-programming/tap/engram"},
+					{Name: "crit", Command: "brew install crit"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty command is allowed (tool is no upgradable, not an error)",
+			manifest: UserManifest{
+				SchemaVersion: "devrune/v1",
+				Agents:        []AgentRef{{Name: "claude"}},
+				Tools: []ToolRef{
+					{Name: "custom-local", Command: ""},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty tool name fails",
+			manifest: UserManifest{
+				SchemaVersion: "devrune/v1",
+				Agents:        []AgentRef{{Name: "claude"}},
+				Tools: []ToolRef{
+					{Name: "", Command: "brew install something"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "manifest: tool name must not be empty",
+		},
+		{
+			name: "tool name with leading whitespace fails",
+			manifest: UserManifest{
+				SchemaVersion: "devrune/v1",
+				Agents:        []AgentRef{{Name: "claude"}},
+				Tools: []ToolRef{
+					{Name: " engram", Command: "brew install gentleman-programming/tap/engram"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "whitespace",
+		},
+		{
+			name: "tool name with trailing whitespace fails",
+			manifest: UserManifest{
+				SchemaVersion: "devrune/v1",
+				Agents:        []AgentRef{{Name: "claude"}},
+				Tools: []ToolRef{
+					{Name: "engram ", Command: "brew install gentleman-programming/tap/engram"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "whitespace",
+		},
+		{
+			name: "duplicate tool name fails",
+			manifest: UserManifest{
+				SchemaVersion: "devrune/v1",
+				Agents:        []AgentRef{{Name: "claude"}},
+				Tools: []ToolRef{
+					{Name: "engram", Command: "brew install gentleman-programming/tap/engram"},
+					{Name: "engram", Command: "go install engram"},
+				},
+			},
+			wantErr: true,
+			errMsg:  `manifest: duplicate tool "engram"`,
+		},
 	}
 
 	for _, tt := range tests {

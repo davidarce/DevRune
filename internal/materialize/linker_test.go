@@ -22,8 +22,8 @@ func TestNewLinker(t *testing.T) {
 		{"hardlink", "hardlink", false},
 		{"", "symlink", false}, // empty defaults to symlink
 		{"invalid", "", true},
-		{"SYMLINK", "", true},  // case-sensitive
-		{"Copy", "", true},     // case-sensitive
+		{"SYMLINK", "", true}, // case-sensitive
+		{"Copy", "", true},    // case-sensitive
 	}
 
 	for _, tt := range tests {

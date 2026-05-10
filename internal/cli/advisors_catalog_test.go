@@ -486,7 +486,7 @@ func TestImportFromLocalCatalog_RendererSpyCalled(t *testing.T) {
 	seedCatalogAdvisor(t, catalogRoot, "spy-beta-advisor", "Beta", false)
 
 	src := AnAdvisorSource().
-		WithSource("local:" + catalogRoot).
+		WithSource("local:"+catalogRoot).
 		WithSelect("spy-alpha-advisor", "spy-beta-advisor").
 		Build()
 	manifest := AUserManifest().WithAdvisorSource(src).Build()

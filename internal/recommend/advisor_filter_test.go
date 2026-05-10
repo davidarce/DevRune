@@ -205,12 +205,12 @@ func TestDetectProjectScope(t *testing.T) {
 			want: []string{model.AdvisorScopeFrontend},
 		},
 		{
-			name: "nil profile — unknown project, scope is nil (not empty slice)",
+			name:    "nil profile — unknown project, scope is nil (not empty slice)",
 			profile: nil,
 			want:    nil,
 		},
 		{
-			name: "empty profile no frameworks no languages — scope is nil",
+			name:    "empty profile no frameworks no languages — scope is nil",
 			profile: &detect.ProjectProfile{},
 			want:    nil,
 		},
@@ -300,11 +300,11 @@ func TestFilterAdvisersByProfile_Matrix(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		advisorScope    []string // scope of the single advisor under test
-		profile         *detect.ProjectProfile
-		wantIncluded    bool
-		note            string
+		name         string
+		advisorScope []string // scope of the single advisor under test
+		profile      *detect.ProjectProfile
+		wantIncluded bool
+		note         string
 	}{
 		// Nil project scope (unknown) — return input unchanged regardless of advisor scope.
 		{

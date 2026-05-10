@@ -11,12 +11,12 @@ import (
 
 func TestParseFrontmatter(t *testing.T) {
 	tests := []struct {
-		name            string
-		input           string
-		wantFMKeys      []string
+		name             string
+		input            string
+		wantFMKeys       []string
 		wantBodyContains string
-		wantErr         bool
-		errContains     string
+		wantErr          bool
+		errContains      string
 	}{
 		{
 			name: "standard skill file with frontmatter",
@@ -31,7 +31,7 @@ allowed-tools:
 
 Some markdown body.
 `,
-			wantFMKeys:      []string{"name", "description", "allowed-tools"},
+			wantFMKeys:       []string{"name", "description", "allowed-tools"},
 			wantBodyContains: "# Body content here",
 		},
 		{
@@ -40,7 +40,7 @@ Some markdown body.
 
 No frontmatter here.
 `,
-			wantFMKeys:      []string{},
+			wantFMKeys:       []string{},
 			wantBodyContains: "# Just a markdown file",
 		},
 		{
@@ -58,7 +58,7 @@ argument-hint: "[topic] [extra]"
 ---
 # Skill body
 `,
-			wantFMKeys:      []string{"name", "description", "argument-hint"},
+			wantFMKeys:       []string{"name", "description", "argument-hint"},
 			wantBodyContains: "# Skill body",
 		},
 		{
@@ -78,7 +78,7 @@ name: trick
 ---
 Body here
 `,
-			wantFMKeys:      []string{},
+			wantFMKeys:       []string{},
 			wantBodyContains: "Some text before",
 		},
 		{
@@ -92,7 +92,7 @@ name: my-skill
 
 More content.
 `,
-			wantFMKeys:      []string{"name"},
+			wantFMKeys:       []string{"name"},
 			wantBodyContains: "--- separator in body",
 		},
 	}

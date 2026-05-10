@@ -61,9 +61,9 @@ func TestLoadOpenCodeModels_ValidSource(t *testing.T) {
 
 	// Build source with 3 models, 2 tool_call=true, 1 false.
 	srcData := buildOpenCodeSourceJSON(t, openCodeProvider, map[string]bool{
-		"gpt-4o":    true,
+		"gpt-4o":      true,
 		"gpt-4o-mini": true,
-		"ada":       false,
+		"ada":         false,
 	})
 	writeFile(t, srcPath, srcData)
 

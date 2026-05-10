@@ -46,10 +46,10 @@ func (f *fakeAdvisorRenderer) RegenerateAdvisorFiles(
 }
 
 // AgentRenderer stubs — minimum needed to satisfy the interface.
-func (f *fakeAdvisorRenderer) Name() string                       { return "fake" }
-func (f *fakeAdvisorRenderer) AgentType() string                  { return "fake" }
-func (f *fakeAdvisorRenderer) NeedsCopyMode() bool                { return false }
-func (f *fakeAdvisorRenderer) Definition() model.AgentDefinition  { return model.AgentDefinition{} }
+func (f *fakeAdvisorRenderer) Name() string                      { return "fake" }
+func (f *fakeAdvisorRenderer) AgentType() string                 { return "fake" }
+func (f *fakeAdvisorRenderer) NeedsCopyMode() bool               { return false }
+func (f *fakeAdvisorRenderer) Definition() model.AgentDefinition { return model.AgentDefinition{} }
 func (f *fakeAdvisorRenderer) WorkspacePaths() materialize.AgentPaths {
 	return materialize.AgentPaths{}
 }
@@ -72,10 +72,10 @@ func (f *fakeAdvisorRenderer) Finalize(_ string) error { return nil }
 // materialize.AdvisorRenderer — used to verify the silent-skip path.
 type nonAdvisorRenderer struct{}
 
-func (n *nonAdvisorRenderer) Name() string                       { return "non-advisor" }
-func (n *nonAdvisorRenderer) AgentType() string                  { return "non-advisor" }
-func (n *nonAdvisorRenderer) NeedsCopyMode() bool                { return false }
-func (n *nonAdvisorRenderer) Definition() model.AgentDefinition  { return model.AgentDefinition{} }
+func (n *nonAdvisorRenderer) Name() string                      { return "non-advisor" }
+func (n *nonAdvisorRenderer) AgentType() string                 { return "non-advisor" }
+func (n *nonAdvisorRenderer) NeedsCopyMode() bool               { return false }
+func (n *nonAdvisorRenderer) Definition() model.AgentDefinition { return model.AgentDefinition{} }
 func (n *nonAdvisorRenderer) WorkspacePaths() materialize.AgentPaths {
 	return materialize.AgentPaths{}
 }

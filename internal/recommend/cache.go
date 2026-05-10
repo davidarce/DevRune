@@ -37,7 +37,7 @@ func cacheDir() string {
 
 // cacheEntry is the on-disk format for a cached recommendation result.
 type cacheEntry struct {
-	Timestamp       time.Time       `json:"timestamp"`
+	Timestamp       time.Time        `json:"timestamp"`
 	Recommendations []Recommendation `json:"recommendations"`
 }
 
