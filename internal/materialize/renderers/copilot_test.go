@@ -490,11 +490,14 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorOnlyInAgentsDir(t *testing.
 	}
 }
 
-// TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog verifies that
-// registry content is captured (for potential other use) but NOT injected verbatim
-// into the catalog — instead a minimal orchestrator pointer is emitted.
-// Also verifies no REGISTRY.md file is written anywhere in the workspace.
-func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.T) {
+// TestCopilotRenderer_InstallWorkflow_RegistryNotCaptured verifies that
+// registry content is NOT captured into the renderer's registryContents
+// map for Copilot installs and is NOT copied loose anywhere in the
+// workspace. Copilot has a primary `.agent.md` for the orchestrator
+// (synthesized from ORCHESTRATOR.copilot.md); leaking REGISTRY content
+// into the ambient instructions file would inject workflow-specific
+// rules into non-workflow sessions.
+func TestCopilotRenderer_InstallWorkflow_RegistryNotCaptured(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	def := copilotParityDef(workspaceRoot)
 	r := renderers.NewCopilotRenderer(def)
@@ -529,18 +532,12 @@ func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Verify registry content is captured (for later use by RenderRootCatalog).
+	// REGISTRY content must NOT be captured for Copilot — primary `.agent.md`
+	// owns the playbook; the ambient catalog should not carry workflow-specific
+	// orchestrator rules.
 	contents := r.RegistryContents()
-	// Registry content is captured but not verbatim-injected (Copilot emits minimal pointer).
-	// The workflow name "sdd" must exist as a key.
-	if _, ok := contents[wf.Metadata.Name]; !ok {
-		t.Errorf("RegistryContents should contain captured content for workflow 'sdd'; got keys: %v", func() []string {
-			var keys []string
-			for k := range contents {
-				keys = append(keys, k)
-			}
-			return keys
-		}())
+	if _, ok := contents[wf.Metadata.Name]; ok {
+		t.Errorf("RegistryContents must NOT contain workflow %q for Copilot installs; got captured content", wf.Metadata.Name)
 	}
 
 	// No loose REGISTRY.md should exist anywhere in workspace.

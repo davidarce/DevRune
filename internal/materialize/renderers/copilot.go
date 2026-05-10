@@ -474,20 +474,15 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 			if variantOrchPath != "" {
 				effectiveSrc = variantOrchPath // use variant if found
 			}
-			// Resolve the Copilot registry variant (or generic fallback) so the
-			// orchestrator agent file embeds both ambient rules + playbook —
-			// Copilot custom agents have no shared catalog context.
-			registryPath := ""
-			if wf.Components.Registry != "" {
-				variantName := strings.TrimSuffix(wf.Components.Registry, ".md") + ".copilot.md"
-				if _, statErr := os.Stat(filepath.Join(cachePath, variantName)); statErr == nil {
-					registryPath = filepath.Join(cachePath, variantName)
-				} else if _, statErr := os.Stat(filepath.Join(cachePath, wf.Components.Registry)); statErr == nil {
-					registryPath = filepath.Join(cachePath, wf.Components.Registry)
-				}
-			}
+			// REGISTRY blocks are intentionally NOT consumed for Copilot installs.
+			// Copilot has a primary `.agent.md` the user explicitly invokes; the
+			// playbook lives there (rendered from ORCHESTRATOR.copilot.md alone).
+			// Injecting REGISTRY content into the orchestrator body would duplicate
+			// or contradict the playbook. REGISTRY.copilot.md in the catalog is kept
+			// as an empty stub to prevent the variant resolver from falling back to
+			// the generic Claude-flavoured REGISTRY.md.
 			dstPath := filepath.Join(agentsBase, orchRoleName+".agent.md")
-			if err := r.installOrchestratorAgent(effectiveSrc, registryPath, dstPath, wf, replacements); err != nil {
+			if err := r.installOrchestratorAgent(effectiveSrc, "", dstPath, wf, replacements); err != nil {
 				return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: workflow orchestrator: %w", err)
 			}
 			managedPaths = append(managedPaths, dstPath)
@@ -603,16 +598,13 @@ func (r *CopilotRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath s
 		}
 	}
 
-	// Capture registry content for catalog injection; apply shared placeholder replacements.
-	if wf.Components.Registry != "" {
-		content, err := captureRegistryContent(cachePath, wf.Components.Registry, replacements)
-		if err != nil {
-			return matypes.WorkflowInstallResult{}, fmt.Errorf("copilot: capture registry: %w", err)
-		}
-		if content != "" {
-			r.registryContents[wf.Metadata.Name] = content
-		}
-	}
+	// REGISTRY blocks are intentionally NOT captured for Copilot installs.
+	// Copilot has a primary `.agent.md` for the orchestrator (synthesized
+	// above); injecting the playbook into an ambient catalog would leak
+	// workflow-specific rules into non-workflow sessions and duplicate the
+	// orchestrator agent's body. r.registryContents stays empty for this
+	// workflow so RenderRootCatalog produces no SDD section in the ambient
+	// instructions file.
 
 	// Resolve placeholders in all installed .md files under skillsBase and agentsBase.
 	// agentsBase now contains the orchestrator .agent.md and the _shared/ directory.

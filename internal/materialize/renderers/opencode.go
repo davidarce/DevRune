@@ -428,16 +428,22 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 	// instead of the shared skillsBase path.
 	replacements["{WORKFLOW_DIR}"] = workflowDir
 
-	// Capture registry content for catalog injection; apply shared replacements.
-	if wf.Components.Registry != "" {
-		content, err := captureRegistryContent(cachePath, wf.Components.Registry, replacements)
-		if err != nil {
-			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: capture registry: %w", err)
-		}
-		if content != "" {
-			r.registryContents[wf.Metadata.Name] = content
-		}
-	}
+	// REGISTRY blocks are intentionally NOT consumed for OpenCode installs.
+	//
+	// Why: the REGISTRY pattern injects ambient orchestrator context into
+	// CLAUDE.md / AGENTS.md catalogs because Claude/Factory have no "primary
+	// agent" concept — the main session needs the playbook to know when to
+	// engage the workflow. OpenCode has a primary agent the user explicitly
+	// selects (synthesized from components.roles below); the playbook lives
+	// in that agent's prompt (rendered from ORCHESTRATOR.opencode.md alone).
+	// Injecting REGISTRY content into either AGENTS.md or the orchestrator
+	// prompt would (a) leak workflow-specific rules into non-workflow sessions
+	// and (b) duplicate / contradict the orchestrator prompt itself.
+	//
+	// We deliberately skip both the catalog capture (r.registryContents) and
+	// the prompt prepend (registryPath) here. REGISTRY.{opencode,copilot}.md
+	// in the catalog are kept as empty stubs to prevent the variant resolver
+	// from falling back to the generic Claude-flavoured REGISTRY.md.
 
 	// Resolve placeholders in skill .md files under skillsBase.
 	if err := resolvePlaceholders(skillsBase, replacements); err != nil {
@@ -450,23 +456,10 @@ func (r *OpenCodeRenderer) InstallWorkflow(wf model.WorkflowManifest, cachePath 
 		}
 	}
 
-	// Resolve registry variant for the orchestrator prompt (registry +
-	// playbook combined). The OpenCode primary agent has no separate ambient
-	// catalog, so the registry block is prepended to the orchestrator prompt
-	// to govern its behaviour.
-	registryPath := ""
-	if wf.Components.Registry != "" {
-		variantName := strings.TrimSuffix(wf.Components.Registry, ".md") + ".opencode.md"
-		if _, statErr := os.Stat(filepath.Join(cachePath, variantName)); statErr == nil {
-			registryPath = filepath.Join(cachePath, variantName)
-		} else if _, statErr := os.Stat(filepath.Join(cachePath, wf.Components.Registry)); statErr == nil {
-			registryPath = filepath.Join(cachePath, wf.Components.Registry)
-		}
-	}
-
 	// Synthesize SDD agents into opencode.json from components.roles.
+	// registryPath is empty by design (see REGISTRY-skip rationale above).
 	if len(wf.Components.Roles) > 0 {
-		if err := r.synthesizeAgents(wf, orchPath, registryPath, workspaceRoot, skillsBase, replacements); err != nil {
+		if err := r.synthesizeAgents(wf, orchPath, "", workspaceRoot, skillsBase, replacements); err != nil {
 			return matypes.WorkflowInstallResult{}, fmt.Errorf("opencode: synthesize agents: %w", err)
 		}
 		managedPaths = append(managedPaths, filepath.Join(workspaceRoot, "opencode.json"))
@@ -590,14 +583,14 @@ func (r *OpenCodeRenderer) buildSubagentEntry(role model.WorkflowRole, skillsBas
 // buildOrchestratorEntry creates an opencode.json agent entry for the orchestrator role.
 // The prompt is the full content of the ORCHESTRATOR.md file with all placeholders
 // resolved ({SKILLS_PATH}, {SDD_MODEL_*}) using the provided replacements map.
+//
+// registryPath is accepted for signature compatibility but should be empty for
+// OpenCode installs — REGISTRY blocks are not concatenated into the orchestrator
+// prompt (see RenderWorkflow). If a non-empty path is supplied, it is read and
+// prepended for backward compatibility, but the canonical caller passes "".
 func (r *OpenCodeRenderer) buildOrchestratorEntry(wf model.WorkflowManifest, role model.WorkflowRole, orchPath, registryPath string, replacements map[string]string) (map[string]any, error) {
 	var prompt string
 
-	// Prepend the registry block (ambient rules: Role Invariant, Evaluation
-	// Gate, Memory Protocols, Engram Availability Guard, Session close) so the
-	// orchestrator agent has the same governing rules a CLAUDE.md ambient
-	// install would provide for the main session. OpenCode primary agents have
-	// no shared catalog context, so embedding here is the only delivery path.
 	if registryPath != "" {
 		regData, err := os.ReadFile(registryPath)
 		if err != nil {
