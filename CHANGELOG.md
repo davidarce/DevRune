@@ -5,6 +5,18 @@ All notable changes to DevRune will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/davidarce/DevRune/compare/v0.3.0...v0.3.1) (2026-05-10)
+
+
+### Bug Fixes
+
+* **materialize/renderers:** stop consuming REGISTRY for OpenCode/Copilot installs ([12ff648](https://github.com/davidarce/DevRune/commit/12ff648a6006a22a31b6ce306368fd73d34d0a14))
+
+
+### Code Refactoring
+
+* **materialize/renderers:** introduce {SHARED_DIR} placeholder + move _shared/ for primary-agent installs ([718257b](https://github.com/davidarce/DevRune/commit/718257b03cf52d794e21dba657fc2097fe77d27e))
+
 ## [0.3.0](https://github.com/davidarce/DevRune/compare/v0.2.0...v0.3.0) (2026-05-09)
 
 

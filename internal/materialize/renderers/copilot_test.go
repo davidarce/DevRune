@@ -398,19 +398,24 @@ func TestCopilotRenderer_InstallWorkflow_SkillsUnderSkillsDir(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", skillMD, err)
 	}
 
-	// POSITIVE: _shared directory under skills/sdd-orchestrator/_shared
-	// (matches the paths the orchestrator .agent.md references, e.g.
-	// .github/skills/sdd-orchestrator/_shared/launch-templates.md)
-	sharedDest := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
+	// POSITIVE: _shared installed at the workflow-namespaced top-level path
+	// .github/<workflow-name>/_shared/. The orchestrator .agent.md references
+	// it via {SHARED_DIR}, which the renderer resolves to this path.
+	sharedDest := filepath.Join(workspaceRoot, wf.Metadata.Name, "_shared")
 	if info, err := os.Stat(sharedDest); err != nil || !info.IsDir() {
 		t.Errorf("expected %s to be a directory: err=%v", sharedDest, err)
 	}
 
-	// NEGATIVE: _shared must NOT be installed under agents/sdd-orchestrator/
-	// (agents/ is flat: only .agent.md files, no subdirectories)
-	sharedInAgents := filepath.Join(workspaceRoot, "agents", "sdd-orchestrator", "_shared")
-	if _, err := os.Stat(sharedInAgents); err == nil {
-		t.Error("_shared must NOT exist under agents/sdd-orchestrator/ for Copilot — it belongs in skills/sdd-orchestrator/")
+	// NEGATIVE: legacy paths must NOT be created — the orchestrator skill dir
+	// in skills/ was a fantasma container (no SKILL.md), and agents/ is flat
+	// (only .agent.md files, no subdirectories).
+	for _, legacy := range []string{
+		filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared"),
+		filepath.Join(workspaceRoot, "agents", "sdd-orchestrator", "_shared"),
+	} {
+		if _, err := os.Stat(legacy); err == nil {
+			t.Errorf("legacy fantasma path %s should NOT be created for Copilot installs", legacy)
+		}
 	}
 
 	// POSITIVE: orchestrator surfaced as native .agent.md in agents/
@@ -490,11 +495,14 @@ func TestCopilotRenderer_InstallWorkflow_OrchestratorOnlyInAgentsDir(t *testing.
 	}
 }
 
-// TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog verifies that
-// registry content is captured (for potential other use) but NOT injected verbatim
-// into the catalog — instead a minimal orchestrator pointer is emitted.
-// Also verifies no REGISTRY.md file is written anywhere in the workspace.
-func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.T) {
+// TestCopilotRenderer_InstallWorkflow_RegistryNotCaptured verifies that
+// registry content is NOT captured into the renderer's registryContents
+// map for Copilot installs and is NOT copied loose anywhere in the
+// workspace. Copilot has a primary `.agent.md` for the orchestrator
+// (synthesized from ORCHESTRATOR.copilot.md); leaking REGISTRY content
+// into the ambient instructions file would inject workflow-specific
+// rules into non-workflow sessions.
+func TestCopilotRenderer_InstallWorkflow_RegistryNotCaptured(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	def := copilotParityDef(workspaceRoot)
 	r := renderers.NewCopilotRenderer(def)
@@ -529,18 +537,12 @@ func TestCopilotRenderer_InstallWorkflow_RegistryInjectedIntoCatalog(t *testing.
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	// Verify registry content is captured (for later use by RenderRootCatalog).
+	// REGISTRY content must NOT be captured for Copilot — primary `.agent.md`
+	// owns the playbook; the ambient catalog should not carry workflow-specific
+	// orchestrator rules.
 	contents := r.RegistryContents()
-	// Registry content is captured but not verbatim-injected (Copilot emits minimal pointer).
-	// The workflow name "sdd" must exist as a key.
-	if _, ok := contents[wf.Metadata.Name]; !ok {
-		t.Errorf("RegistryContents should contain captured content for workflow 'sdd'; got keys: %v", func() []string {
-			var keys []string
-			for k := range contents {
-				keys = append(keys, k)
-			}
-			return keys
-		}())
+	if _, ok := contents[wf.Metadata.Name]; ok {
+		t.Errorf("RegistryContents must NOT contain workflow %q for Copilot installs; got captured content", wf.Metadata.Name)
 	}
 
 	// No loose REGISTRY.md should exist anywhere in workspace.
@@ -2065,7 +2067,7 @@ func TestCopilotRenderer_InstallWorkflow_SharedVariantSuffixStripping(t *testing
 		t.Fatalf("InstallWorkflow: %v", err)
 	}
 
-	installedShared := filepath.Join(workspaceRoot, "skills", "sdd-orchestrator", "_shared")
+	installedShared := filepath.Join(workspaceRoot, wf.Metadata.Name, "_shared")
 
 	// launch-templates.md must exist with copilot content (from launch-templates.copilot.md).
 	ltPath := filepath.Join(installedShared, "launch-templates.md")
