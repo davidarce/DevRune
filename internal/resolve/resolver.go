@@ -102,15 +102,15 @@ func (r *Resolver) SetPriorLockfile(lf model.Lockfile) {
 //  2. No prior entry for this CacheKey → always re-fetch (first resolve).
 //  3. Fetcher implements RevisionResolver:
 //     a. Prior revision recorded → cheap GET, compare SHAs. Match reuses
-//        the cache; mismatch/error/missing-cache-dir all fall through to
-//        re-fetch.
+//     the cache; mismatch/error/missing-cache-dir all fall through to
+//     re-fetch.
 //     b. No prior revision (old lockfile schema) → re-fetch so the next
-//        lockfile captures the SHA.
+//     lockfile captures the SHA.
 //  4. Fetcher does NOT implement RevisionResolver (legacy backend; today
 //     only the local scheme but kept defensively for future backends):
 //     a. Mutable ref (HEAD / empty) → re-fetch. This preserves the safety
-//        guarantee of the HEAD-bypass fix (6bed877) — without an SHA
-//        check, trusting the cache would silently hide upstream moves.
+//     guarantee of the HEAD-bypass fix (6bed877) — without an SHA
+//     check, trusting the cache would silently hide upstream moves.
 //     b. Immutable-looking ref (everything else) → reuse cache by hash.
 func (r *Resolver) cachedDir(ctx context.Context, sourceRef model.SourceRef) (dir, hash, revision string, ok bool) {
 	if r.priorIndex == nil {

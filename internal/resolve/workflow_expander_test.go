@@ -85,7 +85,6 @@ func TestExpandWorkflows_NoWorkflows(t *testing.T) {
 	}
 }
 
-
 // TestExpandWorkflows_MultipleWorkflows verifies that multiple valid workflow sources all pass.
 func TestExpandWorkflows_MultipleWorkflows(t *testing.T) {
 	manifest := model.UserManifest{

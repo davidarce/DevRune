@@ -44,7 +44,7 @@ type WorkflowMetadata struct {
 	Name        string `yaml:"name"`                  // slug identifier, e.g. "sdd"
 	DisplayName string `yaml:"displayName,omitempty"` // human-readable label for catalogs, e.g. "SDD (Spec-Driven Development)"
 	Version     string `yaml:"version"`               // semver, e.g. "1.0.0"
-	WorkingDir  string `yaml:"workingDir,omitempty"`   // directory name for workflow files (orchestrator, _shared/); defaults to Name
+	WorkingDir  string `yaml:"workingDir,omitempty"`  // directory name for workflow files (orchestrator, _shared/); defaults to Name
 }
 
 // EffectiveDisplayName returns DisplayName if set, otherwise falls back to Name.

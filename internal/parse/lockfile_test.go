@@ -201,8 +201,8 @@ func TestSerializeLockfile_IsDeterministic(t *testing.T) {
 				},
 			},
 			{
-				Source: model.SourceRef{Scheme: model.SchemeGitHub, Owner: "a-owner", Repo: "a-repo", Ref: "v1.0.0"},
-				Hash:   "sha256:aaa",
+				Source:   model.SourceRef{Scheme: model.SchemeGitHub, Owner: "a-owner", Repo: "a-repo", Ref: "v1.0.0"},
+				Hash:     "sha256:aaa",
 				Contents: []model.ContentItem{},
 			},
 		},

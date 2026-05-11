@@ -208,7 +208,6 @@ func buildManifestFromSelection(agents []string, selection SelectionResult, work
 	}
 }
 
-
 // appendSubpath appends a subpath to a source ref string.
 // For remote sources (github/gitlab), it uses the "//" separator convention.
 // For local sources, it appends as a filesystem path.

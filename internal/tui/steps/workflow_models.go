@@ -483,7 +483,6 @@ func (m modelSelectorModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-
 // filterCopilotOptions returns options from all with tier <= maxTier.
 // The sentinel (ModelInheritOption) is always included regardless of maxTier.
 func filterCopilotOptions(all []model.ModelOption, maxTier float64) []model.ModelOption {

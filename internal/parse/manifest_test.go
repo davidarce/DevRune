@@ -422,6 +422,123 @@ advisors:
 	})
 }
 
+// TestParseManifest_Tools verifica que un YAML con sección tools: se parsea
+// correctamente y que los campos Name/Command se leen con exactitud.
+func TestParseManifest_Tools(t *testing.T) {
+	rawYAML := []byte(`schemaVersion: devrune/v1
+agents:
+  - name: claude
+packages:
+  - source: github:owner/repo@v1.0.0
+tools:
+  - name: engram
+    command: "brew install gentleman-programming/tap/engram"
+  - name: crit
+    command: "brew install crit"
+`)
+	m, err := parse.ParseManifest(rawYAML)
+	if err != nil {
+		t.Fatalf("ParseManifest: unexpected error: %v", err)
+	}
+
+	if len(m.Tools) != 2 {
+		t.Fatalf("Tools length = %d, want 2", len(m.Tools))
+	}
+
+	wantTools := []struct {
+		Name    string
+		Command string
+	}{
+		{"engram", "brew install gentleman-programming/tap/engram"},
+		{"crit", "brew install crit"},
+	}
+
+	for i, want := range wantTools {
+		got := m.Tools[i]
+		if got.Name != want.Name {
+			t.Errorf("Tools[%d].Name = %q, want %q", i, got.Name, want.Name)
+		}
+		if got.Command != want.Command {
+			t.Errorf("Tools[%d].Command = %q, want %q", i, got.Command, want.Command)
+		}
+	}
+}
+
+// TestSerializeManifest_Tools_RoundTrip verifica el comportamiento de
+// serialización de la sección tools: en dos escenarios:
+//   - Un manifest con tools: sobrevive parse → marshal → parse con entradas intactas.
+//   - Un manifest sin tools: no serializa la clave tools: (gracias a omitempty).
+func TestSerializeManifest_Tools_RoundTrip(t *testing.T) {
+	t.Run("manifest con tools — round-trip conserva entries intactas", func(t *testing.T) {
+		original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
+agents:
+  - name: claude
+packages:
+  - source: github:owner/repo@v1.0.0
+tools:
+  - name: engram
+    command: "brew install gentleman-programming/tap/engram"
+  - name: crit
+    command: "brew install crit"
+`))
+		if err != nil {
+			t.Fatalf("ParseManifest: %v", err)
+		}
+
+		serialized, err := parse.SerializeManifest(original)
+		if err != nil {
+			t.Fatalf("SerializeManifest: %v", err)
+		}
+
+		reparsed, err := parse.ParseManifest(serialized)
+		if err != nil {
+			t.Fatalf("ParseManifest (reparsed): %v", err)
+		}
+
+		if len(reparsed.Tools) != len(original.Tools) {
+			t.Fatalf("Tools length after round-trip = %d, want %d", len(reparsed.Tools), len(original.Tools))
+		}
+		for i, want := range original.Tools {
+			got := reparsed.Tools[i]
+			if got.Name != want.Name {
+				t.Errorf("Tools[%d].Name = %q, want %q", i, got.Name, want.Name)
+			}
+			if got.Command != want.Command {
+				t.Errorf("Tools[%d].Command = %q, want %q", i, got.Command, want.Command)
+			}
+		}
+	})
+
+	t.Run("manifest sin tools — clave tools ausente tras serialización (omitempty)", func(t *testing.T) {
+		original, err := parse.ParseManifest([]byte(`schemaVersion: devrune/v1
+agents:
+  - name: claude
+packages:
+  - source: github:owner/repo@v1.0.0
+`))
+		if err != nil {
+			t.Fatalf("ParseManifest: %v", err)
+		}
+
+		serialized, err := parse.SerializeManifest(original)
+		if err != nil {
+			t.Fatalf("SerializeManifest: %v", err)
+		}
+
+		// omitempty debe omitir la clave cuando el slice es nil/vacío.
+		if strings.Contains(string(serialized), "tools:") {
+			t.Errorf("serialized output no debe contener 'tools:' cuando el slice está vacío (omitempty), got:\n%s", serialized)
+		}
+
+		reparsed, err := parse.ParseManifest(serialized)
+		if err != nil {
+			t.Fatalf("ParseManifest (reparsed): %v", err)
+		}
+		if len(reparsed.Tools) != 0 {
+			t.Errorf("Tools after round-trip = %d, want 0", len(reparsed.Tools))
+		}
+	})
+}
 
 // mustReadFixture reads a test fixture file from testdata/<dir>/<name>.
 // It fails the test immediately if the file cannot be read.

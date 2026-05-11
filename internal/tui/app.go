@@ -36,11 +36,14 @@ type RunResult struct {
 // WorkflowModels is the merged per-agent role model map extracted from all workflow entries.
 // Recommendations holds AI recommendations from a previous devrune.recommended.yaml run,
 // used to pre-select items with AI badges in the selection step.
+// Tools holds tool overrides from the existing manifest; used to preserve user-defined
+// commands when the wizard rebuilds manifest.Tools after ConfirmSummary.
 type ExistingConfig struct {
 	Agents          []string
 	Sources         []string
 	WorkflowModels  map[string]map[string]string
 	Recommendations []model.RecommendedItem // AI recommendations for pre-selection
+	Tools           []model.ToolRef         // persisted tool overrides from existing manifest
 }
 
 // Run executes the interactive TUI wizard and returns the resulting
@@ -72,9 +75,11 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 	// Determine preselected agents and sources from existing config.
 	var preselectedAgents []string
 	var preselectedSources []string
+	var existingTools []model.ToolRef
 	if existing != nil {
 		preselectedAgents = existing.Agents
 		preselectedSources = existing.Sources
+		existingTools = existing.Tools
 	}
 
 	// Step 1 — agents (alt screen, step indicator inside form)
@@ -392,6 +397,9 @@ func Run(projectDir string, catalogSources []string, existing *ExistingConfig) (
 		return RunResult{}, mapErr(err)
 	}
 
+	// Persist tools: merge active tools from catalog with existing user overrides.
+	manifest.Tools = buildToolRefsForManifest(activeTools, existingTools)
+
 	return RunResult{Manifest: manifest, InstalledTools: installedTools}, nil
 }
 
@@ -566,4 +574,45 @@ func filterToolsBySelection(tools []model.ToolDef, selection steps.SelectionResu
 		// Neither condition matched — skip.
 	}
 	return result
+}
+
+// buildToolRefsForManifest constructs the []model.ToolRef slice to persist in
+// manifest.Tools after the wizard's ConfirmSummary step.
+//
+// Rules (applied per activeTools entry, in order):
+//  1. If existing contains a ToolRef with the same Name and a non-empty Command,
+//     that override wins — the user's custom command is preserved.
+//  2. Otherwise, the ToolDef.Command from the catalog scan is used (may be empty).
+//
+// The result is deduplicated by Name and follows the order of activeTools.
+// Tools that were not selected (not in activeTools) are dropped regardless of
+// whether they appear in existing.
+func buildToolRefsForManifest(activeTools []model.ToolDef, existing []model.ToolRef) []model.ToolRef {
+	// Build a lookup map for existing overrides by name.
+	overrides := make(map[string]string, len(existing))
+	for _, ref := range existing {
+		if strings.TrimSpace(ref.Command) != "" {
+			overrides[ref.Name] = ref.Command
+		}
+	}
+
+	// Iterate activeTools in order, deduplicating by name.
+	seen := make(map[string]bool, len(activeTools))
+	refs := make([]model.ToolRef, 0, len(activeTools))
+	for _, td := range activeTools {
+		if seen[td.Name] {
+			continue
+		}
+		seen[td.Name] = true
+
+		cmd := td.Command
+		if override, ok := overrides[td.Name]; ok {
+			cmd = override
+		}
+		refs = append(refs, model.ToolRef{
+			Name:    td.Name,
+			Command: cmd,
+		})
+	}
+	return refs
 }

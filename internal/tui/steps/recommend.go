@@ -449,8 +449,8 @@ func (m recommendFlowModel) View() tea.View {
 // RecommendFlowResult holds the output of RunRecommendFlow.
 type RecommendFlowResult struct {
 	Result   *recommend.RecommendResult
-	Accepted bool  // user chose "Yes, apply"
-	Skipped  bool  // user chose "No, go back" or error
+	Accepted bool // user chose "Yes, apply"
+	Skipped  bool // user chose "No, go back" or error
 	Err      error
 }
 

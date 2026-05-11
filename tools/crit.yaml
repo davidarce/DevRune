@@ -1,0 +1,4 @@
+name: crit
+description: "AI-powered code review tool that analyses your git diff and provides structured feedback."
+command: "brew install crit"
+binary: crit

@@ -27,3 +27,9 @@ install:
   rulesMode:
     claude: concat
     opencode: individual
+
+tools:
+  - name: engram
+    command: "brew install gentleman-programming/tap/engram"
+  - name: crit
+    command: "brew install crit"

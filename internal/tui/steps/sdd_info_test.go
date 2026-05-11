@@ -42,9 +42,9 @@ func TestSDDInfoContent(t *testing.T) {
 			wantSubstring: "4 phases",
 		},
 		{
-			name:          "narrow terminal (w=60) short content does not contain numbered phase list",
-			width:         60,
-			wantAbsent:    "① Explore",
+			name:       "narrow terminal (w=60) short content does not contain numbered phase list",
+			width:      60,
+			wantAbsent: "① Explore",
 		},
 		{
 			name:          "at threshold (w=70) returns full content (strictly less-than check)",

@@ -45,7 +45,6 @@ func TestInstallModel_ErrorStateRendersMessage(t *testing.T) {
 	}
 }
 
-
 // TestInstallModel_ErrorStateNotQuitUntilKeypress verifies that the model
 // does NOT quit immediately on receiving an error — it stays alive to show
 // the error, and only quits on a subsequent keypress.

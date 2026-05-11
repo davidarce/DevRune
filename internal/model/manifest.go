@@ -269,6 +269,29 @@ func ReservedAdvisorNames() []string {
 	return out
 }
 
+// ToolRef is one persisted entry under devrune.yaml tools:.
+// Name identifies the tool (required, no leading/trailing whitespace).
+// Command is the shell command to upgrade the tool; may be empty or whitespace,
+// which means the tool is considered "no upgradable" unless a catalog default exists.
+type ToolRef struct {
+	Name    string `yaml:"name"`
+	Command string `yaml:"command,omitempty"`
+}
+
+// Validate checks that the ToolRef is internally consistent.
+// Rules:
+//   - Name must be non-empty and must not have leading or trailing whitespace.
+//   - Command may be empty or whitespace (no error; treated as no-command downstream).
+func (t ToolRef) Validate() error {
+	if t.Name == "" {
+		return fmt.Errorf("manifest: tool name must not be empty")
+	}
+	if strings.TrimSpace(t.Name) != t.Name {
+		return fmt.Errorf("manifest: tool name %q must not have leading or trailing whitespace", t.Name)
+	}
+	return nil
+}
+
 // UserManifest represents the user's devrune.yaml file.
 // It declares packages, MCP servers, agents, and optional workflows to install.
 type UserManifest struct {
@@ -291,6 +314,10 @@ type UserManifest struct {
 	// references the primary DevRune package catalog (where DevRune
 	// packages come from). Advisors holds advisor-only sources.
 	Advisors []AdvisorSource `yaml:"advisors,omitempty"`
+	// Tools lists the tools declared in devrune.yaml. Each entry has a name
+	// and an optional upgrade command. Tools without an effective command are
+	// displayed as "(no upgradable)" in the Upgrade Tools TUI flow.
+	Tools []ToolRef `yaml:"tools,omitempty"`
 }
 
 // PackageRef is a reference to a package in the user manifest.
@@ -365,6 +392,18 @@ func (m UserManifest) Validate() error {
 				return fmt.Errorf("manifest: advisor source %q select entry %q conflicts with a native DevRune advisor", src.Source, name)
 			}
 		}
+	}
+
+	// Validate Tools: no duplicates, each entry has valid Name.
+	seenTools := make(map[string]bool, len(m.Tools))
+	for _, tool := range m.Tools {
+		if err := tool.Validate(); err != nil {
+			return err
+		}
+		if seenTools[tool.Name] {
+			return fmt.Errorf("manifest: duplicate tool %q", tool.Name)
+		}
+		seenTools[tool.Name] = true
 	}
 
 	return nil

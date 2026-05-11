@@ -116,6 +116,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 				Agents:         existingAgents,
 				Sources:        existingSources,
 				WorkflowModels: mergeWorkflowModels(existingManifest.Workflows),
+				Tools:          existingManifest.Tools,
 			}
 		}
 	}
@@ -273,7 +274,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-
 
 // printDone writes a styled "completed" step line with a green checkmark.
 func printDone(out io.Writer, msg string) {

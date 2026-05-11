@@ -314,7 +314,7 @@ func (m *Materializer) Install(
 				allWorkflows = append(allWorkflows, wfManifest)
 			}
 
-			}
+		}
 
 		// Step 8: RenderCatalog removed — root catalog is generated after the per-agent loop (T021).
 
