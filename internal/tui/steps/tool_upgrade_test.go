@@ -198,9 +198,11 @@ func catalogWith(name, command string) map[string]model.ToolDef {
 	}
 }
 
-// TestBuildUpgradeToolItems_YAMLOverrideWins verifica que el command del
-// ToolRef (YAML) gana sobre el catálogo cuando ambos están presentes.
-func TestBuildUpgradeToolItems_YAMLOverrideWins(t *testing.T) {
+// TestBuildUpgradeToolItems_CatalogWinsOverManifest verifica que el command
+// del catálogo gana sobre el ToolRef (manifest YAML) cuando ambos están
+// presentes. El manifest queda como fallback únicamente para tools que NO
+// están en el catálogo (extensibilidad para tools desconocidas).
+func TestBuildUpgradeToolItems_CatalogWinsOverManifest(t *testing.T) {
 	tools := []model.ToolRef{
 		{Name: "engram", Command: "custom-override-command"},
 	}
@@ -211,11 +213,52 @@ func TestBuildUpgradeToolItems_YAMLOverrideWins(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
-	if items[0].Command != "custom-override-command" {
-		t.Errorf("expected YAML override to win, got %q", items[0].Command)
+	if items[0].Command != "catalog-command" {
+		t.Errorf("expected catalog command to win, got %q", items[0].Command)
 	}
 	if !items[0].Upgradable {
 		t.Error("expected Upgradable=true for non-empty command")
+	}
+}
+
+// TestBuildUpgradeToolItems_CatalogWinsEvenWhenManifestDiffers verifica
+// explícitamente que cuando catalog y manifest tienen comandos distintos
+// (no vacíos), el catálogo siempre gana.
+func TestBuildUpgradeToolItems_CatalogWinsEvenWhenManifestDiffers(t *testing.T) {
+	tools := []model.ToolRef{
+		{Name: "crit", Command: "brew install crit-old"},
+	}
+	catalog := catalogWith("crit", "brew install crit")
+
+	items := buildUpgradeToolItems(tools, catalog)
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].Command != "brew install crit" {
+		t.Errorf("expected catalog command to win over manifest, got %q", items[0].Command)
+	}
+}
+
+// TestBuildUpgradeToolItems_ManifestUsedWhenCatalogEntryEmpty verifica que
+// si la entrada del catálogo existe pero su Command está vacío/whitespace,
+// se usa el command del manifest como fallback.
+func TestBuildUpgradeToolItems_ManifestUsedWhenCatalogEntryEmpty(t *testing.T) {
+	tools := []model.ToolRef{
+		{Name: "crit", Command: "brew install crit"},
+	}
+	catalog := catalogWith("crit", "   ") // whitespace
+
+	items := buildUpgradeToolItems(tools, catalog)
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].Command != "brew install crit" {
+		t.Errorf("expected manifest fallback when catalog empty, got %q", items[0].Command)
+	}
+	if !items[0].Upgradable {
+		t.Error("expected Upgradable=true when manifest provides command")
 	}
 }
 

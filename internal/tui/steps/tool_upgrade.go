@@ -130,18 +130,19 @@ func upgradeToolsParallel(items []upgradeToolItem, execFn ToolCommandExecutor) T
 // buildUpgradeToolItems resolves the effective upgrade command for each tool
 // reference and classifies it as upgradable or not.
 //
-// Resolution order:
-//  1. strings.TrimSpace(ref.Command) non-empty → use it.
-//  2. strings.TrimSpace(catalog[ref.Name].Command) non-empty → use it.
+// Resolution order (catalog wins; manifest is fallback for unknown tools):
+//  1. strings.TrimSpace(catalog[ref.Name].Command) non-empty → use it.
+//  2. strings.TrimSpace(ref.Command) non-empty → use it.
 //  3. otherwise → Upgradable = false.
 func buildUpgradeToolItems(tools []model.ToolRef, catalog map[string]model.ToolDef) []upgradeToolItem {
 	items := make([]upgradeToolItem, len(tools))
 	for i, ref := range tools {
-		cmd := strings.TrimSpace(ref.Command)
+		var cmd string
+		if def, ok := catalog[ref.Name]; ok {
+			cmd = strings.TrimSpace(def.Command)
+		}
 		if cmd == "" {
-			if def, ok := catalog[ref.Name]; ok {
-				cmd = strings.TrimSpace(def.Command)
-			}
+			cmd = strings.TrimSpace(ref.Command)
 		}
 		items[i] = upgradeToolItem{
 			Name:       ref.Name,
@@ -158,10 +159,9 @@ func buildUpgradeToolItems(tools []model.ToolRef, catalog map[string]model.ToolD
 
 // RunToolUpgradeStep presents the upgrade-tools TUI flow:
 //  1. Empty state when len(tools)==0.
-//  2. Preview list (upgradable vs. "no upgradable").
-//  3. Explicit yes/no confirmation.
-//  4. Parallel upgrade with spinner (T014).
-//  5. Result summary.
+//  2. Explicit yes/no confirmation listing tools and their effective commands.
+//  3. Parallel upgrade with spinner (T014).
+//  4. Result summary.
 //
 // Returns an empty summary and nil error when the user cancels or there is
 // nothing to run.
@@ -185,19 +185,14 @@ func runToolUpgradeStepWithExecutor(
 	// ── Build items ──────────────────────────────────────────────────────────
 	items := buildUpgradeToolItems(tools, catalog)
 
-	// ── Preview (huh Note) ───────────────────────────────────────────────────
-	var previewLines strings.Builder
 	upgradableCount := 0
 	for _, it := range items {
 		if it.Upgradable {
-			fmt.Fprintf(&previewLines, "  ✓ %s\n", it.Name)
 			upgradableCount++
-		} else {
-			fmt.Fprintf(&previewLines, "  - %s (no upgradable)\n", it.Name)
 		}
 	}
 
-	confirmed, err := showUpgradePreviewAndConfirm(previewLines.String(), items, upgradableCount)
+	confirmed, err := showUpgradeConfirm(items, upgradableCount)
 	if err != nil {
 		return ToolUpgradeSummary{}, err
 	}
@@ -230,6 +225,7 @@ func showUpgradeEmptyState() (ToolUpgradeSummary, error) {
 
 	form := huh.NewForm(
 		huh.NewGroup(
+			BannerNote(),
 			huh.NewNote().
 				Title("Upgrade Tools").
 				Description("No hay tools para actualizar.\n\n" + body),
@@ -250,6 +246,7 @@ func showUpgradeEmptyState() (ToolUpgradeSummary, error) {
 func showAllNonUpgradable() (ToolUpgradeSummary, error) {
 	form := huh.NewForm(
 		huh.NewGroup(
+			BannerNote(),
 			huh.NewNote().
 				Title("Upgrade Tools").
 				Description("Ninguna tool tiene un comando de upgrade efectivo.\n\nRevisa que tus tools tengan un campo 'command' en devrune.yaml o en el catálogo embebido."),
@@ -266,26 +263,10 @@ func showAllNonUpgradable() (ToolUpgradeSummary, error) {
 	return ToolUpgradeSummary{}, nil
 }
 
-// showUpgradePreviewAndConfirm renders the preview note then an explicit yes/no
-// confirmation. Returns true only when the user selects "Yes".
-func showUpgradePreviewAndConfirm(previewLines string, items []upgradeToolItem, upgradableCount int) (bool, error) {
-	// Preview step.
-	previewForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Upgrade Tools").
-				Description("Estas tools están declaradas en devrune.yaml.\nSolo se ejecutarán las que tengan command efectivo.\n\n" + previewLines),
-		),
-	).WithTheme(tuistyles.DevRuneThemeFunc).
-		WithViewHook(func(v tea.View) tea.View {
-			v.AltScreen = true
-			return v
-		})
-
-	if err := previewForm.Run(); err != nil {
-		return false, err
-	}
-
+// showUpgradeConfirm renders an explicit yes/no confirmation listing each tool
+// with its effective command (or marked as non-upgradable). Returns true only
+// when the user selects "Yes".
+func showUpgradeConfirm(items []upgradeToolItem, upgradableCount int) (bool, error) {
 	if upgradableCount == 0 {
 		// No need for the confirm step; caller handles the "all non-upgradable" case.
 		return true, nil
@@ -297,6 +278,8 @@ func showUpgradePreviewAndConfirm(previewLines string, items []upgradeToolItem, 
 	for _, it := range items {
 		if it.Upgradable {
 			fmt.Fprintf(&confirmLines, "  %s  → %s\n", it.Name, it.Command)
+		} else {
+			fmt.Fprintf(&confirmLines, "  %s (no upgradable)\n", it.Name)
 		}
 	}
 	confirmLines.WriteString("\n¿Ejecutar upgrades ahora?")
@@ -304,6 +287,7 @@ func showUpgradePreviewAndConfirm(previewLines string, items []upgradeToolItem, 
 	var choice string
 	confirmForm := huh.NewForm(
 		huh.NewGroup(
+			BannerNote(),
 			huh.NewSelect[string]().
 				Title("Confirm Upgrade Tools").
 				Description(confirmLines.String()).
@@ -462,6 +446,7 @@ func showUpgradeSummary(summary ToolUpgradeSummary) error {
 
 	form := huh.NewForm(
 		huh.NewGroup(
+			BannerNote(),
 			huh.NewNote().
 				Title("Upgrade Tools Complete").
 				Description(sb.String()),
