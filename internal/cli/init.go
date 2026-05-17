@@ -212,8 +212,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	_, _ = fmt.Fprintln(out, tuistyles.StyleSubtitle.Render("  Installing..."))
 	_, _ = fmt.Fprintln(out)
 
-	// Write manifest.
-	if err := os.WriteFile(destPath, data, 0o644); err != nil {
+	// Write manifest — create a backup of the previous state first (no-op on first init).
+	if err := writeManifestSafe(destPath, data); err != nil {
 		printError(out, "Write manifest: "+err.Error())
 		return err
 	}

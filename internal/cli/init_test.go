@@ -13,6 +13,29 @@ import (
 	"github.com/davidarce/devrune/internal/cli"
 )
 
+// ── backup integration helpers ────────────────────────────────────────────────
+
+// listBackupFiles returns the names of all files in the .devrune/backups/ dir.
+// Returns an empty slice (no error) when the directory does not exist.
+func listBackupFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	bakDir := filepath.Join(dir, ".devrune", "backups")
+	entries, err := os.ReadDir(bakDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("listBackupFiles: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
 // runInitCmd is a helper that executes the devrune init command with the given
 // args against a temp directory. It returns (stdout, stderr, error).
 func runInitCmd(t *testing.T, dir string, args ...string) (string, error) {
@@ -172,5 +195,113 @@ func TestInit_FlagRegistered_Catalog(t *testing.T) {
 	importCatalogFlag := initCmd.Flags().Lookup("import-catalog")
 	if importCatalogFlag != nil {
 		t.Error("--import-catalog flag must not be registered on init command (removed)")
+	}
+}
+
+// ── backup integration tests (T014) ──────────────────────────────────────────
+
+// TestInit_Backup_FirstInit_NoBackupCreated verifies that on the very first
+// init (no pre-existing devrune.yaml) no backup file is created, because
+// CreateBackup is a no-op when the manifest does not yet exist.
+func TestInit_Backup_FirstInit_NoBackupCreated(t *testing.T) {
+	dir := t.TempDir()
+
+	runInitCmd(t, dir, "--agents", "claude") //nolint:errcheck
+
+	// Manifest must exist.
+	if _, err := os.Stat(filepath.Join(dir, "devrune.yaml")); err != nil {
+		t.Fatalf("devrune.yaml not written on first init: %v", err)
+	}
+
+	// No backup should be created on a first-time init.
+	backups := listBackupFiles(t, dir)
+	if len(backups) != 0 {
+		t.Errorf("expected no backups on first init, got %d: %v", len(backups), backups)
+	}
+}
+
+// TestInit_Backup_SecondInit_BackupCreatedBeforeWrite verifies that when
+// devrune.yaml already exists, running init again creates exactly one backup
+// with the PRE-mutation content BEFORE overwriting the manifest.
+func TestInit_Backup_SecondInit_BackupCreatedBeforeWrite(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "devrune.yaml")
+
+	// Seed an existing manifest with a known agent name.
+	preMutationContent := "schemaVersion: devrune/v1\nagents:\n  - name: original-agent\n"
+	if err := os.WriteFile(manifestPath, []byte(preMutationContent), 0o644); err != nil {
+		t.Fatalf("failed to seed manifest: %v", err)
+	}
+
+	// Run init again, replacing the manifest with a new agent name.
+	runInitCmd(t, dir, "--agents", "new-agent", "--force") //nolint:errcheck
+
+	// Exactly one backup should have been created.
+	backups := listBackupFiles(t, dir)
+	if len(backups) != 1 {
+		t.Fatalf("expected 1 backup after second init, got %d: %v", len(backups), backups)
+	}
+
+	// The backup must contain the PRE-mutation content (original-agent).
+	bakPath := filepath.Join(dir, ".devrune", "backups", backups[0])
+	bakData, err := os.ReadFile(bakPath)
+	if err != nil {
+		t.Fatalf("failed to read backup file: %v", err)
+	}
+	if !strings.Contains(string(bakData), "original-agent") {
+		t.Errorf("backup does not contain pre-mutation content; backup content:\n%s", string(bakData))
+	}
+
+	// The manifest must now contain the new agent name.
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("failed to read updated manifest: %v", err)
+	}
+	if !strings.Contains(string(manifestData), "new-agent") {
+		t.Errorf("manifest not updated; content:\n%s", string(manifestData))
+	}
+}
+
+// TestInit_Backup_FailureAbortsInit verifies that if the backup directory
+// cannot be created (permissions removed), init returns an error and
+// devrune.yaml is NOT modified.
+func TestInit_Backup_FailureAbortsInit(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root — chmod restrictions do not apply")
+	}
+
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "devrune.yaml")
+
+	// Seed an existing manifest.
+	originalContent := "schemaVersion: devrune/v1\nagents:\n  - name: should-not-change\n"
+	if err := os.WriteFile(manifestPath, []byte(originalContent), 0o644); err != nil {
+		t.Fatalf("failed to seed manifest: %v", err)
+	}
+
+	// Create .devrune/ and make it non-writable so CreateBackup cannot
+	// create the backups/ subdirectory inside it.
+	devruneDir := filepath.Join(dir, ".devrune")
+	if err := os.MkdirAll(devruneDir, 0o755); err != nil {
+		t.Fatalf("failed to create .devrune/: %v", err)
+	}
+	if err := os.Chmod(devruneDir, 0o555); err != nil {
+		t.Fatalf("failed to chmod .devrune/: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(devruneDir, 0o755) })
+
+	_, err := runInitCmd(t, dir, "--agents", "replaced-agent", "--force")
+	if err == nil {
+		t.Fatal("expected init to fail when backup cannot be created, but got nil error")
+	}
+
+	// devrune.yaml must be unchanged.
+	currentData, readErr := os.ReadFile(manifestPath)
+	if readErr != nil {
+		t.Fatalf("failed to read manifest after failed init: %v", readErr)
+	}
+	if string(currentData) != originalContent {
+		t.Errorf("devrune.yaml was modified despite backup failure;\nwant:\n%s\ngot:\n%s",
+			originalContent, string(currentData))
 	}
 }

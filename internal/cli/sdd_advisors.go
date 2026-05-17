@@ -282,8 +282,8 @@ func runSddAdvisorsNonInteractive(
 		if err != nil {
 			return fmt.Errorf("sdd-advisors: serialize manifest: %w", err)
 		}
-		if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
-			return fmt.Errorf("sdd-advisors: write manifest: %w", err)
+		if err := writeManifestSafe(manifestPath, data); err != nil {
+			return fmt.Errorf("sdd-advisors: %w", err)
 		}
 	}
 
@@ -429,15 +429,13 @@ func runSddAdvisorsFromMenu(cmd *cobra.Command) error {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 // persistManifest serializes and writes the manifest to disk.
+// It creates a backup of the current state before writing (no-op on first write).
 func persistManifest(manifest model.UserManifest, manifestPath string) error {
 	data, err := parse.SerializeManifest(manifest)
 	if err != nil {
 		return fmt.Errorf("serialize manifest: %w", err)
 	}
-	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
-	}
-	return nil
+	return writeManifestSafe(manifestPath, data)
 }
 
 // showInfoNote renders an informational message inside the TUI as a Note,

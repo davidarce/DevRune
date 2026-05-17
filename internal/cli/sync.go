@@ -116,7 +116,10 @@ func syncCatalogs(manifest model.UserManifest, manifestPath string) error {
 	}
 
 	// Prepend schemaVersion line (yaml.Marshal puts it inline but we want clean output).
-	return os.WriteFile(manifestPath, data, 0o644)
+	if err := writeManifestSafe(manifestPath, data); err != nil {
+		return fmt.Errorf("backup before sync: %w", err)
+	}
+	return nil
 }
 
 // deriveCatalogRoots extracts unique catalog root refs from all source refs.
